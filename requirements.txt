@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+pydantic
+python-multipart
+pandas
+openpyxl
+PyQt5
+PyQtWebEngine
+requests
+httpx
