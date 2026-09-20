@@ -1,0 +1,33 @@
+{
+  "captured_at_local": "2026-08-11T00:08:39+08:00",
+  "source": {
+    "cache_db": "D:\\MMDD\\tcm_pharmacology_platform\\data_cache.db",
+    "prisma_db": "D:\\MMDD\\tcm_pharmacology_platform\\prisma\\dev.db",
+    "reactome_species": "Homo sapiens",
+    "reactome_source_version": "97"
+  },
+  "dashboard_entities": {
+    "herbs": 4462,
+    "compounds": 25234,
+    "targets": 14840,
+    "diseases": 565,
+    "reactome_pathways": 2883
+  },
+  "cache_raw": {
+    "herb_component_target_rows": 2059138,
+    "disease_herb_target_rows": 225123,
+    "disease_target_rows": 224596,
+    "unique_herbs": 4461,
+    "unique_components": 25226,
+    "unique_targets": 14838,
+    "unique_diseases": 565,
+    "unique_disease_targets": 14953,
+    "rows_by_source": {
+      "batman": 415993,
+      "herb": 869381,
+      "hit": 253764,
+      "tcmip": 207297,
+      "tcmsp": 312703
+    }
+  }
+}

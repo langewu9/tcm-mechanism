@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1200" viewBox="0 0 900 1200">
+  <defs>
+<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M1 1L9 5L1 9" fill="none" stroke="context-stroke" stroke-width="1.4"/></marker>
+<marker id="arrowSmall" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M1 1L9 5L1 9" fill="none" stroke="context-stroke" stroke-width="1.2"/></marker>
+<filter id="shadow" x="-10%" y="-10%" width="120%" height="125%"><feDropShadow dx="0" dy="4" stdDeviation="5" flood-color="#000" flood-opacity=".10"/></filter>
+<style>
+text{font-family:'Microsoft YaHei','Noto Sans CJK SC',Arial,sans-serif}
+.title{font-size:27px;font-weight:700;letter-spacing:.6px;fill:#202020}.subtitle{font-size:12px;fill:#686868}
+.section{font-size:12px;font-weight:700;letter-spacing:1.5px;fill:#7f1d1d}.head{font-size:16px;font-weight:700;fill:#202020}.body{font-size:12px;fill:#202020}.small{font-size:10px;fill:#686868}.mono{font-family:Consolas,'Microsoft YaHei',monospace;font-size:10px;fill:#4d4d4d}
+.frame{fill:#ffffff;stroke:#b7b7b7;stroke-width:1}.soft{fill:#f5f5f3;stroke:#c3c3c3;stroke-width:1}.accent{fill:#f7eeee;stroke:#7f1d1d;stroke-width:1.4}.dark{fill:#34383c;stroke:#34383c;stroke-width:1}
+.link{fill:none;stroke:#6f6f6f;stroke-width:1.45;marker-end:url(#arrow)}.dash{fill:none;stroke:#858585;stroke-width:1.2;stroke-dasharray:6 5;marker-end:url(#arrowSmall)}
+</style></defs><rect width="900" height="1200" fill="#ffffff"/>
+  <path d="M34 34H866" stroke="#202020" stroke-width="1.8"/><path d="M34 44H866" stroke="#7f1d1d" stroke-width="1"/>
+  <text class="title" x="44" y="76">动态数据库接入与同步</text><text class="subtitle" x="45" y="100">用控制面、数据面和状态面描述源库只读、批次事务与断点续传</text>
+  <g transform="translate(748 60)"><rect width="112" height="28" rx="14" fill="#34383c"/><text x="56" y="18" text-anchor="middle" font-size="10" fill="#fff">书刊正文版</text></g>
+  
+<g transform="translate(44 130)"><rect class="frame" width="812" height="986" rx="10"/>
+<text class="section" x="24" y="31">控制面 · 登记与策略</text>
+<g transform="translate(24 54)"><rect class="accent" width="764" height="76" rx="8"/><circle cx="35" cy="38" r="19" fill="#7f1d1d"/><text x="35" y="43" text-anchor="middle" font-size="15" fill="#fff">1</text><text class="head" x="72" y="31">管理员登记数据源</text><text class="small" x="72" y="52">SQLite 路径 / 环境变量 · herb / component / target 字段映射 · maxRows</text></g>
+<path class="link" d="M406 130V158"/>
+<text class="section" x="24" y="184">数据面 · 五步可恢复流水线</text>
+<g transform="translate(24 204)"><rect class="soft" width="764" height="530" rx="8"/>
+<g transform="translate(20 20)"><rect class="frame" width="724" height="76" rx="7"/><circle cx="34" cy="38" r="18" fill="#555"/><text x="34" y="43" text-anchor="middle" font-size="14" fill="#fff">1</text><text class="head" x="68" y="30">只读连接与预检</text><text class="small" x="68" y="51">驱动 / 路径存在性 · 表名字段白名单 · PRAGMA 元数据 · 总量统计</text><rect class="dark" x="592" y="20" width="112" height="34" rx="17"/><text x="648" y="41" text-anchor="middle" font-size="10" fill="#fff">READ ONLY</text></g>
+<path class="link" d="M382 96V111"/>
+<g transform="translate(20 111)"><rect class="frame" width="724" height="76" rx="7"/><circle cx="34" cy="38" r="18" fill="#555"/><text x="34" y="43" text-anchor="middle" font-size="14" fill="#fff">2</text><text class="head" x="68" y="30">游标式批次读取</text><text class="small" x="68" y="51">WHERE rowid &gt; cursor · ORDER BY rowid · LIMIT 250 · 不写回源库</text><text class="mono" x="590" y="42">可暂停 / 可续传</text></g>
+<path class="link" d="M382 187V202"/>
+<g transform="translate(20 202)"><rect class="accent" width="724" height="76" rx="7"/><circle cx="34" cy="38" r="18" fill="#7f1d1d"/><text x="34" y="43" text-anchor="middle" font-size="14" fill="#fff">3</text><text class="head" x="68" y="30">清洗与实体去重</text><text class="small" x="68" y="51">空值清理 · 多靶点拆分 · Herb / Compound / Target 集合化</text><text class="mono" x="590" y="42">trim · unique</text></g>
+<path class="link" d="M382 278V293"/>
+<g transform="translate(20 293)"><rect class="frame" width="724" height="76" rx="7"/><circle cx="34" cy="38" r="18" fill="#555"/><text x="34" y="43" text-anchor="middle" font-size="14" fill="#fff">4</text><text class="head" x="68" y="30">Prisma 事务 UPSERT</text><text class="small" x="68" y="51">名称 / Symbol 唯一约束 · 关系连接 · 批次内强一致提交</text><text class="mono" x="590" y="42">ACID</text></g>
+<path class="link" d="M382 369V384"/>
+<g transform="translate(20 384)"><rect class="frame" width="724" height="76" rx="7"/><circle cx="34" cy="38" r="18" fill="#555"/><text x="34" y="43" text-anchor="middle" font-size="14" fill="#fff">5</text><text class="head" x="68" y="30">游标与运行状态提交</text><text class="small" x="68" y="51">syncCursor · rowsRead · entity counts · COMPLETED / FAILED</text><text class="mono" x="588" y="42">errorMessage</text></g></g>
+<path class="link" d="M406 734V762"/>
+<text class="section" x="24" y="788">状态面 · 恢复闭环</text>
+<g transform="translate(24 808)"><rect class="dark" width="764" height="190" rx="8"/><text x="22" y="30" font-size="14" font-weight="700" fill="#fff">运行记录 DatabaseSyncRun</text><text x="22" y="56" font-size="11" fill="#ddd">RUNNING → COMPLETED / FAILED</text><path d="M22 76H742" stroke="#666"/><g transform="translate(22 96)"><text x="0" y="0" font-size="11" fill="#ddd">成功</text><text x="0" y="23" font-size="10" fill="#bbb">更新 cursor 与 lastSyncedAt，页面显示实体计数</text></g><g transform="translate(390 96)"><text x="0" y="0" font-size="11" fill="#ddd">失败</text><text x="0" y="23" font-size="10" fill="#bbb">记录 errorMessage，从最后提交游标恢复</text></g></g>
+</g>
+  <g transform="translate(44 1155)"><circle cx="5" cy="-4" r="4" fill="#7f1d1d"/><text class="small" x="17" y="0">受控接口 / 强一致写入</text><path d="M192 -4h35" stroke="#6f6f6f" stroke-width="1.3" marker-end="url(#arrowSmall)"/><text class="small" x="238" y="0">内部调用</text><path d="M310 -4h35" stroke="#858585" stroke-dasharray="6 5"/><text class="small" x="356" y="0">外部依赖或异步</text></g>
+  <text class="small" x="855" y="1155" text-anchor="end">中医药理智能分析平台 · 正文架构图</text>
+  </svg>

@@ -1,0 +1,36 @@
+{
+  "generated_at": "2026-08-11T00:08:39+08:00",
+  "backend": "Python/matplotlib",
+  "figures": [
+    {
+      "id": "fig01",
+      "file": "fig01_inventory_overview.svg",
+      "title": "当前业务库实体覆盖"
+    },
+    {
+      "id": "fig02",
+      "file": "fig02_source_composition.svg",
+      "title": "本地缓存的多源关系行构成"
+    },
+    {
+      "id": "fig03",
+      "file": "fig03_sync_history.svg",
+      "title": "动态数据库同步记录"
+    },
+    {
+      "id": "fig04",
+      "file": "fig04_reactome_enrichment.svg",
+      "title": "Reactome 通路富集"
+    },
+    {
+      "id": "fig05",
+      "file": "fig05_analysis_layers.svg",
+      "title": "分析结果层级与枢纽节点"
+    }
+  ],
+  "notes": [
+    "图中所有数量由数据库实时查询生成，避免手工复制网页卡片。",
+    "业务库实体计数来自 Prisma dev.db；原始关系与疾病去重口径来自 data_cache.db。",
+    "通路富集图取 PathwayEnrichmentRun 最近一次完成运行的 Top 10（Reactome v97，人类）。"
+  ]
+}

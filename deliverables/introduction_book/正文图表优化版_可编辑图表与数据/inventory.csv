@@ -1,0 +1,6 @@
+﻿entity,count,source_table
+herb,4462,prisma.Herb
+compound,25234,prisma.Compound
+target,14840,prisma.Target
+disease,565,cache disease union
+reactome_pathway,2883,prisma.Pathway

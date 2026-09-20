@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1200" viewBox="0 0 900 1200">
+  <defs>
+<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M1 1L9 5L1 9" fill="none" stroke="context-stroke" stroke-width="1.4"/></marker>
+<marker id="arrowSmall" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M1 1L9 5L1 9" fill="none" stroke="context-stroke" stroke-width="1.2"/></marker>
+<filter id="shadow" x="-10%" y="-10%" width="120%" height="125%"><feDropShadow dx="0" dy="4" stdDeviation="5" flood-color="#000" flood-opacity=".10"/></filter>
+<style>
+text{font-family:'Microsoft YaHei','Noto Sans CJK SC',Arial,sans-serif}
+.title{font-size:27px;font-weight:700;letter-spacing:.6px;fill:#202020}.subtitle{font-size:12px;fill:#686868}
+.section{font-size:12px;font-weight:700;letter-spacing:1.5px;fill:#7f1d1d}.head{font-size:16px;font-weight:700;fill:#202020}.body{font-size:12px;fill:#202020}.small{font-size:10px;fill:#686868}.mono{font-family:Consolas,'Microsoft YaHei',monospace;font-size:10px;fill:#4d4d4d}
+.frame{fill:#ffffff;stroke:#b7b7b7;stroke-width:1}.soft{fill:#f5f5f3;stroke:#c3c3c3;stroke-width:1}.accent{fill:#f7eeee;stroke:#7f1d1d;stroke-width:1.4}.dark{fill:#34383c;stroke:#34383c;stroke-width:1}
+.link{fill:none;stroke:#6f6f6f;stroke-width:1.45;marker-end:url(#arrow)}.dash{fill:none;stroke:#858585;stroke-width:1.2;stroke-dasharray:6 5;marker-end:url(#arrowSmall)}
+</style></defs><rect width="900" height="1200" fill="#ffffff"/>
+  <path d="M34 34H866" stroke="#202020" stroke-width="1.8"/><path d="M34 44H866" stroke="#7f1d1d" stroke-width="1"/>
+  <text class="title" x="44" y="76">网络药理分析证据链</text><text class="subtitle" x="45" y="100">将多源事实压缩为可复核的候选网络、通路结果与结构化研究交付</text>
+  <g transform="translate(748 60)"><rect width="112" height="28" rx="14" fill="#34383c"/><text x="56" y="18" text-anchor="middle" font-size="10" fill="#fff">书刊正文版</text></g>
+  
+<g transform="translate(44 130)"><rect class="frame" width="812" height="986" rx="10"/>
+<text class="section" x="24" y="31">输入域 · 多源事实召回</text>
+<g transform="translate(24 54)"><rect class="soft" width="764" height="98" rx="8"/><g transform="translate(20 20)"><rect class="frame" width="220" height="56" rx="6"/><text class="head" x="110" y="24" text-anchor="middle">疾病</text><text class="small" x="110" y="43" text-anchor="middle">疾病—中药 / 靶点</text></g><g transform="translate(272 20)"><rect class="frame" width="220" height="56" rx="6"/><text class="head" x="110" y="24" text-anchor="middle">方药</text><text class="small" x="110" y="43" text-anchor="middle">中药—成分 / 靶点</text></g><g transform="translate(524 20)"><rect class="accent" width="220" height="56" rx="6"/><text class="head" x="110" y="24" text-anchor="middle">ChEMBL 36</text><text class="small" x="110" y="43" text-anchor="middle">分子 / 活性证据</text></g></g>
+<path class="link" d="M406 152V178"/>
+<text class="section" x="24" y="207">标准化域 · 名称与标识统一</text>
+<g transform="translate(24 228)"><rect class="accent" width="764" height="102" rx="8"/><text class="head" x="22" y="31">实体标准化</text><text class="small" x="22" y="53">中药：中文规范名 · 成分：中 / 英 / 拉丁名 · 靶点：Gene symbol · 通路：Reactome stable ID</text><rect class="dark" x="22" y="69" width="720" height="23" rx="4"/><text x="382" y="85" text-anchor="middle" font-size="10" fill="#fff">trim · casefold · unique · sourceUrl / source / query 保留</text></g>
+<path class="link" d="M406 330V356"/>
+<text class="section" x="24" y="385">收敛域 · 疾病与方药证据求交</text>
+<g transform="translate(24 406)"><rect class="soft" width="764" height="158" rx="8"/><circle cx="304" cy="80" r="60" fill="#e2e2e2" stroke="#555" stroke-width="1.5"/><circle cx="428" cy="80" r="60" fill="#f7eeee" stroke="#7f1d1d" stroke-width="1.5"/><text class="small" x="277" y="57" text-anchor="middle">疾病靶点</text><text class="small" x="455" y="57" text-anchor="middle">方药靶点</text><text class="head" x="366" y="82" text-anchor="middle">交集</text><text class="small" x="366" y="104" text-anchor="middle">候选靶点</text><text class="body" x="36" y="39">排序依据</text><text class="small" x="36" y="62">多源支持 · 连接度 · 活性证据</text><text class="mono" x="36" y="121">intersection = diseaseTargets ∩ formulaTargets</text></g>
+<path class="link" d="M406 564V590"/>
+<text class="section" x="24" y="619">解释域 · 有向证据网络</text>
+<g transform="translate(24 640)"><rect class="soft" width="764" height="156" rx="8"/><path d="M66 100C156 100 156 47 246 47S334 100 424 100S514 47 604 47M66 100C156 100 156 132 246 132S334 100 424 100S514 132 604 132" fill="none" stroke="#777" stroke-width="1.2"/><circle cx="66" cy="100" r="22" fill="#eee" stroke="#555"/><circle cx="246" cy="47" r="22" fill="#f7eeee" stroke="#7f1d1d"/><circle cx="246" cy="132" r="22" fill="#f7eeee" stroke="#7f1d1d"/><circle cx="424" cy="100" r="22" fill="#444"/><circle cx="604" cy="47" r="22" fill="#444"/><circle cx="604" cy="132" r="22" fill="#444"/><text class="small" x="66" y="143" text-anchor="middle">中药</text><text class="small" x="246" y="143" text-anchor="middle">成分</text><text class="small" x="424" y="143" text-anchor="middle">靶点</text><text class="small" x="604" y="143" text-anchor="middle">通路 / 疾病</text><text class="body" x="24" y="28">nodes + links + relation</text></g>
+<path class="link" d="M406 796V822"/>
+<text class="section" x="24" y="851">交付域 · 查询级可复核输出</text>
+<g transform="translate(24 872)"><rect class="dark" width="764" height="132" rx="8"/><g transform="translate(22 22)"><text x="0" y="17" font-size="13" font-weight="700" fill="#fff">交互式网络图</text><text x="0" y="39" font-size="10" fill="#ddd">候选节点、关系和来源可回溯</text></g><g transform="translate(270 22)"><text x="0" y="17" font-size="13" font-weight="700" fill="#fff">通路排名图</text><text x="0" y="39" font-size="10" fill="#ddd">按 FDR / 命中实体排序</text></g><g transform="translate(520 22)"><text x="0" y="17" font-size="13" font-weight="700" fill="#fff">CSV / PDF / JSON</text><text x="0" y="39" font-size="10" fill="#ddd">结构化证据与报告</text></g><path d="M22 72H742" stroke="#666"/><text x="22" y="96" font-size="10" fill="#bbb">质量门：输入 ≤ 500 · 实体去重 · 来源版本与时间戳入库 · Reactome FDR ≤ 0.05</text></g>
+</g>
+  <g transform="translate(44 1155)"><circle cx="5" cy="-4" r="4" fill="#7f1d1d"/><text class="small" x="17" y="0">受控接口 / 强一致写入</text><path d="M192 -4h35" stroke="#6f6f6f" stroke-width="1.3" marker-end="url(#arrowSmall)"/><text class="small" x="238" y="0">内部调用</text><path d="M310 -4h35" stroke="#858585" stroke-dasharray="6 5"/><text class="small" x="356" y="0">外部依赖或异步</text></g>
+  <text class="small" x="855" y="1155" text-anchor="end">中医药理智能分析平台 · 正文架构图</text>
+  </svg>
