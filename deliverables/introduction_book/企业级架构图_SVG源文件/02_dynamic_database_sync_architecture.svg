@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="980" viewBox="0 0 1600 980">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M1 1L9 5L1 9" fill="none" stroke="context-stroke" stroke-width="1.4"/></marker>
+    <marker id="arrThin" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M1 1L9 5L1 9" fill="none" stroke="context-stroke" stroke-width="1.2"/></marker>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="5" stdDeviation="7" flood-color="#000" flood-opacity=".09"/></filter>
+    <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse"><path d="M20 0H0V20" fill="none" stroke="#ececec" stroke-width=".6"/></pattern>
+    <style>
+      text{font-family:'Microsoft YaHei','Noto Sans CJK SC',Arial,sans-serif}
+      .t{font-size:31px;font-weight:700;letter-spacing:1px;fill:#202020}.st{font-size:15px;fill:#656565}
+      .zone{font-size:13px;font-weight:700;letter-spacing:2px;fill:#7f1d1d}
+      .h{font-size:17px;font-weight:700;fill:#202020}.b{font-size:13px;fill:#202020}.s{font-size:11px;fill:#656565}
+      .mono{font-family:Consolas,'Microsoft YaHei',monospace;font-size:11px;fill:#4b4b4b}
+      .panel{fill:#ffffff;stroke:#a8a8a8;stroke-width:1.2}.soft{fill:#f7f7f5;stroke:#c7c7c7;stroke-width:1}
+      .accent{fill:#f7eeee;stroke:#7f1d1d;stroke-width:1.4}.dark{fill:#34383c;stroke:#34383c;stroke-width:1.2}
+      .link{fill:none;stroke:#696969;stroke-width:1.5;marker-end:url(#arr)}.dash{fill:none;stroke:#858585;stroke-width:1.25;stroke-dasharray:7 5;marker-end:url(#arrThin)}
+      .bus{fill:none;stroke:#7f1d1d;stroke-width:2}.hair{fill:none;stroke:#b0b0b0;stroke-width:1}
+    </style>
+  </defs>
+  <rect width="1600" height="980" fill="#ffffff"/>
+  <path d="M44 44H1556" stroke="#202020" stroke-width="2"/><path d="M44 55H1556" stroke="#7f1d1d" stroke-width="1"/>
+  <text class="t" x="58" y="101">动态数据库接入与同步架构</text><text class="st" x="60" y="132">控制面登记数据源，数据面以只读连接、字段映射、分批事务和断点游标完成可恢复同步</text>
+  <g transform="translate(1440 72)"><rect width="104" height="36" rx="18" fill="#34383c"/><text x="52" y="23" text-anchor="middle" font-size="12" fill="#fff">架构蓝图</text></g>
+  
+<g transform="translate(60 170)">
+  <rect class="soft" width="1480" height="730" rx="16" fill="url(#grid)"/>
+  <g transform="translate(28 28)"><rect class="panel" width="1424" height="118" rx="10"/>
+    <text class="zone" x="22" y="30">控制面 · 配置与策略</text>
+    <g transform="translate(22 50)"><rect class="accent" width="220" height="46" rx="6"/><text class="b" x="110" y="28" text-anchor="middle">管理员登记数据源</text></g>
+    <path class="link" d="M260 73H330"/><g transform="translate(330 50)"><rect class="soft" width="245" height="46" rx="6"/><text class="b" x="122" y="20" text-anchor="middle">连接定位</text><text class="s" x="122" y="36" text-anchor="middle">文件路径或环境变量</text></g>
+    <path class="link" d="M593 73H663"/><g transform="translate(663 50)"><rect class="soft" width="270" height="46" rx="6"/><text class="b" x="135" y="20" text-anchor="middle">字段映射契约</text><text class="mono" x="135" y="36" text-anchor="middle">herb / component / target</text></g>
+    <path class="link" d="M951 73H1021"/><g transform="translate(1021 50)"><rect class="soft" width="185" height="46" rx="6"/><text class="b" x="92" y="20" text-anchor="middle">批次策略</text><text class="s" x="92" y="36" text-anchor="middle">maxRows · 250/批</text></g>
+    <path class="link" d="M1224 73H1294"/><g transform="translate(1294 50)"><rect class="dark" width="108" height="46" rx="6"/><text x="54" y="28" text-anchor="middle" font-size="12" fill="#fff">启动同步</text></g>
+  </g>
+
+  <g transform="translate(28 174)"><rect class="panel" width="1424" height="390" rx="10"/><text class="zone" x="22" y="30">数据面 · 可恢复批处理流水线</text>
+    <g transform="translate(22 62)"><rect class="soft" width="185" height="240" rx="10"/><text class="h" x="92" y="30" text-anchor="middle">外部 SQLite</text><text class="s" x="92" y="52" text-anchor="middle">受保护源数据</text>
+      <g transform="translate(34 80)"><ellipse cx="58" cy="10" rx="58" ry="10" fill="#eee" stroke="#555"/><path d="M0 10v74c0 14 116 14 116 0V10" fill="#f5f5f5" stroke="#555"/><ellipse cx="58" cy="84" rx="58" ry="10" fill="#eee" stroke="#555"/></g>
+      <rect class="dark" x="33" y="194" width="119" height="28" rx="14"/><text x="92" y="213" text-anchor="middle" font-size="11" fill="#fff">READ ONLY</text>
+    </g>
+    <path class="link" d="M225 182H276"/><text class="mono" x="230" y="169">node:sqlite</text>
+    <g transform="translate(276 62)"><rect class="soft" width="230" height="240" rx="10"/><text class="h" x="115" y="30" text-anchor="middle">预检与防护</text>
+      <path d="M28 62H202" stroke="#ccc"/><text class="b" x="28" y="89">① 驱动与路径校验</text><text class="b" x="28" y="124">② 表名 / 字段白名单</text><text class="b" x="28" y="159">③ PRAGMA 元数据核验</text><text class="b" x="28" y="194">④ 源表总量统计</text><text class="mono" x="28" y="220">标识符：字母 · 数字 · 下划线</text>
+    </g>
+    <path class="link" d="M524 182H575"/><text class="mono" x="531" y="169">SELECT</text>
+    <g transform="translate(575 62)"><rect class="accent" width="265" height="240" rx="10"/><text class="h" x="132" y="30" text-anchor="middle">游标式批次读取</text>
+      <rect x="30" y="60" width="205" height="44" rx="5" fill="#fff" stroke="#7f1d1d"/><text class="mono" x="132" y="78" text-anchor="middle">WHERE rowid &gt; cursor</text><text class="mono" x="132" y="95" text-anchor="middle">ORDER BY rowid LIMIT 250</text>
+      <path d="M54 135h157" stroke="#7f1d1d" stroke-width="3"/><circle cx="74" cy="135" r="8" fill="#7f1d1d"/><circle cx="115" cy="135" r="8" fill="#7f1d1d"/><circle cx="156" cy="135" r="8" fill="#7f1d1d"/><circle cx="197" cy="135" r="8" fill="#fff" stroke="#7f1d1d" stroke-width="2"/>
+      <text class="s" x="132" y="166" text-anchor="middle">清洗空值 · 拆分多靶点 · 集合去重</text><text class="s" x="132" y="190" text-anchor="middle">保持源库零写入，游标单调递增</text><rect class="dark" x="66" y="205" width="132" height="24" rx="12"/><text x="132" y="221" text-anchor="middle" font-size="10" fill="#fff">可暂停 · 可续传</text>
+    </g>
+    <path class="link" d="M858 182H909"/><text class="mono" x="863" y="169">UPSERT</text>
+    <g transform="translate(909 62)"><rect class="soft" width="250" height="240" rx="10"/><text class="h" x="125" y="30" text-anchor="middle">Prisma 事务写入</text>
+      <g transform="translate(25 60)"><rect class="panel" width="200" height="40" rx="5"/><text class="b" x="100" y="25" text-anchor="middle">Herb · 名称唯一</text></g>
+      <g transform="translate(25 110)"><rect class="panel" width="200" height="40" rx="5"/><text class="b" x="100" y="25" text-anchor="middle">Target · Symbol 唯一</text></g>
+      <g transform="translate(25 160)"><rect class="panel" width="200" height="55" rx="5"/><text class="b" x="100" y="20" text-anchor="middle">Compound · 关系连接</text><text class="s" x="100" y="39" text-anchor="middle">Herbs ↔ Targets</text></g>
+    </g>
+    <path class="link" d="M1177 182H1228"/><text class="mono" x="1181" y="169">COMMIT</text>
+    <g transform="translate(1228 62)"><rect class="soft" width="174" height="240" rx="10"/><text class="h" x="87" y="30" text-anchor="middle">业务库</text><text class="s" x="87" y="52" text-anchor="middle">SQLite + Prisma</text>
+      <g transform="translate(33 75)"><ellipse cx="54" cy="10" rx="54" ry="10" fill="#f7eeee" stroke="#7f1d1d"/><path d="M0 10v74c0 14 108 14 108 0V10" fill="#fff" stroke="#7f1d1d"/><ellipse cx="54" cy="84" rx="54" ry="10" fill="#f7eeee" stroke="#7f1d1d"/></g><text class="mono" x="87" y="192" text-anchor="middle">ACID transaction</text><text class="s" x="87" y="216" text-anchor="middle">关系与计数可核验</text>
+    </g>
+  </g>
+
+  <g transform="translate(28 590)"><rect class="panel" width="1424" height="112" rx="10"/><text class="zone" x="22" y="29">状态面 · 审计、进度与失败恢复</text>
+    <g transform="translate(24 48)"><rect class="soft" width="258" height="42" rx="5"/><text class="b" x="129" y="18" text-anchor="middle">DatabaseSource</text><text class="s" x="129" y="34" text-anchor="middle">syncCursor · lastSyncedAt</text></g>
+    <path class="link" d="M300 69H365"/><g transform="translate(365 48)"><rect class="accent" width="258" height="42" rx="5"/><text class="b" x="129" y="18" text-anchor="middle">DatabaseSyncRun</text><text class="s" x="129" y="34" text-anchor="middle">RUNNING → COMPLETED / FAILED</text></g>
+    <path class="link" d="M641 69H706"/><g transform="translate(706 48)"><rect class="soft" width="288" height="42" rx="5"/><text class="b" x="144" y="18" text-anchor="middle">运行指标</text><text class="s" x="144" y="34" text-anchor="middle">rows · herbs · compounds · targets</text></g>
+    <path class="dash" d="M1012 69H1077"/><g transform="translate(1077 48)"><rect class="soft" width="305" height="42" rx="5"/><text class="b" x="152" y="18" text-anchor="middle">故障恢复</text><text class="s" x="152" y="34" text-anchor="middle">记录 errorMessage · 从已提交游标续传</text></g>
+  </g>
+</g>
+  <g transform="translate(60 938)"><circle cx="5" cy="-5" r="5" fill="#7f1d1d"/><text class="s" x="18" y="0">受控接口 / 强一致写入</text><path d="M220 -5h45" stroke="#6e6e6e" stroke-width="1.5" marker-end="url(#arrThin)"/><text class="s" x="278" y="0">数据或调用方向</text><path d="M455 -5h45" stroke="#858585" stroke-dasharray="6 4"/><text class="s" x="513" y="0">异步 / 外部依赖</text></g>
+  <text class="s" x="1540" y="938" text-anchor="end">中医药理智能分析平台 · 技术架构文档</text>
+  </svg>

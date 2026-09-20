@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="980" viewBox="0 0 1600 980">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M1 1L9 5L1 9" fill="none" stroke="context-stroke" stroke-width="1.4"/></marker>
+    <marker id="arrThin" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M1 1L9 5L1 9" fill="none" stroke="context-stroke" stroke-width="1.2"/></marker>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="5" stdDeviation="7" flood-color="#000" flood-opacity=".09"/></filter>
+    <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse"><path d="M20 0H0V20" fill="none" stroke="#ececec" stroke-width=".6"/></pattern>
+    <style>
+      text{font-family:'Microsoft YaHei','Noto Sans CJK SC',Arial,sans-serif}
+      .t{font-size:31px;font-weight:700;letter-spacing:1px;fill:#202020}.st{font-size:15px;fill:#656565}
+      .zone{font-size:13px;font-weight:700;letter-spacing:2px;fill:#7f1d1d}
+      .h{font-size:17px;font-weight:700;fill:#202020}.b{font-size:13px;fill:#202020}.s{font-size:11px;fill:#656565}
+      .mono{font-family:Consolas,'Microsoft YaHei',monospace;font-size:11px;fill:#4b4b4b}
+      .panel{fill:#ffffff;stroke:#a8a8a8;stroke-width:1.2}.soft{fill:#f7f7f5;stroke:#c7c7c7;stroke-width:1}
+      .accent{fill:#f7eeee;stroke:#7f1d1d;stroke-width:1.4}.dark{fill:#34383c;stroke:#34383c;stroke-width:1.2}
+      .link{fill:none;stroke:#696969;stroke-width:1.5;marker-end:url(#arr)}.dash{fill:none;stroke:#858585;stroke-width:1.25;stroke-dasharray:7 5;marker-end:url(#arrThin)}
+      .bus{fill:none;stroke:#7f1d1d;stroke-width:2}.hair{fill:none;stroke:#b0b0b0;stroke-width:1}
+    </style>
+  </defs>
+  <rect width="1600" height="980" fill="#ffffff"/>
+  <path d="M44 44H1556" stroke="#202020" stroke-width="2"/><path d="M44 55H1556" stroke="#7f1d1d" stroke-width="1"/>
+  <text class="t" x="58" y="101">MyGene—Reactome 通路补全与富集架构</text><text class="st" x="60" y="132">将业务库靶点名称规范化为人类基因符号，执行查询级 Reactome 富集并与官方目录统一管理</text>
+  <g transform="translate(1440 72)"><rect width="104" height="36" rx="18" fill="#34383c"/><text x="52" y="23" text-anchor="middle" font-size="12" fill="#fff">架构蓝图</text></g>
+  
+<g transform="translate(60 170)">
+  <rect class="soft" width="1480" height="730" rx="16" fill="url(#grid)"/>
+  <g transform="translate(28 28)"><rect class="panel" width="560" height="660" rx="10"/><text class="zone" x="24" y="32">平台受控域</text>
+    <g transform="translate(24 62)"><rect class="accent" width="512" height="82" rx="8"/><text class="h" x="24" y="31">候选靶点集合</text><text class="s" x="24" y="55">来源：疾病—中药—成分—靶点分析结果</text><rect x="356" y="22" width="132" height="38" rx="19" fill="#fff" stroke="#7f1d1d"/><text class="mono" x="422" y="45" text-anchor="middle">≤ 500 labels</text></g>
+    <path class="link" d="M280 144V186"/><g transform="translate(24 186)"><rect class="soft" width="512" height="104" rx="8"/><text class="h" x="24" y="31">输入规范化与批量请求</text><text class="s" x="24" y="55">去空 · 去重 · 长度限制 · 精确短语查询</text><rect class="dark" x="24" y="69" width="464" height="25" rx="4"/><text x="256" y="86" text-anchor="middle" font-size="10" fill="#fff">q · scopes=symbol,alias,name · species=human · size=1</text></g>
+    <g transform="translate(24 332)"><rect class="soft" width="512" height="120" rx="8"/><text class="h" x="24" y="31">基因映射写入</text><text class="s" x="24" y="55">Target ↔ Gene 关联，保留外部编号与来源 URL</text>
+      <path d="M24 72H488" stroke="#ccc"/><text class="mono" x="24" y="94">symbol · name · entrezGeneId · lastSyncedAt</text><rect class="accent" x="366" y="76" width="122" height="28" rx="14"/><text class="s" x="427" y="94" text-anchor="middle">唯一 symbol</text></g>
+    <path class="link" d="M280 452V490"/><g transform="translate(24 490)"><rect class="soft" width="512" height="138" rx="8"/><text class="h" x="24" y="31">查询级富集持久化</text><text class="s" x="24" y="55">一次分析对应一个 EnrichmentRun 与多条 Item</text>
+      <g transform="translate(24 76)"><rect class="panel" width="206" height="43" rx="5"/><text class="b" x="103" y="18" text-anchor="middle">PathwayEnrichmentRun</text><text class="s" x="103" y="35" text-anchor="middle">token · version · counts</text></g><path class="link" d="M238 98H280"/><g transform="translate(280 76)"><rect class="panel" width="208" height="43" rx="5"/><text class="b" x="104" y="18" text-anchor="middle">PathwayEnrichmentItem</text><text class="s" x="104" y="35" text-anchor="middle">rank · pValue · FDR</text></g>
+    </g>
+  </g>
+
+  <g transform="translate(616 28)"><rect x="0" y="0" width="808" height="370" rx="10" fill="#f3f3f1" stroke="#777" stroke-dasharray="8 5"/><text class="zone" x="24" y="32">外部可信知识服务边界</text>
+    <g transform="translate(36 64)" filter="url(#shadow)"><rect class="panel" width="330" height="250" rx="10"/><text class="h" x="165" y="34" text-anchor="middle">MyGene.info</text><text class="s" x="165" y="56" text-anchor="middle">人类基因命名规范化服务</text>
+      <path d="M36 86H294" stroke="#ccc"/><g transform="translate(36 105)"><text class="b" x="0" y="0">输入</text><text class="mono" x="58" y="0">protein label / alias / name</text><text class="b" x="0" y="39">输出</text><text class="mono" x="58" y="39">symbol / name / Entrez ID</text><text class="b" x="0" y="78">约束</text><text class="mono" x="58" y="78">species = Homo sapiens</text></g>
+      <rect class="dark" x="36" y="209" width="258" height="25" rx="4"/><text x="165" y="226" text-anchor="middle" font-size="10" fill="#fff">mygene.info/v3/query</text>
+    </g>
+    <path class="link" d="M384 188H442"/><g transform="translate(442 64)" filter="url(#shadow)"><rect class="panel" width="330" height="250" rx="10"/><text class="h" x="165" y="34" text-anchor="middle">Reactome AnalysisService</text><text class="s" x="165" y="56" text-anchor="middle">人类生物通路富集与版本服务</text>
+      <path d="M36 86H294" stroke="#ccc"/><g transform="translate(36 105)"><text class="b" x="0" y="0">输入</text><text class="mono" x="58" y="0">canonical gene symbols</text><text class="b" x="0" y="39">输出</text><text class="mono" x="58" y="39">pathways / token / statistics</text><text class="b" x="0" y="78">统计</text><text class="mono" x="58" y="78">found / total / pValue / FDR</text></g>
+      <rect class="accent" x="36" y="209" width="258" height="25" rx="4"/><text class="mono" x="165" y="226" text-anchor="middle">identifiers/projection</text>
+    </g>
+  </g>
+  <path class="dash" d="M564 266H610V216H652"/><text class="mono" x="570" y="250">HTTPS</text>
+  <path class="dash" d="M652 320H616V420H564"/><text class="mono" x="570" y="404">gene symbols</text>
+
+  <g transform="translate(616 426)"><rect class="panel" width="808" height="262" rx="10"/><text class="zone" x="24" y="32">目录治理与结果服务</text>
+    <g transform="translate(24 62)"><rect class="soft" width="232" height="152" rx="8"/><text class="h" x="116" y="30" text-anchor="middle">官方人类通路目录</text><text class="s" x="116" y="52" text-anchor="middle">ReactomePathways.txt</text><path d="M24 72H208" stroke="#ccc"/><text class="b" x="24" y="96">R-HSA-* 稳定 ID</text><text class="b" x="24" y="120">Homo sapiens 过滤</text><text class="b" x="24" y="144">版本与同步时间</text></g>
+    <path class="link" d="M274 138H326"/>
+    <g transform="translate(326 62)"><rect class="accent" width="220" height="152" rx="8"/><text class="h" x="110" y="30" text-anchor="middle">显著性质量门</text><text class="s" x="110" y="52" text-anchor="middle">只保留可解释结果</text><path d="M24 72H196" stroke="#7f1d1d"/><text class="b" x="110" y="102" text-anchor="middle">FDR ≤ 0.05</text><text class="b" x="110" y="130" text-anchor="middle">matched entities ≥ 2</text></g>
+    <path class="link" d="M564 138H616"/>
+    <g transform="translate(616 62)"><rect class="soft" width="168" height="152" rx="8"/><text class="h" x="84" y="30" text-anchor="middle">前端呈现</text><text class="s" x="84" y="54" text-anchor="middle">按 FDR 排序</text><text class="b" x="84" y="91" text-anchor="middle">Top 通路条形图</text><text class="b" x="84" y="119" text-anchor="middle">命中实体与覆盖率</text><text class="b" x="84" y="143" text-anchor="middle">可追溯详情</text></g>
+  </g>
+</g>
+  <g transform="translate(60 938)"><circle cx="5" cy="-5" r="5" fill="#7f1d1d"/><text class="s" x="18" y="0">受控接口 / 强一致写入</text><path d="M220 -5h45" stroke="#6e6e6e" stroke-width="1.5" marker-end="url(#arrThin)"/><text class="s" x="278" y="0">数据或调用方向</text><path d="M455 -5h45" stroke="#858585" stroke-dasharray="6 4"/><text class="s" x="513" y="0">异步 / 外部依赖</text></g>
+  <text class="s" x="1540" y="938" text-anchor="end">中医药理智能分析平台 · 技术架构文档</text>
+  </svg>
