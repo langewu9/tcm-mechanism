@@ -1,0 +1,24 @@
+{
+  "book": "中医药理智能分析平台_计划与产品介绍书_整屏截图版_2026",
+  "capture_policy": "full_screen_or_full_viewport_original_ratio",
+  "cropped_assets_used": false,
+  "source_directories": [
+    "D:/MMDD/final_audit_2026-08-09",
+    "D:/MMDD/doc_assets/screenshots",
+    "D:/MMDD/tcm_pharmacology_platform/docs/screenshots",
+    "D:/MMDD/tcm_pharmacology_platform/tmp"
+  ],
+  "files": [
+    "01_home.png", "02_login.png", "04_research.png", "05_datasets.png",
+    "05_research_herb_search.png", "06_cases.png", "06_research_disease_mode.png",
+    "08_research_component_mode.png", "08_visualization.png", "10_api-integration.png",
+    "12_assistant_fixed.png", "12_research_intersection_mode.png",
+    "13_admin_connection_fixed.png", "14_research_intersection_result.png",
+    "15_register.png", "16_analysis_result_fixed.png", "16_research_pathway_search.png",
+    "17_dashboard_final.png", "22_visualization_result.png",
+    "40_visualization_components_pathways.png", "41_visualization_evidence_network.png",
+    "42_visualization_intersection_table.png", "45_admin_user_table.png",
+    "46_visualization_exports_all.png", "mobile_dashboard.png"
+  ],
+  "note": "文档中的统计表以当前业务库快照为准；截图用于展示完整电脑视口中的真实页面结构与操作入口。"
+}
