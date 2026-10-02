@@ -11,6 +11,7 @@ class DataSource(models.Model):
     name = models.CharField(max_length=160)
     description = models.TextField(blank=True)
     access_mode = models.CharField(max_length=16, choices=AccessMode.choices)
+    configuration = models.JSONField(default=dict, blank=True)
     documentation_url = models.URLField(blank=True)
     license_note = models.TextField(blank=True)
     enabled = models.BooleanField(default=True)

@@ -1,9 +1,12 @@
 import hashlib
+import sqlite3
+import tempfile
 from unittest.mock import patch
+from pathlib import Path
 
 from django.contrib.auth import get_user_model
 from django.db.models.deletion import ProtectedError
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from rest_framework.test import APITestCase
 
@@ -269,3 +272,198 @@ class ReactomeSyncApiTests(APITestCase):
         self.assertEqual([item["stable_id"] for item in entity_response.data["results"]], ["TP53"])
         self.assertEqual(evidence_response.status_code, 200)
         self.assertEqual(evidence_response.data["count"], 0)
+
+
+class SQLiteSourceSyncTests(APITestCase):
+    def setUp(self):
+        user_model = get_user_model()
+        self.admin = user_model.objects.create_superuser(
+            username="sqlite-admin", email="sqlite-admin@example.test", password="test-password-123"
+        )
+        self.client.force_authenticate(self.admin)
+
+    def create_legacy_file(self, root: str) -> Path:
+        path = Path(root) / "legacy.sqlite3"
+        with sqlite3.connect(path) as connection:
+            connection.execute(
+                "CREATE TABLE herb_component_target "
+                "(herb TEXT, component TEXT, target TEXT)"
+            )
+            connection.executemany(
+                "INSERT INTO herb_component_target VALUES (?, ?, ?)",
+                [
+                    ("黄芩", "黄芩苷", "TP53;IL6; IL6"),
+                    ("黄芩", "黄芩素", "IL6"),
+                ],
+            )
+        return path
+
+    def source_payload(self):
+        return {
+            "name": "Legacy herb-target data",
+            "description": "Synthetic migration fixture",
+            "databaseFile": "legacy.sqlite3",
+            "table": "herb_component_target",
+            "herbColumn": "herb",
+            "compoundColumn": "component",
+            "targetColumn": "target",
+        }
+
+    def test_create_test_preview_and_apply_sqlite_source_without_exposing_server_path(self):
+        with tempfile.TemporaryDirectory() as root, override_settings(SQLITE_SOURCE_ROOT=root):
+            path = self.create_legacy_file(root)
+            response = self.client.post(reverse("sync-source-list"), self.source_payload(), format="json")
+            self.assertEqual(response.status_code, 201)
+            self.assertNotIn("configuration", response.data)
+            self.assertNotIn(str(path), str(response.data))
+            source_id = response.data["id"]
+
+            test_response = self.client.post(reverse("sync-source-test", args=[source_id]), {}, format="json")
+            self.assertEqual(test_response.status_code, 200)
+            self.assertEqual(test_response.data["rowCount"], 2)
+            self.assertEqual(test_response.data["mapping"]["table"], "herb_component_target")
+            self.assertNotIn(str(path.parent), str(test_response.data))
+
+            with patch("apps.sources.tasks.sync_source_run.delay"):
+                preview_response = self.client.post(
+                    reverse("sync-source-preview", args=[source_id]), {}, format="json"
+                )
+            self.assertEqual(preview_response.status_code, 202)
+            preview_id = preview_response.data["run"]["id"]
+            sync_source_run.run(preview_id)
+            preview = SyncRun.objects.get(pk=preview_id)
+            self.assertEqual(preview.status, SyncRun.Status.SUCCEEDED)
+            self.assertEqual(preview.preview_summary["uniqueHerbs"], 1)
+            self.assertEqual(preview.preview_summary["uniqueCompounds"], 2)
+            self.assertEqual(preview.preview_summary["uniqueTargets"], 2)
+            self.assertEqual(preview.preview_summary["relationships"], 5)
+            self.assertEqual(KnowledgeEntity.objects.count(), 0)
+
+            with patch("apps.sources.tasks.sync_source_run.delay"):
+                apply_response = self.client.post(reverse("sync-run-apply", args=[preview_id]), {}, format="json")
+            self.assertEqual(apply_response.status_code, 202)
+            apply_id = apply_response.data["run"]["id"]
+            sync_source_run.run(apply_id)
+            apply_run = SyncRun.objects.get(pk=apply_id)
+
+            self.assertEqual(apply_run.status, SyncRun.Status.SUCCEEDED)
+            self.assertEqual(apply_run.records_created, 5)
+            self.assertEqual(apply_run.preview_summary["relationshipsCreated"], 5)
+            self.assertEqual(KnowledgeEntity.objects.filter(is_active=True).count(), 5)
+            self.assertEqual(EvidenceRelation.objects.filter(is_active=True).count(), 5)
+            self.assertEqual(
+                KnowledgeEntity.objects.get(entity_type=KnowledgeEntity.EntityType.PROTEIN, label="TP53")
+                .metadata["symbol"],
+                "TP53",
+            )
+
+            with patch("apps.sources.tasks.sync_source_run.delay"):
+                repeat_preview_response = self.client.post(
+                    reverse("sync-source-preview", args=[source_id]), {}, format="json"
+                )
+                repeat_preview_id = repeat_preview_response.data["run"]["id"]
+                sync_source_run.run(repeat_preview_id)
+                repeat_preview = SyncRun.objects.get(pk=repeat_preview_id)
+                repeat_apply_response = self.client.post(
+                    reverse("sync-run-apply", args=[repeat_preview_id]), {}, format="json"
+                )
+            repeat_apply_id = repeat_apply_response.data["run"]["id"]
+            sync_source_run.run(repeat_apply_id)
+            repeat_apply = SyncRun.objects.get(pk=repeat_apply_id)
+            self.assertEqual(repeat_preview.preview_summary["wouldCreate"], 0)
+            self.assertEqual(repeat_preview.preview_summary["wouldUpdate"], 0)
+            self.assertEqual(repeat_apply.records_created, 0)
+            self.assertEqual(repeat_apply.records_updated, 0)
+            self.assertEqual(repeat_apply.preview_summary["entitiesUnchanged"], 5)
+            self.assertEqual(KnowledgeEntity.objects.filter(is_active=True).count(), 5)
+            self.assertEqual(EvidenceRelation.objects.filter(is_active=True).count(), 5)
+
+    def test_database_path_and_sql_identifiers_are_confined_and_validated(self):
+        payload = self.source_payload()
+        payload["databaseFile"] = "../outside.sqlite3"
+        response = self.client.post(reverse("sync-source-list"), payload, format="json")
+        self.assertEqual(response.status_code, 400)
+
+        payload = self.source_payload()
+        payload["table"] = "herb_component_target; DROP TABLE users"
+        response = self.client.post(reverse("sync-source-list"), payload, format="json")
+        self.assertEqual(response.status_code, 400)
+
+    def test_source_file_change_after_preview_prevents_import(self):
+        with tempfile.TemporaryDirectory() as root, override_settings(SQLITE_SOURCE_ROOT=root):
+            self.create_legacy_file(root)
+            create_response = self.client.post(reverse("sync-source-list"), self.source_payload(), format="json")
+            source_id = create_response.data["id"]
+            with patch("apps.sources.tasks.sync_source_run.delay"):
+                preview_response = self.client.post(
+                    reverse("sync-source-preview", args=[source_id]), {}, format="json"
+                )
+            preview_id = preview_response.data["run"]["id"]
+            sync_source_run.run(preview_id)
+            preview = SyncRun.objects.get(pk=preview_id)
+            with sqlite3.connect(Path(root) / "legacy.sqlite3") as connection:
+                connection.execute("INSERT INTO herb_component_target VALUES (?, ?, ?)", ("丹参", "丹参酮", "AKT1"))
+
+            with patch("apps.sources.tasks.sync_source_run.delay"):
+                apply_response = self.client.post(reverse("sync-run-apply", args=[preview_id]), {}, format="json")
+            apply_id = apply_response.data["run"]["id"]
+            sync_source_run.run(apply_id)
+            apply_run = SyncRun.objects.get(pk=apply_id)
+
+            self.assertEqual(apply_run.status, SyncRun.Status.FAILED)
+            self.assertIn("文件在预览后已变化", apply_run.error_summary)
+            self.assertEqual(KnowledgeEntity.objects.count(), 0)
+
+    def test_mapping_change_after_preview_prevents_import(self):
+        with tempfile.TemporaryDirectory() as root, override_settings(SQLITE_SOURCE_ROOT=root):
+            self.create_legacy_file(root)
+            create_response = self.client.post(reverse("sync-source-list"), self.source_payload(), format="json")
+            source_id = create_response.data["id"]
+            with patch("apps.sources.tasks.sync_source_run.delay"):
+                preview_response = self.client.post(
+                    reverse("sync-source-preview", args=[source_id]), {}, format="json"
+                )
+            preview_id = preview_response.data["run"]["id"]
+            sync_source_run.run(preview_id)
+            preview = SyncRun.objects.get(pk=preview_id)
+            source = DataSource.objects.get(pk=source_id)
+            source.configuration["targetColumn"] = "component"
+            source.save(update_fields=["configuration"])
+
+            with patch("apps.sources.tasks.sync_source_run.delay"):
+                apply_response = self.client.post(reverse("sync-run-apply", args=[preview_id]), {}, format="json")
+            apply_id = apply_response.data["run"]["id"]
+            sync_source_run.run(apply_id)
+            apply_run = SyncRun.objects.get(pk=apply_id)
+
+            self.assertEqual(apply_run.status, SyncRun.Status.FAILED)
+            self.assertIn("列映射在预览后已变化", apply_run.error_summary)
+            self.assertEqual(KnowledgeEntity.objects.count(), 0)
+
+    def test_empty_mapped_table_does_not_create_a_preview_or_retire_existing_entities(self):
+        with tempfile.TemporaryDirectory() as root, override_settings(SQLITE_SOURCE_ROOT=root):
+            path = Path(root) / "legacy.sqlite3"
+            with sqlite3.connect(path) as connection:
+                connection.execute("CREATE TABLE herb_component_target (herb TEXT, component TEXT, target TEXT)")
+                connection.execute("INSERT INTO herb_component_target VALUES ('', '', '')")
+            create_response = self.client.post(reverse("sync-source-list"), self.source_payload(), format="json")
+            source = DataSource.objects.get(pk=create_response.data["id"])
+            release = SourceRelease.objects.create(source=source, version="prior")
+            existing = KnowledgeEntity.objects.create(
+                entity_type=KnowledgeEntity.EntityType.HERB,
+                stable_id="sqlite:old-source:herb:old",
+                label="已有中药",
+                source_release=release,
+            )
+            with patch("apps.sources.tasks.sync_source_run.delay"):
+                response = self.client.post(
+                    reverse("sync-source-preview", args=[source.pk]), {}, format="json"
+                )
+            run_id = response.data["run"]["id"]
+            sync_source_run.run(run_id)
+            run = SyncRun.objects.get(pk=run_id)
+            existing.refresh_from_db()
+
+            self.assertEqual(run.status, SyncRun.Status.FAILED)
+            self.assertIn("没有有效的中药—成分—靶点关系", run.error_summary)
+            self.assertTrue(existing.is_active)

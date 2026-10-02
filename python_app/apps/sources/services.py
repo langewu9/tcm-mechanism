@@ -11,6 +11,7 @@ from apps.sources.connectors.reactome import (
 
 
 REACTOME_SOURCE_SLUG = "reactome"
+REACTOME_CONNECTOR = "reactome-catalog"
 
 
 def enqueue_sync_run(run: SyncRun) -> None:
@@ -62,6 +63,7 @@ def build_pathway_preview(source: DataSource, snapshot: ReactomeCatalogSnapshot)
 
     return {
         "mode": "preview",
+        "connector": REACTOME_CONNECTOR,
         "sourceVersion": snapshot.source_version,
         "releaseVersion": snapshot.release_version,
         "checksumSha256": snapshot.checksum_sha256,

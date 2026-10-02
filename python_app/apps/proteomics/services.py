@@ -521,6 +521,7 @@ def _build_result(
     )
     relations = list(
         EvidenceRelation.objects.filter(
+            is_active=True,
             subject_id__in=selected_entity_ids,
             object__entity_type=KnowledgeEntity.EntityType.PATHWAY,
             object__is_active=True,

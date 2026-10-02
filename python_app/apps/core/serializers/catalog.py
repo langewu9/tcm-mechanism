@@ -62,6 +62,7 @@ class EvidenceRelationSerializer(serializers.ModelSerializer):
             "score",
             "evidence_text",
             "organism",
+            "is_active",
             "source_slug",
             "source_version",
             "observed_at",

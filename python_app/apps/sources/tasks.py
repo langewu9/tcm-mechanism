@@ -6,7 +6,8 @@ from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from apps.core.models import SyncRun
-from apps.sources.services import apply_reactome_sync, preview_reactome_sync
+from apps.sources.services import REACTOME_CONNECTOR, apply_reactome_sync, preview_reactome_sync
+from apps.sources.sqlite_sync import SQLITE_CONNECTOR, apply_sqlite_sync, preview_sqlite_sync
 
 
 logger = logging.getLogger(__name__)
@@ -25,12 +26,19 @@ def sync_source_run(run_id: int) -> dict[str, str | int]:
     try:
         run = SyncRun.objects.select_related("source", "release").get(pk=run_id)
         mode = (run.preview_summary or {}).get("mode", "preview")
+        connector = (run.preview_summary or {}).get("connector") or (
+            REACTOME_CONNECTOR if run.source.slug == "reactome" else ""
+        )
         if not run.source.enabled:
             raise ValidationError("该数据源已停用，不能执行同步。")
-        if mode == "preview":
+        if connector == REACTOME_CONNECTOR and mode == "preview":
             preview_reactome_sync(run)
-        elif mode == "apply":
+        elif connector == REACTOME_CONNECTOR and mode == "apply":
             apply_reactome_sync(run)
+        elif connector == SQLITE_CONNECTOR and mode == "preview":
+            preview_sqlite_sync(run)
+        elif connector == SQLITE_CONNECTOR and mode == "apply":
+            apply_sqlite_sync(run)
         else:
             raise ValidationError("同步运行模式无效。")
         SyncRun.objects.filter(pk=run_id).update(

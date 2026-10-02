@@ -43,8 +43,8 @@ class KnowledgeEntityAdmin(admin.ModelAdmin):
 
 @admin.register(EvidenceRelation)
 class EvidenceRelationAdmin(admin.ModelAdmin):
-    list_display = ("subject", "relation_type", "object", "evidence_type", "score", "source_release")
-    list_filter = ("relation_type", "evidence_type", "organism", "source_release__source")
+    list_display = ("subject", "relation_type", "object", "evidence_type", "score", "is_active", "source_release")
+    list_filter = ("relation_type", "evidence_type", "organism", "is_active", "source_release__source")
     search_fields = ("subject__label", "object__label", "source_record_id")
 
 

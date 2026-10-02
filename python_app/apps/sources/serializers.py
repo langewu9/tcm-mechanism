@@ -1,19 +1,51 @@
 from rest_framework import serializers
 
 from apps.core.models import DataSource, SyncRun
+from apps.sources.connectors.sqlite_tcm import SQLiteSourceError, validate_sqlite_source_config
+from apps.sources.sqlite_sync import SQLITE_CONNECTOR
 
 
 class DataSourceSyncSerializer(serializers.ModelSerializer):
-    latest_run_status = serializers.CharField(read_only=True)
-    latest_run_at = serializers.DateTimeField(read_only=True)
+    latest_run_status = serializers.CharField(read_only=True, allow_null=True, default=None)
+    latest_run_at = serializers.DateTimeField(read_only=True, allow_null=True, default=None)
+    connector_type = serializers.SerializerMethodField()
 
     class Meta:
         model = DataSource
         fields = [
             "id", "slug", "name", "description", "access_mode", "documentation_url",
-            "license_note", "enabled", "last_success_at", "latest_run_status", "latest_run_at",
+            "license_note", "enabled", "last_success_at", "latest_run_status", "latest_run_at", "connector_type",
         ]
         read_only_fields = fields
+
+    def get_connector_type(self, obj) -> str:
+        return (obj.configuration or {}).get("connector") or ("reactome-catalog" if obj.slug == "reactome" else "")
+
+
+class SQLiteSourceCreateSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=160)
+    description = serializers.CharField(required=False, allow_blank=True, max_length=2000)
+    databaseFile = serializers.CharField(max_length=300)
+    table = serializers.CharField(max_length=80)
+    herbColumn = serializers.CharField(max_length=80)
+    compoundColumn = serializers.CharField(max_length=80)
+    targetColumn = serializers.CharField(max_length=80)
+
+    def validate(self, attrs):
+        try:
+            validate_sqlite_source_config({**attrs, "connector": SQLITE_CONNECTOR})
+        except SQLiteSourceError as exc:
+            raise serializers.ValidationError({"databaseFile": str(exc)}) from exc
+        return attrs
+
+
+class SQLiteSourceTestResponseSerializer(serializers.Serializer):
+    ok = serializers.BooleanField()
+    rowCount = serializers.IntegerField()
+    fileBytes = serializers.IntegerField()
+    checksumSha256 = serializers.CharField()
+    columns = serializers.ListField(child=serializers.CharField())
+    mapping = serializers.JSONField()
 
 
 class SyncRunSerializer(serializers.ModelSerializer):

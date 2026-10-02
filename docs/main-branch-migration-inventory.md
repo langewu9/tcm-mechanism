@@ -22,7 +22,7 @@
 | `src/app/analysis/page.tsx`、`AnalysisWorkbench.tsx`、`src/lib/analysis.ts`、`src/app/api/analysis/tasks/*` | 医案/文本分析和任务结果 | Django 任务 API + Celery worker；结果和输入版本持久化 | 待迁移；当前 AnalysisTask 是只读记录，还没有执行器 |
 | `src/app/research/page.tsx`、`ResearchWorkbench.tsx`、`src/app/api/research/route.ts` | 研究问题、证候/方剂/药物等证据链 | Django research/knowledge service 与 React 研究工作台 | 待迁移；迁移前需审查 760 行路由中的业务与外部数据依赖 |
 | `src/app/api/network-pharmacology/route.ts`、`pathway-enrichment/route.ts`、`src/lib/reactome.ts`、`NetworkPharmacologyWorkbench.tsx` | 靶点交集、Reactome 富集和网络药理视图 | Django connector/service；任务固定数据源版本，页面显示证据来源 | 待迁移；需先验证外部 API 限流、许可和版本语义 |
-| `src/app/admin/page.tsx`、`DatabaseSyncConsole.tsx`、`ReactomeCatalogSync.tsx`、`src/lib/database-sync.ts` | 管理员数据源管理、测试和同步 | Django Admin + 受管理员权限保护的同步 API/控制台 | Reactome 目录的后台预览/人工应用已接入，保留版本、SHA-256、操作者、记录计数与失败信息；真实目录 2,883 条已在临时 SQLite 上验证。main 的 SQLite 中药—成分—靶点游标同步、连接测试、UniProt/PubChem/STRING connector 仍待迁移；未知路径不接受任意浏览器输入 |
+| `src/app/admin/page.tsx`、`DatabaseSyncConsole.tsx`、`ReactomeCatalogSync.tsx`、`src/lib/database-sync.ts` | 管理员数据源管理、测试和同步 | Django Admin + 受管理员权限保护的同步 API/控制台 | Reactome 后台预览/人工应用已接入，真实目录 2,883 条已在临时 SQLite 上验证；main 的 SQLite 中药—成分—靶点字段映射、只读测试、分批关系导入和游标增量思路已迁为校验值版本化的完整快照导入，合成表端到端通过。主机目录仅通过 `SQLITE_SOURCE_ROOT` 挂载且只读，不接受任意绝对路径；原 SQLite 文件不在仓库，须拿到真实文件后核对字段语义和规模。UniProt/PubChem/STRING connector 仍待迁移 |
 | `src/app/assistant/page.tsx`、`AssistantWorkspace.tsx`、`src/app/api/assistant/route.ts`、`backend/qwen_service.py` | 科研助手和 Qwen/BianCang 接口 | Django provider adapter/异步服务，前端呈现证据和模型版本 | 待迁移；不默认调用无鉴权公网模型地址 |
 | `src/app/api/analysis/results/*`、`src/lib/exporters.ts`、`Charts.tsx`、`NetworkGraph.tsx` | 结果、CSV/PDF 导出和图形展示 | Django 授权结果 API；React 交互图表；R 工件后续集成 | 待迁移 |
 
@@ -80,4 +80,4 @@
 - 为每个外部来源记录调用许可、限流、更新频率、引用要求和失效处理策略。
 - 获取旧代码依赖的 Excel/SQLite 原始文件，并核实持有人、许可、版本、敏感字段及导入权限。
 
-以上事项未完成前，不能宣称旧业务链路已完整迁移或旧数据库可直接导入生产 PostgreSQL。
+SQLite 适配器已通过合成表测试，但以上真实数据、许可和字段确认事项未完成前，不能宣称旧数据库已导入或旧业务链路已完整迁移到生产 PostgreSQL。

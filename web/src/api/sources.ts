@@ -12,6 +12,7 @@ export type AdminDataSource = {
   last_success_at: string | null;
   latest_run_status: string | null;
   latest_run_at: string | null;
+  connector_type: "reactome-catalog" | "sqlite-herb-compound-target" | string;
 };
 
 export type SyncRun = {
@@ -31,6 +32,7 @@ export type SyncRun = {
   error_summary: string;
   preview_summary: {
     mode?: "preview" | "apply";
+    connector?: string;
     basedOn?: number;
     sourceVersion?: string | null;
     releaseVersion?: string;
@@ -40,6 +42,16 @@ export type SyncRun = {
     wouldUpdate?: number;
     unchanged?: number;
     wouldRetire?: number;
+    totalRows?: number;
+    uniqueHerbs?: number;
+    uniqueCompounds?: number;
+    uniqueTargets?: number;
+    relationships?: number;
+    relationshipsCreated?: number;
+    relationshipsUpdated?: number;
+    databaseFile?: string;
+    table?: string;
+    fileBytes?: number;
   };
   requested_by: number | null;
   requested_by_username: string | null;
@@ -56,3 +68,20 @@ export const previewDataSourceSync = (sourceId: number) =>
   apiRequest<{ run: SyncRun }>(`/api/v1/admin/sources/${sourceId}/sync/`, { method: "POST", body: {} });
 export const applySyncPreview = (runId: number) =>
   apiRequest<{ run: SyncRun }>(`/api/v1/admin/sync-runs/${runId}/apply/`, { method: "POST", body: {} });
+export const createSQLiteDataSource = (input: {
+  name: string;
+  description?: string;
+  databaseFile: string;
+  table: string;
+  herbColumn: string;
+  compoundColumn: string;
+  targetColumn: string;
+}) => apiRequest<AdminDataSource>("/api/v1/admin/sources/", { method: "POST", body: input });
+export const testSQLiteDataSource = (sourceId: number) => apiRequest<{
+  ok: true;
+  rowCount: number;
+  fileBytes: number;
+  checksumSha256: string;
+  columns: string[];
+  mapping: Record<string, string>;
+}>(`/api/v1/admin/sources/${sourceId}/test/`, { method: "POST", body: {} });

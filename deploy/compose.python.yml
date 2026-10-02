@@ -41,10 +41,12 @@ services:
       DATABASE_URL: postgresql://tcm_platform:tcm_platform_dev_only@postgres:5432/tcm_platform
       CELERY_BROKER_URL: redis://redis:6379/0
       MEDIA_ROOT: /app/var/media
+      SQLITE_SOURCE_ROOT: /app/var/source-databases
     ports:
       - "127.0.0.1:8020:8020"
     volumes:
       - tcm_platform_media:/app/var/media
+      - ../var/source-databases:/app/var/source-databases:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -63,8 +65,10 @@ services:
       DATABASE_URL: postgresql://tcm_platform:tcm_platform_dev_only@postgres:5432/tcm_platform
       CELERY_BROKER_URL: redis://redis:6379/0
       MEDIA_ROOT: /app/var/media
+      SQLITE_SOURCE_ROOT: /app/var/source-databases
     volumes:
       - tcm_platform_media:/app/var/media
+      - ../var/source-databases:/app/var/source-databases:ro
     depends_on:
       postgres:
         condition: service_healthy

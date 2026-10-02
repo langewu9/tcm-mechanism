@@ -58,6 +58,7 @@ class EvidenceRelation(models.Model):
     score = models.DecimalField(max_digits=10, decimal_places=6, null=True, blank=True)
     evidence_text = models.TextField(blank=True)
     organism = models.CharField(max_length=120, blank=True)
+    is_active = models.BooleanField(default=True)
     metadata = models.JSONField(default=dict, blank=True)
     observed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

@@ -30,7 +30,9 @@ class KnowledgeEntityViewSet(viewsets.ReadOnlyModelViewSet):
 class EvidenceRelationViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = EvidenceRelationSerializer
     permission_classes = [IsAuthenticated]
-    queryset = EvidenceRelation.objects.filter(subject__is_active=True, object__is_active=True).select_related(
+    queryset = EvidenceRelation.objects.filter(
+        is_active=True, subject__is_active=True, object__is_active=True
+    ).select_related(
         "subject", "object", "source_release", "source_release__source"
     )
     filterset_fields = ["relation_type", "evidence_type", "organism", "source_release"]
