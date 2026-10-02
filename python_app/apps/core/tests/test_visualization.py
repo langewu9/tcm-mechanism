@@ -50,6 +50,66 @@ class VisualizationWorkflowTests(APITestCase):
         )
         self.assertEqual(payload["inputSha256"], hashlib.sha256(canonical.encode()).hexdigest())
 
+    def test_go_kegg_bubble_payload_is_bounded_and_validates_each_term(self):
+        terms = [
+            {
+                "name": f"GO term {index}",
+                "source": "GO:BP" if index % 2 else "KEGG",
+                "geneRatio": 0.1 + (index % 8) / 10,
+                "adjustedPValue": 0.001 + index / 10000,
+                "intersectionSize": index + 1,
+                "matchedIdentifiers": ["SHOULD_NOT_BE_SENT"],
+            }
+            for index in range(105)
+        ]
+        terms.extend([
+            {"name": "bad FDR", "source": "GO:BP", "geneRatio": 0.5, "adjustedPValue": 0.9, "intersectionSize": 1},
+            {"name": "bad source", "source": "USER_INPUT", "geneRatio": 0.5, "adjustedPValue": 0.01, "intersectionSize": 1},
+            {"name": "bad ratio", "source": "GO:BP", "geneRatio": 2, "adjustedPValue": 0.01, "intersectionSize": 1},
+        ])
+        task = AnalysisTask.objects.create(
+            owner=self.owner,
+            task_type=AnalysisTask.TaskType.PROTEOMICS,
+            status=AnalysisTask.Status.SUCCEEDED,
+            result={
+                "privateCaseText": "不得交给 R 的医案文本",
+                "externalGProfiler": {
+                    "status": "succeeded",
+                    "sourceVersion": "e114_eg62_test\n",
+                    "terms": terms,
+                },
+            },
+        )
+
+        payload = build_chart_payload(task, "proteomics_go_kegg_enrichment")
+
+        self.assertEqual(payload["chartType"], "enrichment_bubble")
+        self.assertIn("e114_eg62_test", payload["subtitle"])
+        self.assertNotIn("\n", payload["subtitle"])
+        self.assertEqual(len(payload["data"]), 100)
+        self.assertEqual(payload["data"][0]["source"], "KEGG")
+        serialized = json.dumps(payload, ensure_ascii=False)
+        self.assertNotIn("不得交给 R", serialized)
+        self.assertNotIn("SHOULD_NOT_BE_SENT", serialized)
+        self.assertNotIn("bad FDR", serialized)
+        canonical = json.dumps(
+            {key: value for key, value in payload.items() if key != "inputSha256"},
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        self.assertEqual(payload["inputSha256"], hashlib.sha256(canonical.encode()).hexdigest())
+
+    def test_go_kegg_bubble_payload_rejects_unfinished_or_empty_results(self):
+        task = AnalysisTask.objects.create(
+            owner=self.owner,
+            task_type=AnalysisTask.TaskType.PROTEOMICS,
+            status=AnalysisTask.Status.SUCCEEDED,
+            result={"externalGProfiler": {"status": "no_significant_terms", "terms": []}},
+        )
+        with self.assertRaisesRegex(ValueError, "没有可绘制"):
+            build_chart_payload(task, "proteomics_go_kegg_enrichment")
+
     @patch("apps.core.tasks.run_visualization_task.apply_async")
     @override_settings(R_VIZ_BASE_URL="http://r-viz:8001", R_VIZ_API_TOKEN="test-token")
     def test_visualization_job_is_queued_and_private(self, enqueue):
@@ -67,6 +127,51 @@ class VisualizationWorkflowTests(APITestCase):
         self.client.force_authenticate(self.other)
         private = self.client.get(reverse("analysis-task-detail", args=[job.pk]))
         self.assertEqual(private.status_code, 404)
+
+    @patch("apps.core.tasks.run_visualization_task.apply_async")
+    @override_settings(R_VIZ_BASE_URL="http://r-viz:8001", R_VIZ_API_TOKEN="test-token")
+    def test_go_kegg_visualization_uses_the_existing_owner_scoped_task_queue(self, enqueue):
+        parent = AnalysisTask.objects.create(
+            owner=self.owner,
+            created_by=self.owner,
+            task_type=AnalysisTask.TaskType.PROTEOMICS,
+            status=AnalysisTask.Status.SUCCEEDED,
+            result={
+                "externalGProfiler": {
+                    "status": "succeeded",
+                    "terms": [{
+                        "name": "cellular response",
+                        "source": "GO:BP",
+                        "geneRatio": 0.4,
+                        "adjustedPValue": 0.01,
+                        "intersectionSize": 4,
+                    }],
+                },
+            },
+        )
+        self.client.force_authenticate(self.other)
+        denied = self.client.post(
+            reverse("analysis-task-visualizations", args=[parent.pk]),
+            {"chartKey": "proteomics_go_kegg_enrichment"},
+            format="json",
+        )
+        self.assertEqual(denied.status_code, 404)
+
+        self.client.force_authenticate(self.owner)
+        response = self.client.post(
+            reverse("analysis-task-visualizations", args=[parent.pk]),
+            {"chartKey": "proteomics_go_kegg_enrichment"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 202, response.data)
+        job = AnalysisTask.objects.get(pk=response.data["id"])
+        self.assertEqual(job.input_parameters["parentTaskId"], parent.pk)
+        self.assertEqual(job.input_parameters["chartKey"], "proteomics_go_kegg_enrichment")
+        enqueue.assert_called_once_with(args=[job.pk])
+
+        self.client.force_authenticate(self.other)
+        self.assertEqual(self.client.get(reverse("analysis-task-detail", args=[job.pk])).status_code, 404)
 
     @patch("apps.core.tasks.run_visualization_task.apply_async")
     @override_settings(R_VIZ_BASE_URL="http://r-viz:8001", R_VIZ_API_TOKEN="test-token")

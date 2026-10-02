@@ -70,6 +70,51 @@ def build_chart_payload(task: AnalysisTask, chart_key: str) -> dict:
                 for row in result.get("topNodes", [])[:30]
                 if isinstance(row.get("degree"), (int, float)) and not isinstance(row.get("degree"), bool)
             ]
+        elif chart_key == "proteomics_go_kegg_enrichment":
+            enrichment = result.get("externalGProfiler") or {}
+            if enrichment.get("status") != "succeeded":
+                raise VisualizationInputError("GO/KEGG 富集没有可绘制的成功结果。")
+            title = "GO / KEGG 功能富集"
+            source_version = enrichment.get("sourceVersion")
+            if isinstance(source_version, str):
+                source_version = "".join(character for character in source_version if character.isprintable()).strip()[:120]
+            else:
+                source_version = ""
+            terms = enrichment.get("terms") or []
+            allowed_sources = {"GO:BP", "GO:CC", "GO:MF", "KEGG"}
+            data = []
+            for term in terms:
+                if not isinstance(term, dict) or term.get("source") not in allowed_sources:
+                    continue
+                label = term.get("name")
+                gene_ratio = term.get("geneRatio")
+                adjusted_p_value = term.get("adjustedPValue")
+                intersection_size = term.get("intersectionSize")
+                if (
+                    not isinstance(label, str)
+                    or not label.strip()
+                    or not isinstance(gene_ratio, (int, float))
+                    or isinstance(gene_ratio, bool)
+                    or not 0 <= gene_ratio <= 1
+                    or not isinstance(adjusted_p_value, (int, float))
+                    or isinstance(adjusted_p_value, bool)
+                    or not 0 < adjusted_p_value <= 0.05
+                    or not isinstance(intersection_size, int)
+                    or isinstance(intersection_size, bool)
+                    or intersection_size < 1
+                ):
+                    continue
+                data.append({
+                    "label": label.strip()[:140],
+                    "source": term["source"],
+                    "geneRatio": gene_ratio,
+                    "adjustedPValue": adjusted_p_value,
+                    "intersectionSize": intersection_size,
+                })
+                if len(data) == 100:
+                    break
+            if not data:
+                raise VisualizationInputError("GO/KEGG 结果中没有符合绘图要求的富集条目。")
         else:
             raise VisualizationInputError("蛋白组学任务不支持该图表类型。")
     else:
@@ -77,9 +122,19 @@ def build_chart_payload(task: AnalysisTask, chart_key: str) -> dict:
 
     if not 1 <= len(data) <= 100:
         raise VisualizationInputError("该结果没有可供绘图的数据，或数据点超过上限。")
-    if any(not isinstance(item.get("label"), str) or not isinstance(item.get("value"), (int, float)) for item in data):
-        raise VisualizationInputError("分析结果中的图表数据格式无效。")
-    payload = {"chartType": "bar", "title": title, "yLabel": "数量", "data": data}
+    if chart_key == "proteomics_go_kegg_enrichment":
+        payload = {
+            "chartType": "enrichment_bubble",
+            "title": title,
+            "subtitle": f"g:Profiler {source_version or '版本未返回'} · Homo sapiens · FDR ≤ 0.05",
+            "xLabel": "GeneRatio",
+            "colorLabel": "−log10(FDR)",
+            "data": data,
+        }
+    else:
+        if any(not isinstance(item.get("label"), str) or not isinstance(item.get("value"), (int, float)) for item in data):
+            raise VisualizationInputError("分析结果中的图表数据格式无效。")
+        payload = {"chartType": "bar", "title": title, "yLabel": "数量", "data": data}
     canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
     payload["inputSha256"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
     return payload

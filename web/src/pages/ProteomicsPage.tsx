@@ -15,6 +15,7 @@ import {
 } from "../api/datasets";
 import { logout, type Session } from "../api/auth";
 import { ApiError } from "../api/client";
+import { createVisualization } from "../api/network";
 
 const initialMapping = {
   geneColumn: "",
@@ -73,6 +74,7 @@ export function ProteomicsPage() {
   const [datasets, setDatasets] = useState<ResearchDataset[]>([]);
   const [datasetId, setDatasetId] = useState<number | "">("");
   const [task, setTask] = useState<AnalysisTask | null>(null);
+  const [visualizationTask, setVisualizationTask] = useState<AnalysisTask | null>(null);
   const [mapping, setMapping] = useState(initialMapping);
   const [thresholds, setThresholds] = useState({ log2FcMin: "1", fdrMax: "0.05", pValueMax: "0.05" });
   const [referenceTargets, setReferenceTargets] = useState("");
@@ -82,6 +84,7 @@ export function ProteomicsPage() {
   const [stringRequiredScore, setStringRequiredScore] = useState("700");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [visualizationSubmitting, setVisualizationSubmitting] = useState(false);
   const [showRows, setShowRows] = useState(false);
   const [rowPageNumber, setRowPageNumber] = useState(1);
   const [rowPage, setRowPage] = useState<ProteomicsRowPage | null>(null);
@@ -99,6 +102,13 @@ export function ProteomicsPage() {
         if (latestTask) {
           setTask(latestTask);
           if (latestTask.dataset) setDatasetId(latestTask.dataset);
+          const latestVisualization = taskResponse.results.find((item) =>
+            item.task_type === "visualization"
+            && item.input_parameters.analysisKind === "r_visualization"
+            && item.input_parameters.chartKey === "proteomics_go_kegg_enrichment"
+            && Number(item.input_parameters.parentTaskId) === latestTask.id,
+          );
+          if (latestVisualization) setVisualizationTask(latestVisualization);
         }
       })
       .catch((cause: unknown) => { if (active) setError(errorMessage(cause)); })
@@ -116,6 +126,17 @@ export function ProteomicsPage() {
     }, 1400);
     return () => { active = false; window.clearTimeout(timer); };
   }, [task]);
+
+  useEffect(() => {
+    if (!visualizationTask || !["queued", "running"].includes(visualizationTask.status)) return;
+    let active = true;
+    const timer = window.setTimeout(() => {
+      getAnalysisTask(visualizationTask.id)
+        .then((latest) => { if (active) setVisualizationTask(latest); })
+        .catch((cause: unknown) => { if (active) setError(errorMessage(cause)); });
+    }, 1400);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [visualizationTask]);
 
   useEffect(() => {
     if (!showRows || !task || task.status !== "succeeded") return;
@@ -146,6 +167,7 @@ export function ProteomicsPage() {
     setNotice(null);
     setShowRows(false);
     setRowPage(null);
+    setVisualizationTask(null);
     try {
       const taskResponse = await runProteomicsAnalysis(selectedDataset.id, {
         mapping,
@@ -183,6 +205,19 @@ export function ProteomicsPage() {
       downloadBlob(`proteomics-task-${task.id}.${format}`, blob);
     } catch (cause) {
       setError(errorMessage(cause));
+    }
+  }
+
+  async function requestGoKeggVisualization() {
+    if (!task || task.status !== "succeeded") return;
+    setError(null);
+    setVisualizationSubmitting(true);
+    try {
+      setVisualizationTask(await createVisualization(task.id, "proteomics_go_kegg_enrichment"));
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setVisualizationSubmitting(false);
     }
   }
 
@@ -277,6 +312,8 @@ export function ProteomicsPage() {
               {(task.status === "queued" || task.status === "running") && <div className="analysis-progress" role="status"><span>任务已排队，分析过程在后台运行。</span><progress max={100} value={task.progress} /></div>}
               {task.status === "failed" && <div className="notice-error" role="alert">{task.error_summary || "分析失败，请检查文件和列映射。"}</div>}
               {result && <ProteomicsResultView result={result} task={task} showRows={showRows} rowPage={rowPage} rowPageNumber={rowPageNumber}
+                visualizationTask={visualizationTask} visualizationSubmitting={visualizationSubmitting}
+                onCreateGoKeggVisualization={() => void requestGoKeggVisualization()}
                 onToggleRows={() => { setShowRows((value) => !value); setRowPageNumber(1); }}
                 onRowPageChange={setRowPageNumber} />}
             </article>}
@@ -291,13 +328,17 @@ function Metric({ label, value, note }: { label: string; value: string | number;
 }
 
 function ProteomicsResultView({
-  result, task, showRows, rowPage, rowPageNumber, onToggleRows, onRowPageChange,
+  result, task, showRows, rowPage, rowPageNumber, visualizationTask, visualizationSubmitting,
+  onCreateGoKeggVisualization, onToggleRows, onRowPageChange,
 }: {
   result: ProteomicsResult;
   task: AnalysisTask;
   showRows: boolean;
   rowPage: ProteomicsRowPage | null;
   rowPageNumber: number;
+  visualizationTask: AnalysisTask | null;
+  visualizationSubmitting: boolean;
+  onCreateGoKeggVisualization: () => void;
   onToggleRows: () => void;
   onRowPageChange: (page: number) => void;
 }) {
@@ -349,6 +390,10 @@ function ProteomicsResultView({
       {result.externalGProfiler.terms.length > 0 ? <div className="table-scroll"><table className="data-table"><thead><tr><th>类别</th><th>功能条目</th><th>条目 ID</th><th>命中数</th><th>查询数</th><th>GeneRatio</th><th>条目基因数</th><th>有效背景数</th><th>FDR</th></tr></thead><tbody>
         {result.externalGProfiler.terms.map((term) => <tr key={`${term.source}:${term.termId}`}><td>{term.source}</td><td>{term.name}</td><td>{term.termId}</td><td>{term.intersectionSize ?? "—"}</td><td>{term.querySize ?? "—"}</td><td>{formatNumber(term.geneRatio)}</td><td>{term.termSize ?? "—"}</td><td>{term.effectiveDomainSize ?? "—"}</td><td>{formatNumber(term.adjustedPValue)}</td></tr>)}
       </tbody></table></div> : <p className="section-help">本次没有可展示的 GO/KEGG 显著条目。</p>}
+      {result.externalGProfiler.terms.length > 0 && <>
+        <div className="source-record-actions"><button className="btn btn-secondary" type="button" disabled={visualizationSubmitting || Boolean(visualizationTask && ["queued", "running", "succeeded"].includes(visualizationTask.status))} onClick={onCreateGoKeggVisualization}>{visualizationSubmitting ? "正在创建图表…" : visualizationTask?.status === "succeeded" ? "R 气泡图已生成" : visualizationTask?.status === "failed" ? "重试生成 R 气泡图" : "生成 R 富集气泡图"}</button><span className="section-help">只把最多 100 条富集结果的名称、类别、GeneRatio、FDR 和命中数交给 R 绘图；不发送原始文件或医案。</span></div>
+        {visualizationTask && <ProteomicsVisualizationResult task={visualizationTask} />}
+      </>}
       {result.externalGProfiler.terms.some((term) => term.matchedIdentifiers.length > 0) && <details className="case-notes"><summary>查看命中标识</summary>{result.externalGProfiler.terms.filter((term) => term.matchedIdentifiers.length > 0).slice(0, 30).map((term) => <p key={`${term.source}:${term.termId}`}><strong>{term.name}</strong>：{term.matchedIdentifiers.join("、")}</p>)}</details>}
     </section>}
 
@@ -404,5 +449,17 @@ function ProteomicsResultView({
           <span>第 {rowPageNumber} 页 / 共 {rowPage.count} 行</span><button className="btn btn-secondary" type="button" disabled={!rowPage.next} onClick={() => onRowPageChange(rowPageNumber + 1)}>下一页</button></div>}
       </>}
     </section>
+  </div>;
+}
+
+function ProteomicsVisualizationResult({ task }: { task: AnalysisTask }) {
+  if (["queued", "running"].includes(task.status)) return <p className="section-help" role="status">R 富集图表任务 #{task.id} 正在后台执行（{task.progress}%）。</p>;
+  if (task.status === "failed") return <div className="notice-error" role="alert">R 富集图表生成失败：{task.error_summary}</div>;
+  const value = task.result as { rendererVersion?: string; artifacts?: Array<{ id: number; format: string; downloadUrl: string }> };
+  const artifacts = value.artifacts ?? [];
+  const svg = artifacts.find((artifact) => artifact.format === "svg");
+  return <div className="panel source-record"><h3>GO / KEGG 富集气泡图 · {String(value.rendererVersion ?? "")}</h3>
+    {svg && <img className="visualization-preview" src={`${svg.downloadUrl}?inline=1`} alt="GO / KEGG 富集气泡图；横轴为 GeneRatio，点大小为命中数，颜色表示 FDR 显著性" />}
+    <div className="source-record-actions">{artifacts.map((artifact) => <a className="btn btn-secondary" key={artifact.id} href={artifact.downloadUrl}>下载 {artifact.format.toUpperCase()}</a>)}</div>
   </div>;
 }

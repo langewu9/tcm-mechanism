@@ -58,7 +58,7 @@ celery -A config worker --loglevel=INFO
 - `POST /api/v1/research/datasets/{id}/analyze/`：将已保存的数据集排入 Celery，创建有归属和原文件 SHA-256 的分析任务。
 - `GET /api/v1/research/analysis-tasks/{id}/rows/`：分页读取蛋白组学行级筛选、映射和排除原因；支持 `?selected=true` / `?selected=false`。
 - `GET /api/v1/research/analysis-tasks/{id}/export/?file_format=csv|xlsx`：按任务所有者权限导出所有行级结果；CSV/XLSX 会转义公式型用户输入。
-- `POST /api/v1/research/analysis-tasks/{id}/visualizations/`（`{"chartKey":"overlap"}`）：从已完成的网络药理任务排入 R 柱图任务；蛋白组学支持 `proteomics_summary` 与 `proteomics_top_nodes`。`GET /api/v1/research/analysis-artifacts/{id}/download/` 提供所有者权限保护的工件，SVG/PNG 可通过 `?inline=1` 安全预览。当前第一版限制为最多 100 个图点，R 只收到图表摘要 JSON，不收到医案原文或完整文件；产出 SVG/PDF/PNG/HTML。
+- `POST /api/v1/research/analysis-tasks/{id}/visualizations/`（`{"chartKey":"overlap"}`）：从已完成的网络药理任务排入 R 柱图任务；蛋白组学支持 `proteomics_summary`、`proteomics_top_nodes` 和 `proteomics_go_kegg_enrichment`。GO/KEGG 气泡图最多取 100 条经过字段/范围校验的显著富集项，按 GeneRatio、命中数、FDR 和来源绘制。`GET /api/v1/research/analysis-artifacts/{id}/download/` 提供所有者权限保护的工件，SVG/PNG 可通过 `?inline=1` 安全预览。R 只收到图表摘要 JSON，不收到医案原文或完整文件；产出 SVG/PDF/PNG/HTML。
 - 蛋白组学请求可传 `externalReactome: true`；只有用户明确启用时才调用 MyGene.info 和 Reactome，外部标识最多 500 个，且只包含通过筛选的基因/蛋白标签。默认 `false`；当前外部流程仅支持人类标识。
 - `/api/v1/catalog/sources/`、`entities/`、`evidence/`：外部数据源、规范实体和来源证据目录。
 - 用户显式同意后，`POST /api/v1/analysis/pathway-enrichment/` 将最多 500 个标识发送至 Reactome，`POST /api/v1/analysis/string-network/` 将最多 200 个标识提交至 STRING 查询物理互作；两者均异步记录到私有分析任务。STRING 查询会自动发现数据库版本并调用版本专属地址；可通过 `STRING_DB_VERSION` 固定版本，结果和版本来源均写入任务记录。

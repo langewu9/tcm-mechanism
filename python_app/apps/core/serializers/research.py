@@ -136,6 +136,7 @@ class MedicalCaseAuditEventSerializer(serializers.ModelSerializer):
 class VisualizationRequestSerializer(serializers.Serializer):
     chartKey = serializers.ChoiceField(choices=[
         "overlap", "components", "pathways", "proteomics_summary", "proteomics_top_nodes",
+        "proteomics_go_kegg_enrichment",
     ])
 
 

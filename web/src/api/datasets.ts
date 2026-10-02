@@ -52,6 +52,7 @@ export type ProteomicsResult = {
     enrichmentNote: string;
     externalMappedCount?: number;
     reactomePathwayCount?: number;
+    goKeggTermCount?: number;
   };
   externalReactome?: {
     status: string;
