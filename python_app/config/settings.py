@@ -118,7 +118,7 @@ REST_FRAMEWORK = {
 
 SPECTACULAR_SETTINGS = {
     "TITLE": "岐黄中医药理智能平台 API",
-    "DESCRIPTION": "Python 主站第一阶段 API；分析任务执行器和外部数据同步仍在后续阶段。",
+    "DESCRIPTION": "React/Vite 研究者平台 API；包含用户隔离的数据集、医案和异步蛋白组学分析。",
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
 }

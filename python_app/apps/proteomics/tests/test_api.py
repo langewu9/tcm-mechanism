@@ -59,6 +59,7 @@ class ProteomicsApiTests(APITestCase):
         self.assertEqual(task.dataset, self.dataset)
         self.assertEqual(task.task_type, AnalysisTask.TaskType.PROTEOMICS)
         self.assertEqual(task.status, AnalysisTask.Status.QUEUED)
+        self.assertFalse(task.input_parameters["externalReactome"])
         self.assertEqual(task.input_parameters["datasetSha256"], "test-digest")
         self.assertEqual(task.input_parameters["referenceTargets"], ["TP53", "IL6"])
         enqueue.assert_called_once_with(args=[task.pk])
@@ -67,6 +68,19 @@ class ProteomicsApiTests(APITestCase):
         hidden = self.client.post(reverse("dataset-analyze", args=[self.dataset.pk]), {}, format="json")
         self.assertEqual(hidden.status_code, 404)
         self.assertEqual(AnalysisTask.objects.count(), 1)
+
+    def test_external_mapping_and_reactome_are_only_enabled_by_explicit_opt_in(self):
+        self.client.force_authenticate(self.owner)
+        with patch("apps.proteomics.tasks.run_proteomics_task.apply_async"):
+            response = self.client.post(
+                reverse("dataset-analyze", args=[self.dataset.pk]),
+                {"externalReactome": True},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 202)
+        task = AnalysisTask.objects.get(pk=response.data["id"])
+        self.assertTrue(task.input_parameters["externalReactome"])
 
     def test_queue_failure_returns_standard_503_and_keeps_failed_audit_task(self):
         self.client.force_authenticate(self.owner)
@@ -156,7 +170,7 @@ class ProteomicsApiTests(APITestCase):
             task_type=AnalysisTask.TaskType.PROTEOMICS,
             dataset=self.dataset,
             status=AnalysisTask.Status.SUCCEEDED,
-            result={"algorithmVersion": "proteomics-local-1.0"},
+            result={"algorithmVersion": "proteomics-py-1.1"},
             input_parameters={"thresholds": {"fdrMax": 0.05}},
         )
         ProteomicsRowResult.objects.create(

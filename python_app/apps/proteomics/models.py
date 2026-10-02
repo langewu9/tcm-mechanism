@@ -4,6 +4,7 @@ from django.db import models
 class ProteomicsRowResult(models.Model):
     class MappingStatus(models.TextChoices):
         DATABASE = "database", "本地知识库精确匹配"
+        EXTERNAL = "external", "外部数据库映射"
         UNVERIFIED = "unverified", "未验证的基因符号格式"
         AMBIGUOUS = "ambiguous", "本地标识存在歧义"
         UNMAPPED = "unmapped", "未映射"

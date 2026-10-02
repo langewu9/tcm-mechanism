@@ -1,5 +1,6 @@
 from io import BytesIO
 import tempfile
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
@@ -16,6 +17,7 @@ from apps.core.models import (
     SourceRelease,
 )
 from apps.proteomics.models import ProteomicsRowResult
+from apps.proteomics.integrations import run_opt_in_reactome
 from apps.proteomics.services import (
     ProteomicsInputError,
     parse_dataset_table,
@@ -148,13 +150,58 @@ class ProteomicsServiceTests(TestCase):
         self.assertTrue(any("符号格式" in warning for warning in result["warnings"]))
 
     def test_celery_task_persists_results_and_is_idempotent(self):
-        outcome = run_proteomics_task.run(self.task.pk)
+        with patch("apps.proteomics.tasks.run_opt_in_reactome") as external_analysis:
+            outcome = run_proteomics_task.run(self.task.pk)
+        external_analysis.assert_not_called()
 
         self.task.refresh_from_db()
         self.assertEqual(outcome["status"], AnalysisTask.Status.SUCCEEDED)
         self.assertEqual(self.task.status, AnalysisTask.Status.SUCCEEDED)
         self.assertEqual(self.task.progress, 100)
-        self.assertEqual(self.task.result["algorithmVersion"], "proteomics-local-1.0")
+        self.assertEqual(self.task.result["algorithmVersion"], "proteomics-py-1.1")
         self.assertEqual(ProteomicsRowResult.objects.filter(task=self.task).count(), 6)
         self.assertEqual(list(self.task.source_releases.values_list("id", flat=True)), [self.release.pk])
         self.assertEqual(run_proteomics_task.run(self.task.pk)["status"], "skipped")
+
+    def test_opt_in_external_analysis_records_gene_mapping_and_reactome_release(self):
+        result, row_results, _release_ids = run_proteomics_analysis(self.task)
+        mapping_response = {
+            "mappings": [{"query": "Unknown label", "symbol": "MAPK1", "name": "ERK2", "entrezGeneId": "5594"}],
+            "ambiguous": [],
+            "unmapped": [],
+            "rejected": [],
+            "truncatedCount": 0,
+            "rejectedCount": 0,
+        }
+        reactome_response = {
+            "sourceVersion": "94",
+            "token": "test-token",
+            "identifiersNotFound": 0,
+            "pathwaysFound": 1,
+            "submittedIdentifierCount": 3,
+            "truncatedIdentifierCount": 0,
+            "rejectedIdentifierCount": 0,
+            "pathways": [{
+                "stableId": "R-HSA-5673001",
+                "name": "RAF/MAP kinase cascade",
+                "species": "Homo sapiens",
+                "matchedEntities": 2,
+                "totalEntities": 30,
+                "coverage": 0.06,
+                "pValue": 0.001,
+                "fdr": 0.02,
+            }],
+        }
+        with patch("apps.proteomics.integrations.resolve_human_identifiers", return_value=mapping_response), patch(
+            "apps.proteomics.integrations.analyze_reactome_human_pathways", return_value=reactome_response
+        ):
+            release_ids, warnings = run_opt_in_reactome(self.task, result, row_results)
+
+        external_row = next(row for row in row_results if row.original_label == "Unknown label")
+        self.assertEqual(external_row.mapping_status, ProteomicsRowResult.MappingStatus.EXTERNAL)
+        self.assertEqual(external_row.normalized_symbol, "MAPK1")
+        self.assertEqual(result["externalReactome"]["pathways"][0]["stableId"], "R-HSA-5673001")
+        self.assertEqual(result["summary"]["enrichmentMode"], "LOCAL+REACTOME")
+        self.assertEqual(len(release_ids), 2)
+        self.assertEqual(list(SourceRelease.objects.filter(pk__in=release_ids).values_list("source__slug", flat=True)), ["mygene-info", "reactome"])
+        self.assertEqual(warnings, [])

@@ -68,7 +68,8 @@ class ResearchDatasetViewSet(viewsets.ModelViewSet):
             input_parameters={
                 "name": data.get("name") or dataset.name,
                 "datasetSha256": dataset.content_sha256,
-                "algorithmVersion": "proteomics-local-1.0",
+                "algorithmVersion": "proteomics-py-1.1",
+                "externalReactome": data["externalReactome"],
                 "mapping": data["mapping"],
                 "thresholds": data["thresholds"],
                 "referenceTargets": data["referenceTargets"],

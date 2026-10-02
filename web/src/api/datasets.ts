@@ -50,6 +50,36 @@ export type ProteomicsResult = {
     pathwayCount: number;
     enrichmentMode: string;
     enrichmentNote: string;
+    externalMappedCount?: number;
+    reactomePathwayCount?: number;
+  };
+  externalReactome?: {
+    status: string;
+    organism: string;
+    source: string;
+    sourceVersion: string | null;
+    reactomeToken: string | null;
+    pathways: Array<{
+      stableId: string;
+      name: string;
+      species: string;
+      matchedEntities: number;
+      totalEntities: number | null;
+      coverage: number | null;
+      pValue: number | null;
+      fdr: number | null;
+    }>;
+    mappings: Array<{ query: string; symbol: string; name: string | null; entrezGeneId: string | null }>;
+    ambiguousIdentifiers: string[];
+    unmappedIdentifiers: string[];
+    rejectedIdentifiers: string[];
+    identifiersNotFound?: number;
+    pathwaysFound?: number;
+    submittedIdentifierCount?: number;
+    truncatedLabelCount?: number;
+    truncatedIdentifierCount?: number;
+    rejectedIdentifierCount?: number;
+    failureStage?: string;
   };
   rows: Array<{
     index: number;
@@ -118,6 +148,7 @@ export type ProteomicsRowPage = { count: number; next: string | null; previous: 
 
 export type ProteomicsRunRequest = {
   name?: string;
+  externalReactome?: boolean;
   mapping?: {
     geneColumn?: string;
     proteinColumn?: string;

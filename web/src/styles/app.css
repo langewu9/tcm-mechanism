@@ -76,6 +76,11 @@
 .proteomics-workspace-grid { grid-template-columns: minmax(19rem, 0.78fr) minmax(0, 1.22fr); }
 .proteomics-column-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.7rem; }
 .proteomics-threshold-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.7rem; }
+.proteomics-consent { display: flex; align-items: flex-start; gap: 0.65rem; border: 1px solid var(--color-border); background: rgba(255, 253, 248, 0.7); padding: 0.75rem; cursor: pointer; }
+.proteomics-consent input { margin-top: 0.18rem; accent-color: var(--color-cinnabar); }
+.proteomics-consent span { display: grid; gap: 0.25rem; }
+.proteomics-consent strong { color: var(--color-ink); font-size: 0.74rem; }
+.proteomics-consent small { color: var(--color-ink-faint); font-size: 0.66rem; line-height: 1.55; }
 .proteomics-result-panel { display: grid; gap: 1rem; padding: 1.2rem; }
 .proteomics-result-content { display: grid; min-width: 0; gap: 1.2rem; }
 .proteomics-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.65rem; }

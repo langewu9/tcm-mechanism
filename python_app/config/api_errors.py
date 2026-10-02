@@ -41,6 +41,7 @@ def api_exception_handler(exc, context):
         403: ("PERMISSION_DENIED", "当前账号无权执行此操作。"),
         404: ("NOT_FOUND", "请求的资源不存在。"),
         405: ("METHOD_NOT_ALLOWED", "不支持此请求方法。"),
+        409: ("RESOURCE_CONFLICT", "该记录已关联分析任务，不能删除或替换其原始内容。"),
         429: ("RATE_LIMITED", "请求过于频繁，请稍后重试。"),
         503: ("SERVICE_UNAVAILABLE", "服务暂时不可用，请稍后重试。"),
     }

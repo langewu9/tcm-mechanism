@@ -57,6 +57,7 @@ celery -A config worker --loglevel=INFO
 - `POST /api/v1/research/datasets/{id}/analyze/`：将已保存的数据集排入 Celery，创建有归属和原文件 SHA-256 的分析任务。
 - `GET /api/v1/research/analysis-tasks/{id}/rows/`：分页读取蛋白组学行级筛选、映射和排除原因；支持 `?selected=true` / `?selected=false`。
 - `GET /api/v1/research/analysis-tasks/{id}/export/?file_format=csv|xlsx`：按任务所有者权限导出所有行级结果；CSV/XLSX 会转义公式型用户输入。
+- 蛋白组学请求可传 `externalReactome: true`；只有用户明确启用时才调用 MyGene.info 和 Reactome，外部标识最多 500 个，且只包含通过筛选的基因/蛋白标签。默认 `false`；当前外部流程仅支持人类标识。
 - `/api/v1/catalog/sources/`、`entities/`、`evidence/`：外部数据源、规范实体和来源证据目录。
 - `/api/schema/`、`/api/docs/`：OpenAPI schema 与交互式文档。
 
@@ -78,4 +79,4 @@ DJANGO_DEBUG=true DATABASE_URL=sqlite:///:memory: python manage.py test
 
 ## 尚未实现
 
-研究数据集支持上传、私有下载和删除，默认保存于 `MEDIA_ROOT`，单个文件上限由 `DATASET_UPLOAD_MAX_BYTES` 控制（默认 100 MiB）；部署时不得通过静态 Web 服务器直接公开该目录。蛋白组学已支持 CSV/TSV/XLS/XLSX 解析、常见列名识别、基础阈值/QC、本地实体映射、来源关联通路网络、候选靶点交集、Celery 后台任务和 CSV/XLSX/JSON 结果导出。当前不做外部 ID 映射、GO/KEGG/Reactome 富集、STRING PPI 或原始矩阵统计分析。对象存储适配、自助注册、外部数据同步、医案候选流程、R 绘图、本地模型接入、审计日志、公网安全加固和生产反向代理仍在后续阶段。SQLite 测试不代替 PostgreSQL 环境验证。
+研究数据集支持上传、私有下载和删除，默认保存于 `MEDIA_ROOT`，单个文件上限由 `DATASET_UPLOAD_MAX_BYTES` 控制（默认 100 MiB）；部署时不得通过静态 Web 服务器直接公开该目录。蛋白组学已支持 CSV/TSV/XLS/XLSX 解析、常见列名识别、基础阈值/QC、本地实体映射、来源关联通路网络、候选靶点交集、Celery 后台任务和 CSV/XLSX/JSON 结果导出；用户主动启用时还可调用 MyGene.info 和 Reactome（最多 500 个通过筛选的人类标识，默认关闭）。当前仍不做 GO/KEGG 富集、STRING PPI 或原始矩阵统计分析。对象存储适配、自助注册、外部数据源同步、医案候选流程、R 绘图、本地模型接入、审计日志、公网安全加固和生产反向代理仍在后续阶段。SQLite 测试不代替 PostgreSQL 环境验证。

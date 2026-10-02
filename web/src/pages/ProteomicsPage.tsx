@@ -37,6 +37,17 @@ function taskStatusLabel(status: AnalysisTask["status"]) {
   return ({ queued: "排队中", running: "分析中", succeeded: "已完成", failed: "失败", cancelled: "已取消" })[status];
 }
 
+function mappingStatusLabel(status: string) {
+  return ({
+    database: "本地核实",
+    external: "外部映射",
+    unverified: "格式推测",
+    ambiguous: "标识歧义",
+    unmapped: "未映射",
+    missing: "缺少标识",
+  } as Record<string, string>)[status] ?? status;
+}
+
 function downloadJson(filename: string, value: unknown) {
   const blob = new Blob([JSON.stringify(value, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -65,6 +76,7 @@ export function ProteomicsPage() {
   const [mapping, setMapping] = useState(initialMapping);
   const [thresholds, setThresholds] = useState({ log2FcMin: "1", fdrMax: "0.05", pValueMax: "0.05" });
   const [referenceTargets, setReferenceTargets] = useState("");
+  const [externalReactome, setExternalReactome] = useState(false);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [showRows, setShowRows] = useState(false);
@@ -140,6 +152,7 @@ export function ProteomicsPage() {
           pValueMax: Number(thresholds.pValueMax),
         },
         referenceTargets: referenceTargets.split(/[\s,，、;；|/]+/).filter(Boolean),
+        externalReactome,
       });
       setTask(taskResponse);
       setNotice(`分析任务 #${taskResponse.id} 已进入后台队列。`);
@@ -220,6 +233,10 @@ export function ProteomicsPage() {
               <label className="form-label" htmlFor="proteomics-reference">候选靶点（可选）
                 <textarea className="field case-textarea case-textarea-short" id="proteomics-reference" value={referenceTargets} onChange={(event) => setReferenceTargets(event.target.value)} placeholder="TP53, IL6, MAPK1" />
               </label>
+              <label className="proteomics-consent">
+                <input type="checkbox" checked={externalReactome} onChange={(event) => setExternalReactome(event.target.checked)} />
+                <span><strong>启用 MyGene.info 标识映射与 Reactome 富集</strong><small>仅发送通过筛选的基因/蛋白标识（最多 500 个），不会发送完整文件、未通过行、账号或医案。当前外部分析仅支持人类标识；不勾选时所有分析留在本地。</small></span>
+              </label>
             </>}
           </div>
           <div className="case-form-footer"><p>阈值筛选不会把缺失或非法统计值默认为显著。</p>
@@ -272,7 +289,7 @@ function ProteomicsResultView({
     <div className="proteomics-metrics">
       <Metric label="通过筛选" value={result.summary.selectedRowCount} />
       <Metric label="唯一标识" value={result.summary.uniqueLabelCount} />
-      <Metric label="本地映射" value={result.summary.databaseMappedCount} note={`另有 ${result.summary.unverifiedSymbolCount} 个格式推测`} />
+      <Metric label="本地映射" value={result.summary.databaseMappedCount} note={`外部映射 ${result.summary.externalMappedCount ?? 0} · 格式推测 ${result.summary.unverifiedSymbolCount}`} />
       <Metric label="未映射" value={result.summary.unmappedCount} />
       <Metric label="本地通路" value={result.summary.pathwayCount} />
       <Metric label="候选交集" value={result.summary.candidateOverlapCount} />
@@ -293,10 +310,21 @@ function ProteomicsResultView({
     {result.warnings.map((warning) => <p className="notice-warning" key={warning}>{warning}</p>)}
     <div className="notice-info"><Activity size={17} /><span>{result.summary.enrichmentNote}</span></div>
 
+    {result.externalReactome && <section className="proteomics-result-section">
+      <div className="case-list-heading"><div><h3 className="section-title-sm">MyGene.info / Reactome 外部结果</h3><p className="section-help">{result.externalReactome.organism} · {result.externalReactome.source}{result.externalReactome.sourceVersion ? ` ${result.externalReactome.sourceVersion}` : " · 版本未返回"}</p></div>
+        <span className="status-badge">{{ succeeded: "有显著通路", no_significant_pathways: "无显著通路", no_mapped_identifiers: "没有可映射标识", unavailable: "服务不可用", disabled: "服务已停用" }[result.externalReactome.status] ?? result.externalReactome.status}</span>
+      </div>
+      <p className="section-help">映射 {result.externalReactome.mappings.length} 个标识；发送到 Reactome {result.externalReactome.submittedIdentifierCount ?? 0} 个。歧义 {result.externalReactome.ambiguousIdentifiers.length} 个，未映射 {result.externalReactome.unmappedIdentifiers.length} 个。</p>
+      {result.externalReactome.pathways.length > 0 ? <div className="table-scroll"><table className="data-table"><thead><tr><th>通路</th><th>Reactome ID</th><th>命中实体</th><th>覆盖率</th><th>P 值</th><th>FDR</th></tr></thead><tbody>
+        {result.externalReactome.pathways.map((pathway) => <tr key={pathway.stableId}><td>{pathway.name}</td><td>{pathway.stableId}</td><td>{pathway.matchedEntities}/{pathway.totalEntities ?? "—"}</td><td>{pathway.coverage == null ? "—" : formatNumber(pathway.coverage)}</td><td>{formatNumber(pathway.pValue)}</td><td>{formatNumber(pathway.fdr)}</td></tr>)}
+      </tbody></table></div> : <p className="section-help">本次没有可展示的显著 Reactome 通路，或外部服务不可用。</p>}
+      {result.externalReactome.ambiguousIdentifiers.length > 0 && <details className="case-notes"><summary>存在歧义的标识</summary><p>{result.externalReactome.ambiguousIdentifiers.join("、")}</p></details>}
+    </section>}
+
     <section className="proteomics-result-section">
       <div className="case-list-heading"><h3 className="section-title-sm">Top degree 候选蛋白</h3><span className="section-help">degree 表示本地已登记通路关联数，不代表因果结论。</span></div>
       {result.topNodes.length ? <div className="table-scroll"><table className="data-table"><thead><tr><th>基因/蛋白</th><th>映射状态</th><th>degree</th><th>log2FC</th><th>FDR</th><th>方向</th><th>通路</th></tr></thead><tbody>
-        {result.topNodes.map((row) => <tr key={row.symbol}><td>{row.symbol}</td><td>{row.mappingStatus === "database" ? "本地核实" : "格式推测"}</td><td>{row.degree}</td><td>{formatNumber(row.log2FoldChange)}</td><td>{formatNumber(row.fdr)}</td><td>{row.direction || "—"}</td><td title={row.pathways.join("、")}>{row.pathways.slice(0, 2).join("、") || "—"}</td></tr>)}
+        {result.topNodes.map((row) => <tr key={row.symbol}><td>{row.symbol}</td><td>{mappingStatusLabel(row.mappingStatus)}</td><td>{row.degree}</td><td>{formatNumber(row.log2FoldChange)}</td><td>{formatNumber(row.fdr)}</td><td>{row.direction || "—"}</td><td title={row.pathways.join("、")}>{row.pathways.slice(0, 2).join("、") || "—"}</td></tr>)}
       </tbody></table></div> : <div className="empty-state">当前本地知识库没有可展示的基因—通路关系。</div>}
     </section>
 
@@ -321,12 +349,12 @@ function ProteomicsResultView({
       <div className="case-list-heading"><div><h3 className="section-title-sm">逐行筛选结果</h3><p className="section-help">任务共处理 {result.qc.inputRowCount} 行；当前预览 {result.rows.length} 行。</p></div>
         <button className="btn btn-secondary" type="button" onClick={onToggleRows}>{showRows ? "收起完整结果" : "查看逐行 QC"}</button></div>
       {!showRows && <div className="table-scroll"><table className="data-table"><thead><tr><th>原始标识</th><th>规范标识</th><th>映射状态</th><th>log2FC</th><th>FDR</th><th>方向</th></tr></thead><tbody>
-        {result.rows.slice(0, 20).map((row) => <tr key={row.index}><td>{row.originalLabel}</td><td>{row.symbol || "—"}</td><td>{row.mappingStatus}</td><td>{formatNumber(row.log2FoldChange)}</td><td>{formatNumber(row.fdr)}</td><td>{row.direction || "—"}</td></tr>)}
+        {result.rows.slice(0, 20).map((row) => <tr key={row.index}><td>{row.originalLabel}</td><td>{row.symbol || "—"}</td><td>{mappingStatusLabel(row.mappingStatus)}</td><td>{formatNumber(row.log2FoldChange)}</td><td>{formatNumber(row.fdr)}</td><td>{row.direction || "—"}</td></tr>)}
       </tbody></table></div>}
       {result.previewTruncated && !showRows && <p className="section-help">预览超过 500 行；打开逐行 QC 可分页读取完整结果。</p>}
       {showRows && <>
         {rowPage ? <div className="table-scroll"><table className="data-table"><thead><tr><th>行</th><th>原始标识</th><th>规范标识</th><th>映射状态</th><th>log2FC</th><th>FDR</th><th>筛选</th><th>排除/警告</th></tr></thead><tbody>
-          {rowPage.results.map((row) => <tr key={row.row_index}><td>{row.row_index + 1}</td><td>{row.original_label || "—"}</td><td>{row.normalized_symbol || "—"}</td><td>{row.mapping_status}</td><td>{formatNumber(row.log2_fold_change)}</td><td>{formatNumber(row.fdr)}</td><td>{row.selected ? "通过" : "排除"}</td><td>{[...row.exclusion_reasons, ...row.qc_warnings].join("、") || "—"}</td></tr>)}
+          {rowPage.results.map((row) => <tr key={row.row_index}><td>{row.row_index + 1}</td><td>{row.original_label || "—"}</td><td>{row.normalized_symbol || "—"}</td><td>{mappingStatusLabel(row.mapping_status)}</td><td>{formatNumber(row.log2_fold_change)}</td><td>{formatNumber(row.fdr)}</td><td>{row.selected ? "通过" : "排除"}</td><td>{[...row.exclusion_reasons, ...row.qc_warnings].join("、") || "—"}</td></tr>)}
         </tbody></table></div> : <p className="section-help">正在读取逐行结果…</p>}
         {rowPage && <div className="case-pagination"><button className="btn btn-secondary" type="button" disabled={!rowPage.previous} onClick={() => onRowPageChange(Math.max(1, rowPageNumber - 1))}>上一页</button>
           <span>第 {rowPageNumber} 页 / 共 {rowPage.count} 行</span><button className="btn btn-secondary" type="button" disabled={!rowPage.next} onClick={() => onRowPageChange(rowPageNumber + 1)}>下一页</button></div>}

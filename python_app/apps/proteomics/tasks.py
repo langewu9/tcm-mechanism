@@ -6,6 +6,7 @@ from django.utils import timezone
 
 from apps.core.models import AnalysisTask
 from apps.proteomics.models import ProteomicsRowResult
+from apps.proteomics.integrations import run_opt_in_reactome
 from apps.proteomics.services import ProteomicsInputError, run_proteomics_analysis
 
 
@@ -31,6 +32,20 @@ def run_proteomics_task(task_id: int) -> dict[str, str | int]:
     try:
         task = AnalysisTask.objects.select_related("dataset").get(pk=task_id)
         result, row_results, release_ids = run_proteomics_analysis(task)
+        AnalysisTask.objects.filter(pk=task_id).update(progress=60)
+        if task.input_parameters.get("externalReactome"):
+            AnalysisTask.objects.filter(pk=task_id).update(progress=70)
+            external_release_ids, external_warnings = run_opt_in_reactome(task, result, row_results)
+            release_ids.extend(external_release_ids)
+            result.setdefault("warnings", []).extend(external_warnings)
+            AnalysisTask.objects.filter(pk=task_id).update(progress=90)
+            external = result.get("externalReactome", {})
+            if external.get("status") in {"unavailable", "no_mapped_identifiers"}:
+                logger.warning(
+                    "External proteomics service incomplete task_id=%s stage=%s",
+                    task_id,
+                    external.get("failureStage", external.get("status")),
+                )
         now = timezone.now()
         with transaction.atomic():
             locked_task = AnalysisTask.objects.select_for_update().get(pk=task_id)
