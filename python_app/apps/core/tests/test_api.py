@@ -43,13 +43,34 @@ class PrivateWorkspaceApiTests(APITestCase):
 
         response = self.client.post(
             reverse("case-list"),
-            {"title": "New case", "deidentified_text": "无直接身份信息"},
+            {
+                "title": "New case",
+                "deidentified_text": "无直接身份信息",
+                "source_reference": "研究资料编号 R-2026-01",
+                "owner_id": self.owner.pk,
+            },
             format="json",
         )
 
         self.assertEqual(response.status_code, 201)
         new_case = MedicalCase.objects.get(pk=response.data["id"])
         self.assertEqual(new_case.owner, self.other_user)
+        self.assertEqual(new_case.source_reference, "研究资料编号 R-2026-01")
+        self.assertEqual(response.data["owner_id"], self.other_user.pk)
+        self.assertEqual(response.data["owner_username"], self.other_user.username)
+
+    def test_case_update_and_delete_are_limited_to_the_owner(self):
+        self.client.force_authenticate(self.other_user)
+
+        update_response = self.client.patch(
+            reverse("case-detail", args=[self.case.pk]), {"title": "Stolen"}, format="json"
+        )
+        delete_response = self.client.delete(reverse("case-detail", args=[self.case.pk]))
+
+        self.assertEqual(update_response.status_code, 404)
+        self.assertEqual(delete_response.status_code, 404)
+        self.case.refresh_from_db()
+        self.assertEqual(self.case.title, "De-identified case")
 
     def test_dataset_and_case_detail_are_scoped_to_owner(self):
         self.client.force_authenticate(self.other_user)
@@ -74,6 +95,7 @@ class PrivateWorkspaceApiTests(APITestCase):
 
         self.assertEqual(datasets.data["count"], 1)
         self.assertEqual(cases.data["count"], 1)
+        self.assertEqual(cases.data["results"][0]["owner_username"], self.owner.username)
         self.assertEqual(tasks.data["count"], 1)
         self.assertEqual(tasks.data["results"][0]["result"]["summary"], "private analysis result")
 

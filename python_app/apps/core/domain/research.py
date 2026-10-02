@@ -38,6 +38,7 @@ class MedicalCase(models.Model):
     title = models.CharField(max_length=200)
     deidentified_text = models.TextField(help_text="只保存去标识化后的医案文本。")
     structured_data = models.JSONField(default=dict, blank=True)
+    source_reference = models.CharField(max_length=500, blank=True, help_text="文献、病例集或其他可核查来源。")
     research_notes = models.TextField(blank=True)
     review_status = models.CharField(
         max_length=16, choices=ReviewStatus.choices, default=ReviewStatus.DRAFT

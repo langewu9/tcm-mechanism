@@ -29,20 +29,26 @@ class ResearchDatasetSerializer(serializers.ModelSerializer):
 
 
 class MedicalCaseSerializer(serializers.ModelSerializer):
+    owner_id = serializers.ReadOnlyField()
+    owner_username = serializers.ReadOnlyField(source="owner.get_username")
+
     class Meta:
         model = MedicalCase
         fields = [
             "id",
+            "owner_id",
+            "owner_username",
             "title",
             "deidentified_text",
             "structured_data",
+            "source_reference",
             "research_notes",
             "review_status",
             "reviewed_at",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "review_status", "reviewed_at", "created_at", "updated_at"]
+        read_only_fields = ["id", "owner_id", "owner_username", "review_status", "reviewed_at", "created_at", "updated_at"]
 
 
 class AnalysisTaskSerializer(serializers.ModelSerializer):
