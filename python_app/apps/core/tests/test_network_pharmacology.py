@@ -2,7 +2,8 @@ from django.contrib.auth import get_user_model
 from django.urls import reverse
 from rest_framework.test import APITestCase
 
-from apps.core.models import AnalysisTask, DataSource, EvidenceRelation, KnowledgeEntity, SourceRelease
+from apps.core.models import AnalysisTask, DataSource, EvidenceRelation, KnowledgeEntity, MedicalCase, MedicalCaseCandidate, SourceRelease
+from apps.core.services.case_analysis import case_input_sha256
 
 
 class NetworkPharmacologyApiTests(APITestCase):
@@ -93,3 +94,86 @@ class NetworkPharmacologyApiTests(APITestCase):
         self.assertEqual(response.data["targets"], [])
         self.assertEqual(response.data["summary"]["unmatchedHerbs"], ["不存在的中药"])
         self.assertEqual(response.data["summary"]["matchedDiseases"], [])
+
+    def test_formula_query_expands_to_its_versioned_herb_relations(self):
+        formula = self.entity(KnowledgeEntity.EntityType.FORMULA, "formula:fixture", "测试方剂")
+        self.relation("formula_herb", formula, self.herb, "fh:1")
+        self.client.force_authenticate(self.owner)
+
+        response = self.client.post(
+            reverse("network-pharmacology"),
+            {"herb": "测试方剂", "disease": "肺纤维化"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data["summary"]["matchedFormulas"], ["测试方剂"])
+        self.assertEqual(response.data["summary"]["matchedHerbs"], ["黄芩"])
+        self.assertEqual(response.data["summary"]["strictIntersectionCount"], 1)
+        formula_link = next(link for link in response.data["network"]["links"] if link["relation"] == "formula_herb")
+        self.assertEqual(formula_link["sourceRecordId"], "fh:1")
+        task = AnalysisTask.objects.get(pk=response.data["taskId"])
+        self.assertIn("formula:fixture", task.input_parameters["formulas"])
+        self.assertIn(self.release, task.source_releases.all())
+
+    def test_accepted_case_formula_creates_a_linked_network_task_and_stale_cases_are_rejected(self):
+        case = MedicalCase.objects.create(
+            owner=self.owner,
+            title="来源医案",
+            deidentified_text="胸闷气短",
+            structured_data={"diagnosis": "肺纤维化"},
+        )
+        formula = self.entity(KnowledgeEntity.EntityType.FORMULA, "formula:accepted", "已确认测试方剂")
+        self.relation("formula_herb", formula, self.herb, "accepted:fh:1")
+        case_task = AnalysisTask.objects.create(
+            owner=self.owner,
+            created_by=self.owner,
+            task_type=AnalysisTask.TaskType.CASE_LINK,
+            status=AnalysisTask.Status.SUCCEEDED,
+            medical_case=case,
+            input_parameters={"caseContentSha256": case_input_sha256(case)},
+        )
+        candidate = MedicalCaseCandidate.objects.create(
+            task=case_task,
+            medical_case=case,
+            candidate_type=MedicalCaseCandidate.CandidateType.FORMULA,
+            label=formula.label,
+            entity=formula,
+            match_status=MedicalCaseCandidate.MatchStatus.EXACT,
+            confidence="0.9000",
+            rank=1,
+            review_status=MedicalCaseCandidate.ReviewStatus.ACCEPTED,
+        )
+        self.client.force_authenticate(self.owner)
+
+        response = self.client.post(
+            reverse("network-pharmacology"),
+            {
+                "herb": formula.label,
+                "disease": "肺纤维化",
+                "source_case_id": case.pk,
+                "source_candidate_id": candidate.pk,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        task = AnalysisTask.objects.get(pk=response.data["taskId"])
+        self.assertEqual(task.medical_case, case)
+        self.assertEqual(task.owner, self.owner)
+        self.assertEqual(task.input_parameters["sourceCandidateId"], candidate.pk)
+        self.assertEqual(task.input_parameters["sourceFormulaStableId"], formula.stable_id)
+
+        case.deidentified_text += "后来补充的内容"
+        case.save(update_fields=["deidentified_text", "updated_at"])
+        stale = self.client.post(
+            reverse("network-pharmacology"),
+            {
+                "herb": formula.label,
+                "disease": "肺纤维化",
+                "source_case_id": case.pk,
+                "source_candidate_id": candidate.pk,
+            },
+            format="json",
+        )
+        self.assertEqual(stale.status_code, 400)
+        self.assertEqual(AnalysisTask.objects.filter(task_type=AnalysisTask.TaskType.NETWORK).count(), 1)

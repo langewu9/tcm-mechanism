@@ -8,6 +8,10 @@ export type NetworkPharmacologyResult = {
     herbs: string[];
     matchedHerbs: string[];
     unmatchedHerbs: string[];
+    formulas?: string[];
+    matchedFormulas?: string[];
+    unmatchedFormulas?: string[];
+    unresolvedFormulas?: string[];
     disease: string;
     matchedDiseases: string[];
     unmatchedDiseases: string[];
@@ -39,7 +43,7 @@ export type NetworkPharmacologyResult = {
   limits: { targetsTruncated: boolean; linksTruncated: boolean };
 };
 
-export const runNetworkPharmacology = (input: { herb: string; disease: string }) =>
+export const runNetworkPharmacology = (input: { herb: string; disease: string; source_case_id?: number; source_candidate_id?: number }) =>
   apiRequest<NetworkPharmacologyResult>("/api/v1/analysis/network-pharmacology/", { method: "POST", body: input });
 
 export const runReactomeEnrichment = (targets: string[]) =>

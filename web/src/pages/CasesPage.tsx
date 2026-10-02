@@ -361,6 +361,8 @@ export function CasesPage() {
                 candidates={analysisCandidates}
                 stale={analysisStale}
                 modelConfiguration={analysisModelConfiguration}
+                caseId={item.id}
+                disease={valueOf(item.structured_data, "diagnosis") === "未填写" ? "" : valueOf(item.structured_data, "diagnosis")}
                 loading={analysisLoadingId === item.id}
                 consent={analysisConsent}
                 reviewingCandidateId={candidateReviewId}
@@ -384,6 +386,8 @@ function CaseAnalysisPanel({
   candidates,
   stale,
   modelConfiguration,
+  caseId,
+  disease,
   loading,
   consent,
   reviewingCandidateId,
@@ -395,6 +399,8 @@ function CaseAnalysisPanel({
   candidates: MedicalCaseCandidate[];
   stale: boolean;
   modelConfiguration: MedicalCaseAnalysis["modelConfiguration"];
+  caseId: number;
+  disease: string;
   loading: boolean;
   consent: boolean;
   reviewingCandidateId: number | null;
@@ -428,7 +434,9 @@ function CaseAnalysisPanel({
           <p className="section-help">模型自评置信度 {Math.round(Number(candidate.confidence) * 100)}%（未经校准，不代表真实概率） · 排序 {candidate.rank}</p>
           <ul className="proteomics-pathways">{candidate.evidence.map((evidence, index) => <li key={`${evidence.field}-${index}`}><strong>{evidenceFieldLabels[evidence.field] ?? evidence.field}</strong><span>“{evidence.quote}”</span></li>)}</ul>
           {candidate.knowledge_evidence.length > 0 && <div className="case-candidate-knowledge"><strong>已核验的本地知识库引用</strong><ul className="proteomics-pathways">{candidate.knowledge_evidence.map((reference) => <li key={reference.refId}><strong>{reference.kind === "entity" ? `${reference.label} · ${reference.stableId}` : `${reference.subject} → ${reference.object} · ${reference.predicate}`}</strong><span>{reference.sourceName} {reference.sourceVersion}{reference.sourceRecordId ? ` / ${reference.sourceRecordId}` : ""}{reference.evidenceType ? ` · ${reference.evidenceType}` : ""}{reference.evidenceText ? ` · ${reference.evidenceText}` : ""}</span></li>)}</ul></div>}
-          <div className="source-record-actions"><button className="btn btn-primary" type="button" disabled={stale || !candidate.entity_id || reviewingCandidateId === candidate.id} onClick={() => onDecision(candidate, "accept")}>{reviewingCandidateId === candidate.id ? "正在记录…" : candidate.review_status === "accepted" ? "再次确认" : "确认候选"}</button><button className="btn btn-secondary" type="button" disabled={reviewingCandidateId === candidate.id} onClick={() => onDecision(candidate, "reject")}>{candidate.review_status === "rejected" ? "再次驳回" : "驳回候选"}</button></div>
+          <div className="source-record-actions"><button className="btn btn-primary" type="button" disabled={stale || !candidate.entity_id || reviewingCandidateId === candidate.id} onClick={() => onDecision(candidate, "accept")}>{reviewingCandidateId === candidate.id ? "正在记录…" : candidate.review_status === "accepted" ? "再次确认" : "确认候选"}</button><button className="btn btn-secondary" type="button" disabled={reviewingCandidateId === candidate.id} onClick={() => onDecision(candidate, "reject")}>{candidate.review_status === "rejected" ? "再次驳回" : "驳回候选"}</button>
+            {candidate.review_status === "accepted" && !stale && candidate.candidate_type === "formula" && candidate.entity_id && <Link className="btn btn-secondary" to="/network-pharmacology" state={{ herb: candidate.entity_label ?? candidate.label, disease, sourceCaseId: caseId, sourceCandidateId: candidate.id }}>用已确认方剂开展网络药理分析</Link>}
+          </div>
         </article>)}</div> : <p className="section-help">模型未返回有逐字原文证据的证候或方剂候选。系统不会自动补选其他实体。</p>}
       </div>}
       {task?.status === "succeeded" && <div className="case-analysis-section"><h5>本地知识库检索上下文</h5>

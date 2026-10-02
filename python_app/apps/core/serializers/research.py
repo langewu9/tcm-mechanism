@@ -205,6 +205,13 @@ class NetworkPharmacologyRequestSerializer(serializers.Serializer):
     herb = serializers.CharField(max_length=1200)
     disease = serializers.CharField(max_length=300)
     limit = serializers.IntegerField(required=False, default=12000, min_value=500, max_value=30000)
+    source_case_id = serializers.IntegerField(required=False, min_value=1)
+    source_candidate_id = serializers.IntegerField(required=False, min_value=1)
+
+    def validate(self, attrs):
+        if bool(attrs.get("source_case_id")) != bool(attrs.get("source_candidate_id")):
+            raise serializers.ValidationError("关联医案分析时必须同时提交医案和候选方剂 ID。")
+        return attrs
 
     def validate_herb(self, value):
         from apps.core.services.network_pharmacology import parse_herb_names

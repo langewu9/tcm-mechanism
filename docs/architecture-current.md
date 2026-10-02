@@ -36,7 +36,7 @@ API 按模块分组：
 | 认证 | `/api/v1/auth/` | 登录会话、CSRF、退出 |
 | 研究工作区 | `/api/v1/research/` | 数据集、医案、分析任务 |
 | 蛋白组学 | `/api/v1/research/datasets/{id}/analyze/`、`analysis-tasks/{id}/rows/`、`analysis-tasks/{id}/export/` | 后台分析、行级 QC/映射结果、CSV/XLSX 导出 |
-| 网络药理 | `/api/v1/analysis/network-pharmacology/` | 本地中药—成分—靶点和疾病—靶点证据交集、网络数据及私有任务记录 |
+| 网络药理 | `/api/v1/analysis/network-pharmacology/` | 本地中药/方剂—成分—靶点和疾病—靶点证据交集、网络数据及私有任务记录；可回链到已确认的医案方剂候选 |
 | R 图表 | `/api/v1/research/analysis-tasks/{id}/visualizations/`、`analysis-artifacts/{id}/download/` | 从已完成任务选取白名单图表数据，异步调用 R 并私有保存 SVG/PDF/PNG/HTML；下载按所有者授权 |
 | 医案分析与审计 | `/api/v1/research/cases/{id}/analysis/`、`cases/{id}/candidates/{candidate_id}/review/`、`cases/{id}/audit/`、`cases/{id}/review/` | 需主动确认的本机模型任务、可逐字核验的结构化观察/候选、研究者逐条审核、版本化证据链和审计记录 |
 | 外部分析 | `/api/v1/analysis/pathway-enrichment/`、`string-network/`；蛋白组学任务的独立同意参数 | 需要显式同意的 Reactome、STRING 物理互作和 g:Profiler GO/KEGG 富集后台任务 |
@@ -83,7 +83,7 @@ API 按模块分组：
 - `/network-pharmacology` 需要登录；通过本地知识实体与证据关系计算中药成分靶点、疾病靶点严格交集和显式疾病—中药直接关联。每个靶点展示来源、版本、原始记录号和关系类型，结果写入当前用户的 `AnalysisTask` 并锁定所用来源版本；不会在无匹配数据时套用示例规则。本地交集本身不代表显著性富集或 PPI；单独的 Reactome 富集和 STRING 物理互作需研究者主动提交外部分析任务。
 - 完成的网络药理交集任务可以请求 R 柱状图；蛋白组学 GO/KEGG 结果也能请求 R 气泡图，worker 仅发送最多 100 条经过校验的图表摘要，并在图中显示 g:Profiler 版本；HTML 产物附对应数据表。R 可产出 SVG/PDF/PNG/HTML。文件 SHA-256、输入摘要哈希和 renderer 版本均入库，可在权限检查后预览 SVG 或下载。R runtime 和 Docker image 尚未实跑，当前 Python worker 用模拟 R 响应测试私有文件持久化/下载。
 - 该闭环尚未实现 Entrez 等完整稳定 ID 映射、原始矩阵统计分析、可交互网络 R 图和完整 PDF 报告；GO/KEGG 已有 g:Profiler 第一版接口、页面和 R 气泡图，仍需实时服务验收和 main 黄金样例对照。本地知识库为空时会明确显示无本地注释，不会伪称外部富集结果。蛋白组学已有独立同意后调用的 STRING 物理互作；管理员来源页也新增本地人类实体 STRING ID 交叉映射，但这不是 STRING 全量目录下载，尚未对真实项目库或 PostgreSQL 做在线验收。
-- 医案智能分析已接通本机/内网模型的首版 Celery 流程，候选引文逐字核验、启用来源版本的一跳 RAG、知识引用白名单、跨来源并列展示、手动审核和来源版本证据链均有自动化测试；当前环境没有配置并运行真实模型；更广文献语料/语义召回、真实项目医案和下游药理/组学任务编排仍待完成。数据集文件上传、解析和当前蛋白组学分析也不等同于完整生信引擎。
+- 医案智能分析已接通本机/内网模型的首版 Celery 流程，候选引文逐字核验、启用来源版本的一跳 RAG、知识引用白名单、跨来源并列展示、手动审核和来源版本证据链均有自动化测试；已确认方剂可进入网络药理工作台并形成关联回医案候选的分析任务；当前环境没有配置并运行真实模型；更广文献语料/语义召回、真实项目医案和下游药理/组学任务编排仍待完成。数据集文件上传、解析和当前蛋白组学分析也不等同于完整生信引擎。
 
 ## 后续填充顺序
 
