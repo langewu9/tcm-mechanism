@@ -50,7 +50,7 @@ function limitByType(nodes: NetworkNode[]) {
   return order.flatMap((type) => (grouped.get(type) ?? []).slice(0, type === "syndrome" ? 2 : 9));
 }
 
-export function NetworkGraph({ network }: { network: NetworkData }) {
+export function NetworkGraph({ network, title = "药理链路拓扑", description = "按证候、方剂、中药、成分、靶点和通路分层展示最近一次分析生成的网络证据。" }: { network: NetworkData; title?: string; description?: string }) {
   const nodes = limitByType(network.nodes.length ? network.nodes : [{ id: "empty", label: "暂无分析", type: "syndrome" }]);
   const nodeIds = new Set(nodes.map((node) => node.id));
   const links = network.links
@@ -87,8 +87,8 @@ export function NetworkGraph({ network }: { network: NetworkData }) {
       <div className="figure-heading">
         <span>Figure G</span>
         <div>
-          <h2>药理链路拓扑</h2>
-          <p>按证候、方剂、中药、成分、靶点和通路分层展示最近一次分析生成的网络证据。</p>
+          <h2>{title}</h2>
+          <p>{description}</p>
         </div>
       </div>
       <div className="network-summary">

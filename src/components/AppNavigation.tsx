@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import {
+  Activity,
   BarChart3,
   Bot,
   Database,
@@ -18,6 +19,7 @@ const primary = [
   { href: "/dashboard", label: "研究总览", shortLabel: "总览", icon: LayoutDashboard },
   { href: "/research", label: "药理检索", shortLabel: "检索", icon: FileSearch },
   { href: "/datasets", label: "数据资产", shortLabel: "数据", icon: Database },
+  { href: "/proteomics", label: "蛋白组学", shortLabel: "蛋白", icon: Activity },
   { href: "/cases", label: "医案库", shortLabel: "医案", icon: FileText },
   { href: "/analysis", label: "智能分析", shortLabel: "分析", icon: FlaskConical },
   { href: "/visualization", label: "网络图谱", shortLabel: "图谱", icon: BarChart3 },
@@ -65,6 +67,6 @@ export function DesktopNavigation({ isAdmin }: { isAdmin: boolean }) {
 }
 
 export function MobileNavigation() {
-  const items = [primary[0], primary[1], primary[4], primary[5], primary[6]];
+  const items = [primary[0], primary[1], primary[3], primary[5], primary[6]];
   return <nav className="mobile-nav lg:hidden" aria-label="移动端导航">{items.map((item) => <NavLink key={item.href} item={item} compact />)}</nav>;
 }

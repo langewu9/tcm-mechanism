@@ -19,6 +19,8 @@ model User {
   cases                 MedicalCase[]
   tasks                 AnalysisTask[]
   pathwayEnrichmentRuns PathwayEnrichmentRun[]
+  proteomicsDatasets    ProteomicsDataset[]
+  proteomicsAnalyses    ProteomicsAnalysis[]
 }
 
 model Dataset {
@@ -41,6 +43,68 @@ model DatasetRow {
   dataJson  String
   datasetId String
   dataset   Dataset @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+}
+
+model ProteomicsDataset {
+  id          String               @id @default(cuid())
+  name        String
+  description String?
+  filename    String
+  type        String
+  rowCount    Int                  @default(0)
+  columnsJson String               @default("[]")
+  mappingJson String               @default("{}")
+  createdAt   DateTime             @default(now())
+  ownerId     String
+  owner       User                 @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  rows        ProteomicsRow[]
+  analyses    ProteomicsAnalysis[]
+
+  @@index([ownerId, createdAt])
+}
+
+model ProteomicsRow {
+  id             String            @id @default(cuid())
+  index          Int
+  originalLabel  String
+  proteinName    String?
+  geneSymbol     String?
+  log2FoldChange Float?
+  pValue         Float?
+  fdr            Float?
+  direction      String?
+  dataJson       String
+  datasetId      String
+  dataset        ProteomicsDataset @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+
+  @@unique([datasetId, index])
+  @@index([datasetId, geneSymbol])
+}
+
+model ProteomicsAnalysis {
+  id                    String            @id @default(cuid())
+  name                  String
+  status                String            @default("COMPLETED")
+  log2FcMin             Float             @default(1)
+  fdrMax                Float             @default(0.05)
+  pValueMax             Float             @default(0.05)
+  inputRowCount         Int               @default(0)
+  selectedRowCount      Int               @default(0)
+  normalizedCount       Int               @default(0)
+  unmappedCount         Int               @default(0)
+  candidateOverlapCount Int               @default(0)
+  sourceVersion         String?
+  resultJson            String
+  errorMessage          String?
+  createdAt             DateTime          @default(now())
+  finishedAt            DateTime?
+  ownerId               String
+  owner                 User              @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  datasetId             String
+  dataset               ProteomicsDataset @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId, createdAt])
+  @@index([datasetId, createdAt])
 }
 
 model MedicalCase {
