@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import json
+import re
+import time
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+from urllib.parse import urlencode, urlsplit
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from django.conf import settings
 from django.utils import timezone
 
 from apps.core.exceptions import TaskQueueUnavailable
-from apps.core.models import AnalysisTask, SourceRelease
+from apps.core.models import AnalysisTask, DataSource, SourceRelease
 from apps.proteomics.external_reactome import (
     ExternalEnrichmentError,
     analyze_reactome_human_pathways,
@@ -19,12 +21,23 @@ from apps.proteomics.external_reactome import (
 )
 
 
-STRING_NETWORK_URL = "https://string-db.org/api/json/network"
+STRING_VERSION_URL = "https://string-db.org/api/json/version"
+STRING_VERSION_RE = re.compile(r"^[0-9]+(?:\.[0-9]+)*$")
 MAX_STRING_IDENTIFIERS = 200
 
 
 class ExternalAnalysisError(RuntimeError):
     """Safe external service error without response bodies or user identifiers."""
+
+
+class _NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, request, file_pointer, code, message, headers, new_url):
+        return None
+
+
+def _open_string(request: Request, timeout: int):
+    """Refuse redirects so submitted identifiers cannot be forwarded elsewhere."""
+    return build_opener(_NoRedirect).open(request, timeout=timeout)
 
 
 def _deduplicate_labels(labels: list[str]) -> list[str]:
@@ -68,7 +81,7 @@ def enqueue_string_network(user, labels: list[str], required_score: int) -> Anal
             "taxonId": 9606,
             "requiredScore": required_score,
             "networkType": "physical",
-            "sourceVersion": settings.STRING_DB_VERSION or None,
+            "stringVersionOverride": settings.STRING_DB_VERSION or None,
             "consentRecorded": True,
         },
     )
@@ -117,7 +130,9 @@ def _run_reactome(labels: list[str]) -> tuple[dict, str | None]:
     return result, enrichment["sourceVersion"]
 
 
-def _request_string_network(labels: list[str], required_score: int) -> list[dict]:
+def _request_string_network(
+    labels: list[str], required_score: int, api_base: str, discovered: bool
+) -> list[dict]:
     params = urlencode({
         "identifiers": "\r".join(labels),
         "species": "9606",
@@ -128,7 +143,7 @@ def _request_string_network(labels: list[str], required_score: int) -> list[dict
         "caller_identity": "tcm_mechanism_platform",
     }).encode("utf-8")
     request = Request(
-        STRING_NETWORK_URL,
+        f"{api_base}/json/network",
         data=params,
         headers={
             "Accept": "application/json",
@@ -138,7 +153,10 @@ def _request_string_network(labels: list[str], required_score: int) -> list[dict
         method="POST",
     )
     try:
-        with urlopen(request, timeout=30) as response:
+        if discovered:
+            # STRING requests at least one second between API calls.
+            time.sleep(1)
+        with _open_string(request, timeout=30) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except HTTPError as exc:
         raise ExternalAnalysisError(f"STRING 返回 HTTP {exc.code}。") from None
@@ -149,8 +167,45 @@ def _request_string_network(labels: list[str], required_score: int) -> list[dict
     return [item for item in payload if isinstance(item, dict)]
 
 
+def _string_api_release() -> tuple[str, str, bool]:
+    """Resolve an immutable versioned STRING endpoint or use an explicit pin."""
+    configured_version = str(settings.STRING_DB_VERSION or "").strip()
+    discovered = not configured_version
+    if configured_version:
+        version = configured_version
+    else:
+        request = Request(
+            STRING_VERSION_URL,
+            headers={"Accept": "application/json", "User-Agent": "TCM-Mechanism-Research/1.0"},
+        )
+        try:
+            with _open_string(request, timeout=15) as response:
+                raw = response.read(64 * 1024 + 1)
+            if len(raw) > 64 * 1024:
+                raise ExternalAnalysisError("STRING 版本响应超过安全大小限制。")
+            payload = json.loads(raw.decode("utf-8"))
+        except ExternalAnalysisError:
+            raise
+        except (HTTPError, URLError, TimeoutError, OSError, UnicodeDecodeError, json.JSONDecodeError):
+            raise ExternalAnalysisError("无法获取 STRING 数据库版本，请稍后重试。") from None
+        if not isinstance(payload, list) or len(payload) != 1 or not isinstance(payload[0], dict):
+            raise ExternalAnalysisError("STRING 版本响应格式无效。")
+        version = str(payload[0].get("string_version") or "").strip()
+        stable_address = str(payload[0].get("stable_address") or "").strip()
+        parsed_address = urlsplit(stable_address)
+        if parsed_address.scheme != "https" or parsed_address.hostname not in {"string-db.org", "www.string-db.org"}:
+            raise ExternalAnalysisError("STRING 版本响应提供了不受信任的地址。")
+
+    if len(version) > 20 or not STRING_VERSION_RE.fullmatch(version):
+        raise ExternalAnalysisError("STRING 数据库版本格式无效，拒绝使用非固定地址。")
+    version_host = "version-" + version.replace(".", "-") + ".string-db.org"
+    api_base = f"https://{version_host}/api"
+    return version, api_base, discovered
+
+
 def _run_string(labels: list[str], required_score: int) -> tuple[dict, str | None]:
-    records = _request_string_network(labels, required_score)
+    version, api_base, discovered = _string_api_release()
+    records = _request_string_network(labels, required_score, api_base, discovered)
     nodes = {}
     edges = []
     for record in records:
@@ -172,7 +227,6 @@ def _run_string(labels: list[str], required_score: int) -> tuple[dict, str | Non
             "score": score,
             "scoreOutOf1000": round(score * 1000),
         })
-    version = settings.STRING_DB_VERSION or None
     return {
         "analysisKind": "string_ppi",
         "organism": "Homo sapiens",
@@ -181,7 +235,8 @@ def _run_string(labels: list[str], required_score: int) -> tuple[dict, str | Non
         "networkType": "physical",
         "source": "STRING",
         "sourceVersion": version,
-        "sourceVersionKnown": bool(version),
+        "sourceVersionKnown": True,
+        "sourceEndpoint": api_base,
         "inputCount": len(labels),
         "interactionCount": len(edges),
         "nodes": list(nodes.values()),
@@ -203,11 +258,30 @@ def query_string_physical_network(labels: list[str], required_score: int) -> tup
     return _run_string(unique_labels, required_score)
 
 
-def _attach_source_release(task: AnalysisTask, slug: str, version: str | None) -> None:
+def _attach_source_release(task: AnalysisTask, slug: str, version: str | None, metadata: dict | None = None) -> None:
     if version:
-        release = SourceRelease.objects.filter(source__slug=slug, version=version).first()
-        if release:
+        if slug == "string":
+            source, _ = DataSource.objects.get_or_create(
+                slug="string",
+                defaults={
+                    "name": "STRING",
+                    "description": "按使用者明确请求提供的蛋白互作与功能网络分析服务。",
+                    "access_mode": DataSource.AccessMode.API,
+                    "documentation_url": "https://string-db.org/help/api/",
+                    "license_note": "请在发布平台前审查 STRING 的引用与使用条款。",
+                    "enabled": True,
+                },
+            )
+            release, _ = SourceRelease.objects.get_or_create(
+                source=source,
+                version=version,
+                defaults={"metadata": metadata or {}},
+            )
             task.source_releases.add(release)
+        else:
+            release = SourceRelease.objects.filter(source__slug=slug, version=version).first()
+            if release:
+                task.source_releases.add(release)
 
 
 def execute_external_analysis(task: AnalysisTask) -> dict:
@@ -219,8 +293,19 @@ def execute_external_analysis(task: AnalysisTask) -> dict:
             result, version = _run_reactome(labels)
             _attach_source_release(task, "reactome", version)
         elif kind == "string_ppi":
+            if DataSource.objects.filter(slug="string", enabled=False).exists():
+                raise ExternalAnalysisError("管理员已停用 STRING 外部分析服务。")
             result, version = _run_string(labels, int(params["requiredScore"]))
-            _attach_source_release(task, "string", version)
+            _attach_source_release(
+                task,
+                "string",
+                version,
+                {
+                    "endpoint": result.get("sourceEndpoint"),
+                    "retrievedAt": result.get("retrievedAt"),
+                    "networkType": "physical",
+                },
+            )
         else:
             raise ExternalAnalysisError("不支持的外部分析类型。")
         task.status = AnalysisTask.Status.SUCCEEDED

@@ -65,10 +65,10 @@ class ExternalAnalysisWorkerTests(APITestCase):
     def setUp(self):
         self.user = get_user_model().objects.create_user(username="external-worker", password="test-password-123")
         self.source = DataSource.objects.create(slug="string", name="STRING")
-        self.release = SourceRelease.objects.create(source=self.source, version="fixture-v1")
+        self.release = SourceRelease.objects.create(source=self.source, version="12.0")
 
     @patch("apps.core.services.external_analysis._request_string_network")
-    @override_settings(STRING_DB_VERSION="fixture-v1")
+    @override_settings(STRING_DB_VERSION="12.0")
     def test_string_worker_persists_network_and_source_version(self, request_network):
         request_network.return_value = [{
             "stringId_A": "9606.ENSP0001",
@@ -95,7 +95,85 @@ class ExternalAnalysisWorkerTests(APITestCase):
         self.assertEqual(outcome["status"], AnalysisTask.Status.SUCCEEDED)
         self.assertEqual(task.result["interactionCount"], 1)
         self.assertEqual(task.result["edges"][0]["scoreOutOf1000"], 910)
+        self.assertEqual(task.result["sourceEndpoint"], "https://version-12-0.string-db.org/api")
         self.assertEqual(list(task.source_releases.all()), [self.release])
+
+    @patch("apps.core.services.external_analysis._request_string_network")
+    @override_settings(STRING_DB_VERSION="12.0")
+    def test_string_worker_respects_administrator_disable_switch(self, request_network):
+        self.source.enabled = False
+        self.source.save(update_fields=["enabled"])
+        task = AnalysisTask.objects.create(
+            owner=self.user,
+            created_by=self.user,
+            task_type=AnalysisTask.TaskType.NETWORK,
+            status=AnalysisTask.Status.QUEUED,
+            input_parameters={
+                "analysisKind": "string_ppi",
+                "rawTargets": ["TP53", "MDM2"],
+                "requiredScore": 700,
+                "consentRecorded": True,
+            },
+        )
+
+        outcome = run_external_analysis_task.run(task.pk)
+        task.refresh_from_db()
+
+        self.assertEqual(outcome["status"], AnalysisTask.Status.FAILED)
+        self.assertIn("已停用", task.error_summary)
+        request_network.assert_not_called()
+
+
+class StringVersionResolutionTests(SimpleTestCase):
+    @override_settings(STRING_DB_VERSION="12.0")
+    @patch("apps.core.services.external_analysis._open_string")
+    def test_explicit_string_version_uses_version_specific_endpoint_without_network_discovery(self, open_string):
+        from apps.core.services.external_analysis import _string_api_release
+
+        self.assertEqual(
+            _string_api_release(),
+            ("12.0", "https://version-12-0.string-db.org/api", False),
+        )
+        open_string.assert_not_called()
+
+    @patch("apps.core.services.external_analysis._open_string")
+    def test_discovers_current_string_version_and_builds_pinned_endpoint(self, open_string):
+        from apps.core.services.external_analysis import _string_api_release
+
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self, _limit):
+                return b'[{"string_version":"12.5","stable_address":"https://string-db.org"}]'
+
+        open_string.return_value = Response()
+        version, endpoint, discovered = _string_api_release()
+
+        self.assertEqual(version, "12.5")
+        self.assertEqual(endpoint, "https://version-12-5.string-db.org/api")
+        self.assertTrue(discovered)
+
+    @patch("apps.core.services.external_analysis._open_string")
+    def test_rejects_untrusted_string_version_endpoint(self, open_string):
+        from apps.core.services.external_analysis import ExternalAnalysisError, _string_api_release
+
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self, _limit):
+                return b'[{"string_version":"12.5","stable_address":"https://attacker.example"}]'
+
+        open_string.return_value = Response()
+        with self.assertRaises(ExternalAnalysisError):
+            _string_api_release()
 
 
 class ProteomicsStringConnectorTests(SimpleTestCase):

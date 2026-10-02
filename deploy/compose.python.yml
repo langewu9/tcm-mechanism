@@ -59,6 +59,7 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/0
       MEDIA_ROOT: /app/var/media
       SQLITE_SOURCE_ROOT: /app/var/source-databases
+      STRING_DB_VERSION: ${STRING_DB_VERSION:-}
     ports:
       - "127.0.0.1:8020:8020"
     volumes:
@@ -83,6 +84,7 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/0
       MEDIA_ROOT: /app/var/media
       SQLITE_SOURCE_ROOT: /app/var/source-databases
+      STRING_DB_VERSION: ${STRING_DB_VERSION:-}
       R_VIZ_BASE_URL: http://r-viz:8001
       R_VIZ_API_TOKEN: local-only-unsafe-render-token
     volumes:

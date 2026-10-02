@@ -24,6 +24,7 @@ x-django-environment: &django-environment
   R_VIZ_BASE_URL: http://r-viz:8001
   R_VIZ_API_TOKEN: ${R_VIZ_API_TOKEN:?Set R_VIZ_API_TOKEN in .env.production}
   DATASET_UPLOAD_MAX_BYTES: ${DATASET_UPLOAD_MAX_BYTES:-104857600}
+  STRING_DB_VERSION: ${STRING_DB_VERSION:-}
 
 services:
   postgres:

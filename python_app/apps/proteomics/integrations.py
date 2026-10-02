@@ -340,7 +340,8 @@ def run_opt_in_string(task, result, row_results, required_score=700):
             "https://string-db.org/help/api/",
             version,
             {
-                "versionStrategy": "administrator-configured-database-version",
+                "versionStrategy": "automatic-discovery-or-configured-pin",
+                "apiEndpoint": network.get("sourceEndpoint"),
                 "retrievedAt": timezone.now().isoformat(),
                 "networkType": "physical",
                 "requiredScore": required_score,
@@ -348,8 +349,6 @@ def run_opt_in_string(task, result, row_results, required_score=700):
             },
         )
         releases.append(release.pk)
-    else:
-        warnings.append("STRING 查询已完成，但服务器未配置 STRING_DB_VERSION，结果版本无法固定。")
     if output["truncatedIdentifierCount"]:
         warnings.append(f"STRING 单次最多发送 200 个标识，另有 {output['truncatedIdentifierCount']} 个未发送。")
     if rejected_count:
