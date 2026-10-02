@@ -44,7 +44,10 @@ class ResearchDatasetViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return ResearchDataset.objects.filter(owner=self.request.user)
+        queryset = ResearchDataset.objects.all()
+        if not self.request.user.is_superuser:
+            queryset = queryset.filter(owner=self.request.user)
+        return queryset
 
     def perform_create(self, serializer):
         serializer.save(owner=self.request.user)
@@ -55,7 +58,10 @@ class MedicalCaseViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return MedicalCase.objects.filter(owner=self.request.user)
+        queryset = MedicalCase.objects.all()
+        if not self.request.user.is_superuser:
+            queryset = queryset.filter(owner=self.request.user)
+        return queryset
 
     def perform_create(self, serializer):
         serializer.save(owner=self.request.user)
@@ -66,7 +72,10 @@ class AnalysisTaskViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return AnalysisTask.objects.filter(owner=self.request.user).select_related("dataset", "medical_case")
+        queryset = AnalysisTask.objects.select_related("dataset", "medical_case")
+        if not self.request.user.is_superuser:
+            queryset = queryset.filter(owner=self.request.user)
+        return queryset
 
 
 class DataSourceViewSet(viewsets.ReadOnlyModelViewSet):

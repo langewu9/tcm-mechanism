@@ -151,7 +151,7 @@ class EvidenceRelation(models.Model):
 
 class ResearchDataset(models.Model):
     owner = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="research_datasets"
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="research_datasets"
     )
     name = models.CharField(max_length=200)
     description = models.TextField(blank=True)
@@ -178,7 +178,7 @@ class MedicalCase(models.Model):
         REVIEWED = "reviewed", "已审核"
 
     owner = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="medical_cases"
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="medical_cases"
     )
     title = models.CharField(max_length=200)
     deidentified_text = models.TextField(help_text="只保存去标识化后的医案文本。")
@@ -213,7 +213,7 @@ class AnalysisTask(models.Model):
         CANCELLED = "cancelled", "已取消"
 
     owner = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="analysis_tasks"
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="analysis_tasks"
     )
     task_type = models.CharField(max_length=20, choices=TaskType.choices)
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.QUEUED)
