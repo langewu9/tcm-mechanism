@@ -4,7 +4,12 @@ from django.views.decorators.csrf import csrf_protect
 from ..views import HealthView, HomeStatsView
 from ..views.auth import CsrfTokenView, ResearcherRegistrationView, SessionView
 from ..views.network_pharmacology import NetworkPharmacologyView
-from ..views.external_analysis import ReactomeEnrichmentView, StringNetworkView
+from ..views.external_analysis import (
+    ChemblActivitySearchView,
+    ChemblMoleculeSearchView,
+    ReactomeEnrichmentView,
+    StringNetworkView,
+)
 
 
 def csrf_checked(view):
@@ -19,6 +24,8 @@ urlpatterns = [
     path("analysis/network-pharmacology/", NetworkPharmacologyView.as_view(), name="network-pharmacology"),
     path("analysis/pathway-enrichment/", ReactomeEnrichmentView.as_view(), name="pathway-enrichment"),
     path("analysis/string-network/", StringNetworkView.as_view(), name="string-network"),
+    path("analysis/chembl/molecules/", ChemblMoleculeSearchView.as_view(), name="chembl-molecule-search"),
+    path("analysis/chembl/activities/", ChemblActivitySearchView.as_view(), name="chembl-activity-search"),
     path("auth/csrf/", csrf_checked(CsrfTokenView.as_view()), name="auth-csrf"),
     path("auth/session/", csrf_checked(SessionView.as_view()), name="auth-session"),
     path("auth/register/", csrf_checked(ResearcherRegistrationView.as_view()), name="auth-register"),

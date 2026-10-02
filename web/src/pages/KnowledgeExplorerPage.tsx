@@ -4,6 +4,7 @@ import { ArrowLeft, Download, Search } from "lucide-react";
 import { logout, type Session } from "../api/auth";
 import { ApiError } from "../api/client";
 import { getEntityNeighborhood, searchCatalogEntities, type EntityNeighborhood, type KnowledgeEntity } from "../api/catalog";
+import { searchChemblActivities, searchChemblMolecules, type ChemblActivitySearch, type ChemblMoleculeSearch } from "../api/chembl";
 
 const entityTypes = [
   ["", "全部实体"], ["disease", "疾病"], ["herb", "中药"], ["formula", "方剂"], ["compound", "成分"],
@@ -27,6 +28,18 @@ function downloadNeighborhood(data: EntityNeighborhood) {
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
+function downloadChemblJson(filename: string, data: ChemblMoleculeSearch | ChemblActivitySearch) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
 export function KnowledgeExplorerPage() {
   const user = useOutletContext<NonNullable<Session["user"]>>();
   const navigate = useNavigate();
@@ -41,6 +54,13 @@ export function KnowledgeExplorerPage() {
   const [busy, setBusy] = useState(false);
   const [detailBusy, setDetailBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [chemblQuery, setChemblQuery] = useState("");
+  const [chemblConsent, setChemblConsent] = useState(false);
+  const [chemblSearch, setChemblSearch] = useState<ChemblMoleculeSearch | null>(null);
+  const [chemblActivity, setChemblActivity] = useState<ChemblActivitySearch | null>(null);
+  const [chemblBusy, setChemblBusy] = useState(false);
+  const [chemblBusyId, setChemblBusyId] = useState<string | null>(null);
+  const [chemblError, setChemblError] = useState<string | null>(null);
   const detailRequest = useRef(0);
 
   async function loadEntities(search: string, type: string, page: number) {
@@ -72,6 +92,47 @@ export function KnowledgeExplorerPage() {
     void loadEntities(normalizedQuery, entityType, 1);
   }
 
+  async function submitChemblSearch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const normalizedQuery = chemblQuery.trim();
+    if (!normalizedQuery) {
+      setChemblError("请输入化合物名称或 ChEMBL 编号。");
+      return;
+    }
+    if (!chemblConsent) {
+      setChemblError("请先阅读并勾选外部查询同意项。");
+      return;
+    }
+    setChemblBusy(true);
+    setChemblError(null);
+    setChemblActivity(null);
+    try {
+      setChemblSearch(await searchChemblMolecules(normalizedQuery, true));
+    } catch (cause) {
+      setChemblSearch(null);
+      setChemblError(errorMessage(cause));
+    } finally {
+      setChemblBusy(false);
+    }
+  }
+
+  async function loadChemblActivities(chemblId: string) {
+    if (!chemblConsent) {
+      setChemblError("请先勾选同意项，再查询该化合物的活性数据。");
+      return;
+    }
+    setChemblBusyId(chemblId);
+    setChemblError(null);
+    setChemblActivity(null);
+    try {
+      setChemblActivity(await searchChemblActivities(chemblId, true));
+    } catch (cause) {
+      setChemblError(errorMessage(cause));
+    } finally {
+      setChemblBusyId(null);
+    }
+  }
+
   async function selectEntity(entity: KnowledgeEntity) {
     const requestId = ++detailRequest.current;
     setSelected(entity);
@@ -101,6 +162,30 @@ export function KnowledgeExplorerPage() {
     </header>
     <div className="app-main workspace-main"><div className="app-main-inner">
       <div className="page-heading"><div className="page-heading-copy"><p className="page-kicker">Research knowledge catalogue</p><h1 className="page-title">科研知识检索</h1><p className="page-description">检索已导入的疾病、中药、方剂、成分、基因、蛋白和通路，并查看逐条关系证据与来源版本。这里只查询本地目录，不会调用外部服务。</p></div><Link to="/" className="btn btn-secondary"><ArrowLeft size={16} />返回首页</Link></div>
+      <section className="panel chembl-panel">
+        <div className="panel-header"><div><p className="page-kicker">External evidence · ChEMBL</p><h2 className="section-title-sm">化合物与生物活性检索</h2><p className="section-help">借鉴 main 分支的 ChEMBL 化合物/活性查询。通过 ChEMBL 官方服务获取化合物编号、结构摘要、实验测定值和靶点信息。</p></div><a href="https://www.ebi.ac.uk/chembl/" target="_blank" rel="noreferrer">ChEMBL 官方数据</a></div>
+        <form className="chembl-search-form" onSubmit={(event) => void submitChemblSearch(event)}>
+          <label className="form-label" htmlFor="chembl-query">化合物名称或 ChEMBL 编号<input className="field" id="chembl-query" value={chemblQuery} maxLength={120} onChange={(event) => setChemblQuery(event.target.value)} placeholder="例如：quercetin、CHEMBL50" required /></label>
+          <button className="btn btn-primary" type="submit" disabled={chemblBusy}>{chemblBusy ? "正在查询…" : "查询 ChEMBL"}</button>
+          <label className="chembl-consent"><input type="checkbox" checked={chemblConsent} onChange={(event) => setChemblConsent(event.target.checked)} /><span>我同意将输入的查询词，以及我选择的 ChEMBL 编号用于后续活性查询，发送到 ChEMBL 官方服务。不会发送医案正文、上传文件或账号标识。</span></label>
+        </form>
+        {chemblError && <div className="notice-error workspace-notice" role="alert">{chemblError}</div>}
+        {chemblSearch && <section className="chembl-results" aria-live="polite">
+          <div className="case-list-heading"><div><p className="page-kicker">{chemblSearch.source} · {chemblSearch.sourceVersion}</p><h3 className="section-title-sm">化合物结果</h3></div><div className="case-list-actions"><span>{chemblSearch.results.length} / 最多 {chemblSearch.limit} 条</span><button className="btn btn-secondary" type="button" onClick={() => downloadChemblJson(`chembl-molecules-${chemblSearch.sourceVersion}.json`, chemblSearch)}><Download size={14} />导出 JSON</button></div></div>
+          <p className="knowledge-evidence-source">数据版本 {chemblSearch.sourceVersion}{chemblSearch.releaseDate ? `（${chemblSearch.releaseDate}）` : ""} · 查询时间 {new Date(chemblSearch.retrievedAt).toLocaleString()} · <a href="https://chembl.gitbook.io/chembl-interface-documentation/web-services/chembl-data-web-services" target="_blank" rel="noreferrer">官方 API 说明</a></p>
+          {!chemblSearch.results.length ? <div className="empty-state"><strong>ChEMBL 没有返回匹配的化合物</strong><p>可以尝试英文通用名、其他别名或化合物编号。</p></div> : <div className="chembl-molecule-list">{chemblSearch.results.map((molecule) => <article className="chembl-molecule-card" key={molecule.chemblId}>
+            <div className="chembl-molecule-copy"><h4>{molecule.preferredName || molecule.chemblId}</h4><p><a href={molecule.recordUrl} target="_blank" rel="noreferrer">{molecule.chemblId}</a>{molecule.moleculeType ? ` · ${molecule.moleculeType}` : ""}{molecule.maxPhase ? ` · 最高研发阶段 ${molecule.maxPhase}` : ""}{molecule.naturalProduct === 1 ? " · 天然产物" : molecule.naturalProduct === 0 ? " · 非天然产物" : " · 天然产物分类未标注"}</p>{molecule.canonicalSmiles && <details><summary>查看 canonical SMILES</summary><code>{molecule.canonicalSmiles}</code></details>}</div>
+            <button className="btn btn-secondary" type="button" disabled={chemblBusyId === molecule.chemblId || !chemblConsent} onClick={() => void loadChemblActivities(molecule.chemblId)}>{chemblBusyId === molecule.chemblId ? "正在查询…" : "查看活性与靶点"}</button>
+          </article>)}</div>}
+        </section>}
+        {chemblActivity && <section className="chembl-results" aria-live="polite">
+          <div className="case-list-heading"><div><p className="page-kicker">{chemblActivity.chemblId} · {chemblActivity.sourceVersion}</p><h3 className="section-title-sm">实验活性与靶点</h3></div><div className="case-list-actions"><span>{chemblActivity.results.length} / {chemblActivity.totalCount} 条</span><button className="btn btn-secondary" type="button" onClick={() => downloadChemblJson(`chembl-activities-${chemblActivity.chemblId}-${chemblActivity.sourceVersion}.json`, chemblActivity)}><Download size={14} />导出 JSON</button></div></div>
+          <p className="knowledge-evidence-source">显示上限 {chemblActivity.resultLimit} 条 · 查询时间 {new Date(chemblActivity.retrievedAt).toLocaleString()} · 来源 <a href={`https://www.ebi.ac.uk/chembl/compound_report_card/${chemblActivity.chemblId}/`} target="_blank" rel="noreferrer">ChEMBL {chemblActivity.chemblId}</a></p>
+          {!chemblActivity.results.length ? <div className="empty-state"><strong>没有可显示的实验活性记录</strong></div> : <div className="chembl-table-scroll"><table className="chembl-activity-table"><thead><tr><th>测定类型</th><th>标准化结果</th><th>pChEMBL</th><th>靶点</th><th>实验</th><th>文献</th></tr></thead><tbody>{chemblActivity.results.map((activity, index) => <tr key={activity.activityId ?? index}><td>{activity.standardType || "未标注"}</td><td>{activity.relation} {activity.value} {activity.units}</td><td>{activity.pchemblValue || "—"}</td><td>{activity.targetName || "未标注"}{activity.targetId && <small>{activity.targetId}</small>}</td><td>{activity.assayType || "—"} · {activity.assayDescription || activity.assayId || "未标注"}</td><td>{activity.documentId || "—"}</td></tr>)}</tbody></table></div>}
+          {chemblActivity.truncated && <p className="notice-warning">记录总数超过单次上限：先按 pChEMBL 值由高到低显示有该值的记录，再补充有标准化测量值的记录。</p>}
+          <p className="notice-warning">活性值受实验条件、测定类型和靶点物种影响；这些记录不等于临床疗效，也不会自动推断为中药作用机制。</p>
+        </section>}
+      </section>
       {error && <div className="notice-error workspace-notice" role="alert">{error}</div>}
       <div className="knowledge-explorer-grid">
         <section className="case-list">

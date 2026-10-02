@@ -1,10 +1,17 @@
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import APIException, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
+from ..serializers.chembl import (
+    ChemblActivityRequestSerializer,
+    ChemblActivityResponseSerializer,
+    ChemblMoleculeSearchRequestSerializer,
+    ChemblMoleculeSearchResponseSerializer,
+)
 from ..serializers.research import (
     ExternalGeneListRequestSerializer,
     AnalysisTaskSerializer,
@@ -14,6 +21,13 @@ from ..services.external_analysis import (
     enqueue_reactome_enrichment,
     enqueue_string_network,
 )
+from ..services.chembl import ChemblServiceError, molecule_activities, search_molecules
+
+
+class ChemblUnavailable(APIException):
+    status_code = 503
+    default_detail = "ChEMBL 服务暂时不可用，请稍后重试。"
+    default_code = "service_unavailable"
 
 
 class ReactomeEnrichmentView(APIView):
@@ -43,3 +57,38 @@ class StringNetworkView(APIView):
         except ValueError as exc:
             raise ValidationError({"targets": str(exc)}) from exc
         return Response(AnalysisTaskSerializer(task).data, status=status.HTTP_202_ACCEPTED)
+
+
+class ChemblMoleculeSearchView(APIView):
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "chembl"
+
+    @extend_schema(request=ChemblMoleculeSearchRequestSerializer, responses=ChemblMoleculeSearchResponseSerializer)
+    def post(self, request):
+        serializer = ChemblMoleculeSearchRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            result = search_molecules(serializer.validated_data["query"])
+        except ChemblServiceError as exc:
+            raise ChemblUnavailable(str(exc)) from exc
+        return Response(result)
+
+
+class ChemblActivitySearchView(APIView):
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "chembl"
+
+    @extend_schema(request=ChemblActivityRequestSerializer, responses=ChemblActivityResponseSerializer)
+    def post(self, request):
+        serializer = ChemblActivityRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        chembl_id = serializer.validated_data["chemblId"]
+        try:
+            result = molecule_activities(chembl_id)
+        except ValueError as exc:
+            raise ValidationError({"chemblId": str(exc)}) from exc
+        except ChemblServiceError as exc:
+            raise ChemblUnavailable(str(exc)) from exc
+        return Response(result)
