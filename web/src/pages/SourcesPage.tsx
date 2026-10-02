@@ -180,15 +180,16 @@ export function SourcesPage() {
               <div className="case-record-top"><div><h3>{source.name}</h3><time>{source.slug} · {source.access_mode === "download" ? "版本文件" : source.access_mode}</time></div>
                 <span className={`status-badge ${source.enabled ? "status-success" : "status-warning"}`}>{source.enabled ? "已启用" : "已停用"}</span></div>
               <p className="dataset-description">{source.description}</p>
-              {source.connector_type === "reactome-catalog" || source.slug === "reactome" || source.connector_type === "uniprot-human-catalog" || source.connector_type === "pubchem-compound-catalog" ? <>
+              {source.connector_type === "reactome-catalog" || source.slug === "reactome" || source.connector_type === "uniprot-human-catalog" || source.connector_type === "pubchem-compound-catalog" || source.connector_type === "string-human-identifier-crosswalk" ? <>
                 <p className="source-last-success">最近一次成功应用：{dateTime(source.last_success_at)}</p>
                 {source.connector_type === "uniprot-human-catalog" && <p className="section-help">只同步人类 reviewed 蛋白条目。系统将先按基因符号尝试关联已有靶点；多重匹配会保留为歧义，应用前请检查预览。</p>}
                 {source.connector_type === "pubchem-compound-catalog" && <p className="section-help">PubChem 只补充已登记成分的化学属性。请先在 Django 管理后台核对并配置 CID 到本地成分 stableId 的映射；系统不会按名称猜测或自动改绑。配置格式：<code>{'{"connector":"pubchem-compound-catalog","mappings":[{"stableId":"本地成分stable_id","cid":"5280343"}]}'}</code></p>}
+                {source.connector_type === "string-human-identifier-crosswalk" && <p className="section-help">只为已明确标注为人类的本地基因/蛋白补充 STRING ID，不下载完整蛋白目录、不创建或合并实体。STRING 返回最佳匹配，重名、冲突和未匹配记录会在预览中单独统计；应用前请检查样例。</p>}
                 <div className="source-record-actions">
                   <button className="btn btn-primary" type="button" disabled={!source.enabled || busy === source.id}
                     onClick={() => void startPreview(source)}>
                     {busy === source.id ? <RefreshCw size={15} className="spin" /> : <Database size={15} />}
-                    {busy === source.id ? "正在提交…" : source.connector_type === "uniprot-human-catalog" ? "预览 UniProt 目录" : source.connector_type === "pubchem-compound-catalog" ? "预览 PubChem 属性" : "检查目录变更"}
+                    {busy === source.id ? "正在提交…" : source.connector_type === "uniprot-human-catalog" ? "预览 UniProt 目录" : source.connector_type === "pubchem-compound-catalog" ? "预览 PubChem 属性" : source.connector_type === "string-human-identifier-crosswalk" ? "预览 STRING 标识映射" : "检查目录变更"}
                   </button>
                   {source.connector_type === "pubchem-compound-catalog" && <a className="btn btn-secondary" href="/admin/core/datasource/">配置 CID 映射</a>}
                   {source.documentation_url && <a className="btn btn-secondary" href={source.documentation_url} target="_blank" rel="noreferrer">接口与来源说明</a>}
@@ -251,7 +252,8 @@ export function SourcesPage() {
               const isSQLite = summary.connector === "sqlite-herb-compound-target";
               const isUniProt = summary.connector === "uniprot-human-catalog";
               const isPubChem = summary.connector === "pubchem-compound-catalog";
-              const syncLabel = isSQLite ? "SQLite 关系数据" : isUniProt ? "UniProt 人类审核蛋白目录" : isPubChem ? "PubChem 化合物属性" : "Reactome 通路目录";
+              const isString = summary.connector === "string-human-identifier-crosswalk";
+              const syncLabel = isSQLite ? "SQLite 关系数据" : isUniProt ? "UniProt 人类审核蛋白目录" : isPubChem ? "PubChem 化合物属性" : isString ? "STRING 人类标识映射" : "Reactome 通路目录";
               const canApply = summary.mode === "preview" && run.status === "succeeded" && !activeApplyBases.has(run.id);
               return <article className="panel source-run-record" key={run.id}>
                 <div className="case-record-top"><div><h3>{run.source_name} · {summary.mode === "apply" ? "应用数据" : "预览数据"} #{run.id}</h3>
@@ -284,6 +286,15 @@ export function SourcesPage() {
                       <Metric label="将更新属性" value={summary.wouldUpdate ?? 0} />
                       <Metric label="无需变化" value={summary.unchanged ?? 0} />
                       <Metric label="将停用旧 CID" value={summary.wouldRetire ?? 0} />
+                    </> : isString ? <>
+                      <Metric label="本地人类实体" value={summary.localHumanEntityCount ?? 0} />
+                      <Metric label="STRING 映射" value={summary.totalRecords ?? run.records_seen} />
+                      <Metric label="新增标识" value={summary.wouldCreate ?? 0} />
+                      <Metric label="将更新标识" value={summary.wouldUpdate ?? 0} />
+                      <Metric label="未匹配查询" value={summary.unmappedQueries ?? 0} />
+                      <Metric label="本地重名冲突" value={summary.ambiguousLocalEntities ?? 0} />
+                      <Metric label="归属冲突" value={summary.identifierConflicts ?? 0} />
+                      <Metric label="将停用旧标识" value={summary.wouldRetire ?? 0} />
                     </> : <>
                       <Metric label="通路总数" value={summary.totalRecords ?? run.records_seen} />
                       <Metric label="新增" value={summary.wouldCreate ?? 0} />
@@ -291,9 +302,10 @@ export function SourcesPage() {
                       <Metric label="停用" value={summary.wouldRetire ?? 0} />
                     </>}
                   </div>
-                  <p className="source-release-line">{isSQLite ? `${summary.databaseFile ?? "SQLite 文件"} · ${summary.table ?? "数据表"} · ` : isUniProt ? `UniProt ${summary.sourceVersion ?? "未知版本"} · ${summary.pageCount ?? 0} 页 · ` : isPubChem ? `PubChem ${summary.sourceVersion ?? "快照"} · ${summary.pageCount ?? 0} 批 · ` : `Reactome v${summary.sourceVersion ?? "未知"} · `}来源版本 {summary.releaseVersion ?? run.release_version ?? "—"}</p>
+                  <p className="source-release-line">{isSQLite ? `${summary.databaseFile ?? "SQLite 文件"} · ${summary.table ?? "数据表"} · ` : isUniProt ? `UniProt ${summary.sourceVersion ?? "未知版本"} · ${summary.pageCount ?? 0} 页 · ` : isPubChem ? `PubChem ${summary.sourceVersion ?? "快照"} · ${summary.pageCount ?? 0} 批 · ` : isString ? `STRING ${summary.sourceVersion ?? "未知版本"} · ${summary.submittedQueryCount ?? 0} 个查询 · ` : `Reactome v${summary.sourceVersion ?? "未知"} · `}来源版本 {summary.releaseVersion ?? run.release_version ?? "—"}</p>
                   <code className="source-checksum">SHA-256：{summary.checksumSha256 ?? run.release_checksum ?? "—"}</code>
                   {isPubChem && summary.previewRecords?.length ? <><ul className="proteomics-pathways source-table-counts">{summary.previewRecords.map((record) => <li key={record.cid}><strong>{record.compound} · CID {record.cid}</strong><span>{record.molecularFormula || "无分子式"} · {record.molecularWeight || "无分子量"} · {record.inchiKey || "无 InChIKey"}</span></li>)}</ul>{summary.previewRecordsTruncated && <p className="section-help">这里只展示前 20 条，完整映射数见上方统计。</p>}</> : null}
+                  {isString && summary.previewRecords?.length ? <><ul className="proteomics-pathways source-table-counts">{summary.previewRecords.map((record) => <li key={record.entityStableId}><strong>{record.entityStableId} · {record.query}</strong><span>{record.stringId} · {record.preferredName || "无首选名称"} · {record.annotation || "无注释"}</span></li>)}</ul>{summary.previewRecordsTruncated && <p className="section-help">这里只展示前 20 条映射样例，完整数量见上方统计。</p>}</> : null}
                   <p className="section-help">{syncLabel}预览只保存来源版本与变更统计，不会修改知识目录。应用时会重新读取来源并核对校验值。</p>
                   {canApply && <button className="btn btn-primary source-apply-button" type="button" disabled={busy === run.source}
                     onClick={() => void applyPreview(run)}><CheckCircle2 size={15} />应用此预览</button>}

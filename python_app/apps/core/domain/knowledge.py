@@ -102,7 +102,7 @@ class EntityIdentifier(models.Model):
             ),
             models.UniqueConstraint(
                 fields=["namespace", "identifier"],
-                condition=models.Q(namespace__in=["uniprot", "pubchem"]),
+                condition=models.Q(namespace__in=["uniprot", "pubchem", "string"]),
                 name="uniq_global_external_identifier",
             ),
         ]

@@ -64,8 +64,13 @@ class ExternalAnalysisApiTests(APITestCase):
 class ExternalAnalysisWorkerTests(APITestCase):
     def setUp(self):
         self.user = get_user_model().objects.create_user(username="external-worker", password="test-password-123")
-        self.source = DataSource.objects.create(slug="string", name="STRING")
-        self.release = SourceRelease.objects.create(source=self.source, version="12.0")
+        self.source, _ = DataSource.objects.get_or_create(
+            slug="string",
+            defaults={"name": "STRING", "access_mode": DataSource.AccessMode.API},
+        )
+        self.source.enabled = True
+        self.source.save(update_fields=["enabled"])
+        self.release, _ = SourceRelease.objects.get_or_create(source=self.source, version="12.0")
 
     @patch("apps.core.services.external_analysis._request_string_network")
     @override_settings(STRING_DB_VERSION="12.0")

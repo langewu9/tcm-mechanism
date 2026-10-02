@@ -12,7 +12,7 @@ export type AdminDataSource = {
   last_success_at: string | null;
   latest_run_status: string | null;
   latest_run_at: string | null;
-  connector_type: "reactome-catalog" | "sqlite-herb-compound-target" | "uniprot-human-catalog" | "pubchem-compound-catalog" | string;
+  connector_type: "reactome-catalog" | "sqlite-herb-compound-target" | "uniprot-human-catalog" | "pubchem-compound-catalog" | "string-human-identifier-crosswalk" | string;
 };
 
 export type SyncRun = {
@@ -58,14 +58,26 @@ export type SyncRun = {
     releaseDate?: string | null;
     geneSymbolsMappedToExistingTargets?: number;
     ambiguousLocalGeneSymbols?: number;
+    localHumanEntityCount?: number;
+    submittedQueryCount?: number;
+    unmappedQueries?: number;
+    ambiguousLocalEntities?: number;
+    ambiguousStringIds?: number;
+    identifierConflicts?: number;
+    conflictFingerprint?: string;
     previewRecords?: Array<{
-      compound: string;
-      stableId: string;
-      cid: string;
-      molecularFormula: string;
-      molecularWeight: string;
-      inchiKey: string;
-      iupacName: string;
+      compound?: string;
+      stableId?: string;
+      cid?: string;
+      molecularFormula?: string;
+      molecularWeight?: string;
+      inchiKey?: string;
+      iupacName?: string;
+      entityStableId?: string;
+      query?: string;
+      stringId?: string;
+      preferredName?: string;
+      annotation?: string;
     }>;
     previewRecordsTruncated?: boolean;
   };

@@ -22,6 +22,7 @@ from apps.sources.services import (
     PUBCHEM_CONNECTOR,
     REACTOME_CONNECTOR,
     REACTOME_SOURCE_SLUG,
+    STRING_CONNECTOR,
     UNIPROT_CONNECTOR,
     enqueue_sync_run,
 )
@@ -94,9 +95,10 @@ class SourceSyncPreviewView(APIView):
         except DataSource.DoesNotExist as exc:
             raise NotFound("找不到指定的数据源。") from exc
         connector = (source.configuration or {}).get("connector") or (
-            REACTOME_CONNECTOR if source.slug == REACTOME_SOURCE_SLUG else ""
+            REACTOME_CONNECTOR if source.slug == REACTOME_SOURCE_SLUG else
+            STRING_CONNECTOR if source.slug == "string" else ""
         )
-        if connector not in {REACTOME_CONNECTOR, SQLITE_CONNECTOR, UNIPROT_CONNECTOR, PUBCHEM_CONNECTOR}:
+        if connector not in {REACTOME_CONNECTOR, SQLITE_CONNECTOR, UNIPROT_CONNECTOR, PUBCHEM_CONNECTOR, STRING_CONNECTOR}:
             raise ValidationError("当前版本不支持该数据源的同步连接器。")
         if not source.enabled:
             raise ValidationError("该数据源已停用，不能执行同步。")
@@ -125,9 +127,10 @@ class SourceSyncApplyView(APIView):
             if preview.status != SyncRun.Status.SUCCEEDED or (preview.preview_summary or {}).get("mode") != "preview":
                 raise ValidationError("只能应用已成功的目录预览。")
             connector = (preview.preview_summary or {}).get("connector") or (
-                REACTOME_CONNECTOR if preview.source.slug == REACTOME_SOURCE_SLUG else ""
+                REACTOME_CONNECTOR if preview.source.slug == REACTOME_SOURCE_SLUG else
+                STRING_CONNECTOR if preview.source.slug == "string" else ""
             )
-            if connector not in {REACTOME_CONNECTOR, SQLITE_CONNECTOR, UNIPROT_CONNECTOR, PUBCHEM_CONNECTOR} or not preview.release_id or not preview.cursor:
+            if connector not in {REACTOME_CONNECTOR, SQLITE_CONNECTOR, UNIPROT_CONNECTOR, PUBCHEM_CONNECTOR, STRING_CONNECTOR} or not preview.release_id or not preview.cursor:
                 raise ValidationError("预览记录缺少可应用的来源版本信息。")
             if not preview.source.enabled:
                 raise ValidationError("该数据源已停用，不能执行同步。")

@@ -41,7 +41,7 @@ API 按模块分组：
 | 医案审计 | `/api/v1/research/cases/{id}/audit/`、`cases/{id}/review/` | 私有操作日志；管理员审核通过会记录操作者和时间 |
 | 外部分析 | `/api/v1/analysis/pathway-enrichment/`、`string-network/` | 需要显式同意的 Reactome 富集和 STRING 物理互作后台任务 |
 | 知识目录 | `/api/v1/catalog/` | 数据源、实体、证据关系 |
-| 管理员数据源同步 | `/api/v1/admin/sources/`、`sync-runs/` | Reactome、UniProt、经人工 CID 映射的 PubChem 成分属性与受控旧 SQLite 来源的后台试运行、审计历史和人工应用 |
+| 管理员数据源同步 | `/api/v1/admin/sources/`、`sync-runs/` | Reactome、UniProt、人工 CID 映射的 PubChem、STRING 人类标识映射与受控旧 SQLite 来源的后台预览、审计历史和人工应用 |
 | 平台状态 | `/api/v1/health/` | 服务与数据库可用状态 |
 
 模块拆分不改变现有数据库表名和迁移编号。以后模块增长到需要独立发布、权限配置或迁移边界时，再拆成独立 Django apps。
@@ -79,17 +79,17 @@ API 按模块分组：
 - `/proteomics` 需要登录：用户选择自己的数据集、列和筛选阈值后创建 Celery 任务；结果保留输入文件 SHA-256、算法版本、参数、请求者/数据所有者、行级 QC 和所用本地来源版本。
 - 当前分析能力限于差异蛋白表的解析、基础阈值筛选、本地知识实体精确匹配、标识符格式推测（明确提示未验证）、输入候选靶点交集，以及本地已登记基因—通路证据构成的网络/degree。结果可分页查看并按 CSV/XLSX/JSON 导出。
 - 研究者可分别勾选外部分析；默认关闭。MyGene.info/Reactome 链路最多处理 500 个通过筛选的人类标识；STRING PPI 是单独的同意项，最多提交 200 个规范化标识，默认置信度 700/1000，可由用户调整。完整上传文件、未通过行、账号和医案不发送。MyGene 精确符号先匹配，模糊多结果保留为歧义；映射结果、Reactome 版本、STRING 查询结果和可用时的数据库版本进入任务溯源。默认会先读取 STRING 当前版本，再通过官方版本专属地址查询；配置 `STRING_DB_VERSION` 可固定到指定版本。查询拒绝跨域重定向，避免把研究标识转发到其他主机。STRING 的外部 PPI 结果与本地来源网络 degree 分开展示，不混作同一指标。当前有合成数据测试，尚未用真实项目文件逐项核对 main 输出。
-- `/admin/sources` 仅平台超级管理员可访问；Reactome 人类通路目录、UniProt 人类 reviewed 蛋白目录、PubChem 化学属性和 main `backend/cache_builder.py` 生成的旧 SQLite 三表（中药—成分—靶点、疾病—靶点、疾病—中药—靶点）可在该页管理。Reactome/UniProt 预览生成 release 与 SHA-256，人工应用前复核并幂等写入；UniProt accession 与基因/蛋白别名作为独立版本化标识记录，优先关联唯一已有靶点，冲突项维持歧义。PubChem 只读取管理员在 Django Admin 配置的 CID—compound stable ID 映射，不按名称猜测；预览返回属性与差异，应用时重新读取并复核映射/响应哈希，将属性写入成分 metadata 并登记版本化 CID。SQLite 只读打开配置目录内的相对路径，检查三表/列映射和文件校验值，按批次导入中药、成分、疾病、靶点及来源关系；重复来源通过唯一键更新，删除项软停用，版本、操作者、状态和计数进入审计。无任意绝对路径或连接串接口。Reactome 当前目录 2,883 条已在临时 SQLite 验证；UniProt 20,431 条已完整导入临时 SQLite 并验证重复应用幂等；PubChem PUG REST 的 6 个 main seed CID 响应已校验，1 个 CID 的预览/应用/重复预览已在一次性 SQLite 验证，临时库已删除；PubChem 数据未写入开发或生产数据库；三表 SQLite 仅以合成表验证，真实旧库不在仓库。
+- `/admin/sources` 仅平台超级管理员可访问；Reactome 人类通路目录、UniProt 人类 reviewed 蛋白目录、PubChem 化学属性、STRING 人类标识映射和 main `backend/cache_builder.py` 生成的旧 SQLite 三表（中药—成分—靶点、疾病—靶点、疾病—中药—靶点）可在该页管理。Reactome/UniProt 预览生成 release 与 SHA-256，人工应用前复核并幂等写入；UniProt accession 与基因/蛋白别名作为独立版本化标识记录，优先关联唯一已有靶点，冲突项维持歧义。PubChem 只读取管理员在 Django Admin 配置的 CID—compound stable ID 映射，不按名称猜测；预览返回属性与差异，应用时重新读取并复核映射/响应哈希，将属性写入成分 metadata 并登记版本化 CID。STRING 连接器不下载 STRING 全量人类蛋白目录，也不新建或合并实体；它只对明确标注为人类或已有 UniProt reviewed 人类来源 ID 的本地基因/蛋白查询 STRING ID，保存版本、查询映射和 SHA-256，展示匹配样例/本地重名/归属冲突；管理员确认后幂等写入全局唯一的 STRING identifier，归属冲突不自动改绑。SQLite 只读打开配置目录内的相对路径，检查三表/列映射和文件校验值，按批次导入中药、成分、疾病、靶点及来源关系；重复来源通过唯一键更新，删除项软停用，版本、操作者、状态和计数进入审计。无任意绝对路径或连接串接口。Reactome 当前目录 2,883 条已在临时 SQLite 验证；UniProt 20,431 条已完整导入临时 SQLite 并验证重复应用幂等；PubChem PUG REST 的 6 个 main seed CID 响应已校验，1 个 CID 的预览/应用/重复预览已在一次性 SQLite 验证，临时库已删除；STRING v12.5 官方 API 的单条 TP53 标识映射实测通过，10 项模拟 connector/权限/幂等测试通过，但尚未对真实本地目录或 PostgreSQL 执行同步；PubChem 数据未写入开发或生产数据库；三表 SQLite 仅以合成表验证，真实旧库不在仓库。
 - `/network-pharmacology` 需要登录；通过本地知识实体与证据关系计算中药成分靶点、疾病靶点严格交集和显式疾病—中药直接关联。每个靶点展示来源、版本、原始记录号和关系类型，结果写入当前用户的 `AnalysisTask` 并锁定所用来源版本；不会在无匹配数据时套用示例规则。本地交集本身不代表显著性富集或 PPI；单独的 Reactome 富集和 STRING 物理互作需研究者主动提交外部分析任务。
 - 完成的网络药理交集任务可以请求 R 柱状图；worker 只从任务结果选取重叠计数，R 目前产出静态 SVG/PDF/PNG/HTML。文件 SHA-256、输入摘要哈希和 renderer 版本均入库，可在权限检查后预览 SVG 或下载。R runtime 和 Docker image 尚未实跑，当前 Python worker 用模拟 R 响应测试私有文件持久化/下载。
-- 该闭环尚未实现 UniProt/Entrez 完整稳定 ID 映射、GO/KEGG 富集、原始矩阵统计分析、可交互网络 R 图和完整 PDF 报告；本地知识库为空时会明确显示无本地注释，不会伪称外部富集结果。蛋白组学现已提供独立同意后调用的 STRING 物理互作第一版，但尚未实现 STRING 目录同步，也没有通过真实项目样本核对。
+- 该闭环尚未实现 UniProt/Entrez 完整稳定 ID 映射、GO/KEGG 富集、原始矩阵统计分析、可交互网络 R 图和完整 PDF 报告；本地知识库为空时会明确显示无本地注释，不会伪称外部富集结果。蛋白组学已有独立同意后调用的 STRING 物理互作；管理员来源页也新增本地人类实体 STRING ID 交叉映射，但这不是 STRING 全量目录下载，尚未对真实项目库或 PostgreSQL 做在线验收。
 - 医案智能分析/候选生成仍未接通；数据集文件上传、解析和当前蛋白组学分析不等同于完整生信引擎。
 
 ## 后续填充顺序
 
 1. 用 main 的实际样例和输出核对当前蛋白组学逻辑；继续补充外部稳定 ID 映射、GO/KEGG 富集、原始矩阵分析和报告图表，并验证已接入的 STRING PPI；不得把本地网络 degree 误报为 PPI 或富集。
-2. 取得旧 SQLite 文件并确认许可/字段语义后做真实数据导入验收；继续逐项验证 UniProt/PubChem 与真实项目字段，按许可和速率限制实现 STRING 版本目录同步，并完善大文件负载和失败恢复策略。
+2. 取得旧 SQLite 文件并确认许可/字段语义后做真实数据导入验收；继续逐项验证 UniProt/PubChem/STRING 与真实项目字段，核对 STRING 人类标识映射的速率限制、冲突和 PostgreSQL 幂等应用，并完善大文件负载和失败恢复策略。
 3. 在 Docker 可用环境构建并启动 R Plumber 镜像，验证锁文件、鉴权、SVG/PDF/PNG/HTML 字节和失败恢复；扩展火山图/富集/网络图及对应页面预览。
 4. 先在 Docker 可用环境验证 PostgreSQL 全迁移、Celery 真实队列、R 容器、TLS、S3 读写和备份/恢复；再使用真实 main 样例逐项验收迁入业务逻辑。
 
-当前首页、服务端会话登录、医案管理与审计/人工审核、私有数据集文件管理、第一版蛋白组学闭环、本地网络药理交集、可选 Reactome/STRING 分析、Reactome/UniProt/PubChem 目录预览/应用、旧 SQLite 三表导入适配器、第一版 R 柱图任务/私有工件代码和生产部署配置已接通或完成静态配置；真实旧库验收、PubChem 人工映射的真实项目复核、STRING 目录同步、UniProt 与研究者真实数据字段对照、账号自助注册、完整 GO/KEGG/富集图表、医案模型/RAG 候选、容器实跑、交互图和生产环境验证仍未完成。首页中的研究流程文案表示目标能力，不代表当前服务已提供。
+当前首页、服务端会话登录、医案管理与审计/人工审核、私有数据集文件管理、第一版蛋白组学闭环、本地网络药理交集、可选 Reactome/STRING 分析、Reactome/UniProt/PubChem 目录预览/应用、STRING 本地人类标识交叉映射、旧 SQLite 三表导入适配器、第一版 R 柱图任务/私有工件代码和生产部署配置已接通或完成静态配置；真实旧库验收、PubChem 人工映射的真实项目复核、STRING 整批同步与 PostgreSQL 应用验收、UniProt 与研究者真实数据字段对照、账号自助注册、完整 GO/KEGG/富集图表、医案模型/RAG 候选、容器实跑、交互图和生产环境验证仍未完成。首页中的研究流程文案表示目标能力，不代表当前服务已提供。

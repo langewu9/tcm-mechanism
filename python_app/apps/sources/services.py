@@ -1,3 +1,5 @@
+import hashlib
+
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
@@ -16,6 +18,13 @@ from apps.sources.connectors.pubchem import (
     validate_pubchem_mappings,
 )
 from apps.sources.connectors.uniprot import UniProtCatalogSnapshot, UniProtProtein, fetch_uniprot_human_catalog
+from apps.sources.connectors.string import (
+    STRING_CONNECTOR,
+    STRING_SOURCE_SLUG,
+    StringCatalogError,
+    StringCatalogSnapshot,
+    fetch_string_human_identifier_snapshot,
+)
 
 
 REACTOME_SOURCE_SLUG = "reactome"
@@ -703,4 +712,220 @@ def apply_pubchem_sync(run: SyncRun) -> None:
             "checksumSha256": snapshot.checksum_sha256,
         }
         run.save(update_fields=["records_seen", "records_created", "records_updated", "records_retired", "preview_summary"])
+        DataSource.objects.filter(pk=run.source_id).update(last_success_at=now)
+
+
+def _get_string_snapshot() -> StringCatalogSnapshot:
+    try:
+        return fetch_string_human_identifier_snapshot()
+    except StringCatalogError as exc:
+        raise ValidationError(str(exc)) from exc
+
+
+def _string_conflict_fingerprint(conflicts: list[tuple[str, int, int]]) -> str:
+    payload = "\n".join(f"{identifier}\t{owner_id}\t{target_id}" for identifier, owner_id, target_id in sorted(conflicts))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _string_identifier_metadata(mapping) -> dict:
+    return {
+        "query": mapping.query,
+        "preferredName": mapping.preferred_name,
+        "annotation": mapping.annotation,
+        "taxonId": 9606,
+        "source": STRING_SOURCE_SLUG,
+    }
+
+
+def build_string_preview(source: DataSource, snapshot: StringCatalogSnapshot) -> dict:
+    incoming = {item.string_id: item for item in snapshot.mappings}
+    existing = {
+        row.identifier: row
+        for row in EntityIdentifier.objects.filter(
+            namespace="string", identifier__in=incoming
+        ).select_related("entity", "source_release", "source_release__source")
+    }
+    owned_active = set(
+        EntityIdentifier.objects.filter(
+            namespace="string", source_release__source=source, is_active=True
+        ).values_list("identifier", flat=True)
+    )
+    conflicts = [
+        (identifier, row.entity_id, incoming[identifier].entity_id)
+        for identifier, row in existing.items()
+        if row.entity_id != incoming[identifier].entity_id
+    ]
+    safe_ids = set(incoming) - {item[0] for item in conflicts}
+    created = sum(identifier not in existing for identifier in safe_ids)
+    unchanged = sum(
+        row.is_active
+        and row.entity_id == incoming[identifier].entity_id
+        and row.source_release.source_id == source.pk
+        and row.source_release.version == snapshot.release_version
+        and row.metadata == _string_identifier_metadata(incoming[identifier])
+        for identifier, row in existing.items()
+        if identifier in safe_ids
+    )
+    updated = len(safe_ids) - created - unchanged
+    return {
+        "mode": "preview",
+        "connector": STRING_CONNECTOR,
+        "sourceVersion": snapshot.source_version,
+        "releaseVersion": snapshot.release_version,
+        "checksumSha256": snapshot.checksum_sha256,
+        "endpoint": snapshot.api_endpoint,
+        "totalRecords": len(snapshot.mappings),
+        "localHumanEntityCount": snapshot.local_entity_count,
+        "submittedQueryCount": snapshot.submitted_query_count,
+        "wouldCreate": created,
+        "wouldUpdate": updated,
+        "unchanged": unchanged,
+        "wouldRetire": len(owned_active - safe_ids),
+        "unmappedQueries": snapshot.unmapped_query_count,
+        "ambiguousLocalEntities": snapshot.ambiguous_local_count,
+        "ambiguousStringIds": snapshot.ambiguous_remote_count,
+        "identifierConflicts": len(conflicts),
+        "conflictFingerprint": _string_conflict_fingerprint(conflicts),
+        "previewRecords": [
+            {
+                "entityStableId": row.entity_stable_id,
+                "query": row.query,
+                "stringId": row.string_id,
+                "preferredName": row.preferred_name,
+                "annotation": row.annotation,
+            }
+            for row in snapshot.mappings[:20]
+        ],
+        "previewRecordsTruncated": len(snapshot.mappings) > 20,
+    }
+
+
+def preview_string_sync(run: SyncRun) -> None:
+    if run.source.slug != STRING_SOURCE_SLUG:
+        raise ValidationError("该同步连接器只用于 STRING 人类基因/蛋白标识映射。")
+    snapshot = _get_string_snapshot()
+    release, _ = SourceRelease.objects.get_or_create(
+        source=run.source,
+        version=snapshot.release_version,
+        defaults={
+            "checksum_sha256": snapshot.checksum_sha256,
+            "metadata": {
+                "sourceVersion": snapshot.source_version,
+                "endpoint": snapshot.api_endpoint,
+                "retrievedAt": timezone.now().isoformat(),
+                "recordCount": len(snapshot.mappings),
+                "catalogueScope": "STRING mappings for existing local human gene/protein entities",
+            },
+        },
+    )
+    if release.checksum_sha256 != snapshot.checksum_sha256:
+        raise ValidationError("STRING 版本与已有校验值不一致，请重新预览并检查来源记录。")
+    run.release = release
+    run.cursor = snapshot.checksum_sha256
+    run.records_seen = len(snapshot.mappings)
+    run.preview_summary = build_string_preview(run.source, snapshot)
+    run.save(update_fields=["release", "cursor", "records_seen", "preview_summary"])
+
+
+def apply_string_sync(run: SyncRun) -> None:
+    if run.source.slug != STRING_SOURCE_SLUG:
+        raise ValidationError("该同步连接器只用于 STRING 人类基因/蛋白标识映射。")
+    if run.release_id is None or not run.cursor:
+        raise ValidationError("缺少 STRING 预览版本信息，请先重新运行预览。")
+
+    snapshot = _get_string_snapshot()
+    if snapshot.checksum_sha256 != run.cursor or snapshot.checksum_sha256 != run.release.checksum_sha256:
+        raise ValidationError("STRING 映射在预览后已变化，请重新预览再应用。")
+
+    incoming = {item.string_id: item for item in snapshot.mappings}
+    with transaction.atomic():
+        entities = {
+            row.pk: row
+            for row in KnowledgeEntity.objects.select_for_update().filter(
+                pk__in={item.entity_id for item in incoming.values()},
+                is_active=True,
+            )
+        }
+        if set(entities) != {item.entity_id for item in incoming.values()}:
+            raise ValidationError("预览后有人类知识实体被删除或停用，请重新预览。")
+
+        existing_rows = {
+            row.identifier: row
+            for row in EntityIdentifier.objects.select_for_update().filter(
+                namespace="string", identifier__in=incoming
+            ).select_related("source_release", "source_release__source")
+        }
+        conflicts = [
+            (identifier, row.entity_id, incoming[identifier].entity_id)
+            for identifier, row in existing_rows.items()
+            if row.entity_id != incoming[identifier].entity_id
+        ]
+        preview_summary = run.preview_summary or {}
+        if _string_conflict_fingerprint(conflicts) != preview_summary.get("conflictFingerprint"):
+            raise ValidationError("STRING 标识归属在预览后发生变化，请重新预览并检查冲突。")
+        conflict_ids = {item[0] for item in conflicts}
+        safe_ids = set(incoming) - conflict_ids
+        if not safe_ids:
+            raise ValidationError("当前 STRING 映射均与已有标识归属冲突；系统未修改知识目录。")
+
+        now = timezone.now()
+        previous_active_ids = set(
+            EntityIdentifier.objects.filter(
+                namespace="string", source_release__source=run.source, is_active=True
+            ).values_list("identifier", flat=True)
+        )
+        EntityIdentifier.objects.filter(
+            namespace="string", source_release__source=run.source, is_active=True
+        ).exclude(identifier__in=safe_ids).update(is_active=False, updated_at=now)
+
+        updates = []
+        creates = []
+        for identifier in sorted(safe_ids):
+            mapping = incoming[identifier]
+            entity = entities[mapping.entity_id]
+            existing = existing_rows.get(identifier)
+            metadata = _string_identifier_metadata(mapping)
+            if existing is None:
+                creates.append(EntityIdentifier(
+                    entity=entity,
+                    source_release=run.release,
+                    namespace="string",
+                    identifier=identifier,
+                    is_active=True,
+                    metadata=metadata,
+                    updated_at=now,
+                ))
+            elif not (
+                existing.is_active
+                and existing.entity_id == entity.pk
+                and existing.source_release_id == run.release_id
+                and existing.metadata == metadata
+            ):
+                existing.entity = entity
+                existing.source_release = run.release
+                existing.is_active = True
+                existing.metadata = metadata
+                existing.updated_at = now
+                updates.append(existing)
+        if updates:
+            EntityIdentifier.objects.bulk_update(
+                updates, ["entity", "source_release", "is_active", "metadata", "updated_at"], batch_size=1000
+            )
+        if creates:
+            EntityIdentifier.objects.bulk_create(creates, batch_size=1000)
+
+        retired_count = len(previous_active_ids - safe_ids)
+        run.records_seen = len(snapshot.mappings)
+        run.records_created = len(creates)
+        run.records_updated = len(updates)
+        run.records_retired = retired_count
+        run.preview_summary = {
+            **preview_summary,
+            "mode": "apply",
+            "appliedAt": now.isoformat(),
+            "checksumSha256": snapshot.checksum_sha256,
+        }
+        run.save(update_fields=[
+            "records_seen", "records_created", "records_updated", "records_retired", "preview_summary"
+        ])
         DataSource.objects.filter(pk=run.source_id).update(last_success_at=now)

@@ -19,7 +19,11 @@ class DataSourceSyncSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_connector_type(self, obj) -> str:
-        return (obj.configuration or {}).get("connector") or ("reactome-catalog" if obj.slug == "reactome" else "")
+        fallback = {
+            "reactome": "reactome-catalog",
+            "string": "string-human-identifier-crosswalk",
+        }
+        return (obj.configuration or {}).get("connector") or fallback.get(obj.slug, "")
 
 
 class SQLiteSourceCreateSerializer(serializers.Serializer):
