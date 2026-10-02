@@ -23,10 +23,12 @@ from django.db.models import Prefetch
 from openpyxl import load_workbook
 
 from apps.core.models import AnalysisTask, EntityIdentifier, EvidenceRelation, KnowledgeEntity
+from apps.proteomics.exceptions import ProteomicsInputError
 from apps.proteomics.models import ProteomicsRowResult
+from apps.proteomics.raw_matrix import analyze_raw_matrix
 
 
-ALGORITHM_VERSION = "proteomics-py-1.3"
+ALGORITHM_VERSION = "proteomics-py-1.4"
 MAX_CELL_CHARACTERS = 50_000
 MAX_XLSX_EXPANDED_BYTES = 512 * 1024 * 1024
 PATHWAY_RELATION_TYPES = {
@@ -58,10 +60,6 @@ ALIASES = {
     "direction_column": ["direction", "regulation", "change", "trend", "变化方向", "上调下调"],
 }
 MISSING_VALUES = {"", "na", "nan", "null", "none", "-"}
-
-
-class ProteomicsInputError(ValueError):
-    """An actionable validation error that is safe to show to the researcher."""
 
 
 @dataclass(frozen=True)
@@ -761,13 +759,58 @@ def run_proteomics_analysis(task: AnalysisTask) -> tuple[dict[str, Any], list[Pr
     if not table.columns or not table.rows:
         raise ProteomicsInputError("上传文件没有可分析的数据行。")
     parameters = task.input_parameters
-    mapping = resolve_mapping(table.columns, parameters.get("mapping", {}))
     thresholds = parameters.get(
         "thresholds", {"log2FcMin": 1.0, "fdrMax": 0.05, "pValueMax": 0.05}
     )
-    rows, qc = _parse_rows(table.rows, mapping, thresholds)
-    if not any(row.selected and row.original_label for row in rows):
-        raise ProteomicsInputError("没有有效标识通过当前阈值，请检查列映射或放宽阈值。")
+    analysis_mode = parameters.get("analysisMode", "differential_table")
+    matrix_details = None
+    if analysis_mode == "raw_matrix":
+        matrix_design = parameters.get("matrixDesign")
+        if not matrix_design:
+            raise ProteomicsInputError("原始矩阵分析必须提供明确的样本列和分组设计。")
+        derived_rows, matrix_exclusions, matrix_details, matrix_warnings = analyze_raw_matrix(
+            table.rows, matrix_design,
+        )
+        matrix_mapping = ColumnMapping(
+            gene_column="__identifier",
+            protein_column="",
+            log2fc_column="__log2fc",
+            p_value_column="__pvalue",
+            fdr_column="__fdr",
+            direction_column="",
+        )
+        rows, qc = _parse_rows(derived_rows, matrix_mapping, thresholds)
+        metric_exclusions = {"missing_log2fc", "missing_significance", "invalid_significance"}
+        for row_index, reasons in matrix_exclusions.items():
+            row = rows[row_index]
+            row.exclusion_reasons = [reason for reason in row.exclusion_reasons if reason not in metric_exclusions]
+            row.exclusion_reasons = list(dict.fromkeys([*row.exclusion_reasons, *reasons]))
+            row.selected = False
+        for row_index, warnings in matrix_details["rowWarnings"].items():
+            rows[row_index].qc_warnings.extend(warnings)
+        reason_counts: Counter[str] = Counter()
+        for row in rows:
+            reason_counts.update(row.exclusion_reasons)
+        qc["excludedReasonCounts"] = dict(sorted(reason_counts.items()))
+        qc["excludedRowCount"] = sum(not row.selected for row in rows)
+        qc["selectedRowCount"] = sum(row.selected for row in rows)
+        qc["invalidNumericValueRowCount"] += matrix_details["qc"]["rowsWithInvalidSampleValues"]
+        qc["rawMatrix"] = matrix_details["qc"]
+        qc["testedRowCount"] = matrix_details["qc"]["rowsTested"]
+        parameters["mapping"] = {
+            "geneColumn": matrix_design["identifierColumn"],
+            "proteinColumn": "",
+            "log2FcColumn": "computed by Welch test",
+            "pValueColumn": "computed by Welch test",
+            "fdrColumn": "Benjamini-Hochberg adjustment",
+            "directionColumn": "computed from log2 fold change",
+        }
+    else:
+        mapping = resolve_mapping(table.columns, parameters.get("mapping", {}))
+        rows, qc = _parse_rows(table.rows, mapping, thresholds)
+        matrix_warnings = []
+    if not any(row.original_label for row in rows):
+        raise ProteomicsInputError("没有识别到任何基因或蛋白标识，请检查标识列映射。")
     if qc["inputRowCount"] > settings.PROTEOMICS_MAX_ROWS:
         raise ProteomicsInputError(
             f"单次最多分析 {settings.PROTEOMICS_MAX_ROWS:,} 行，请先拆分文件。"
@@ -778,8 +821,12 @@ def run_proteomics_analysis(task: AnalysisTask) -> tuple[dict[str, Any], list[Pr
         rows,
         parameters.get("referenceTargets", []),
         table.columns,
-        mapping,
+        mapping if analysis_mode != "raw_matrix" else matrix_mapping,
         qc,
         task,
     )
+    if matrix_details:
+        result["mapping"] = parameters["mapping"]
+        result["differentialAnalysis"] = {**matrix_details["method"], "analysisMode": "raw_matrix"}
+        result["warnings"].extend(matrix_warnings)
     return result, row_results, release_ids

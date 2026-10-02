@@ -35,6 +35,30 @@ export type ProteomicsResult = {
     databaseMappedCount: number;
     unverifiedSymbolCount: number;
     unmappedLabelCount: number;
+    testedRowCount?: number;
+    rawMatrix?: {
+      sampleCount: number;
+      controlReplicateCount: number;
+      treatmentReplicateCount: number;
+      rowsTested: number;
+      rowsWithInvalidSampleValues: number;
+      invalidSampleValueCount: number;
+      missingSampleValueCount: number;
+      rowsExcludedByMatrixDesign: number;
+    };
+  };
+  differentialAnalysis?: {
+    analysisMode: "raw_matrix";
+    test: string;
+    effect: string;
+    pValueAdjustment: string;
+    normalization: string;
+    missingPolicy: string;
+    valuesWereLog2: boolean;
+    inputScaleTransform: string;
+    controlSamples: string[];
+    treatmentSamples: string[];
+    sampleColumns: string[];
   };
   warnings: string[];
   summary: {
@@ -202,6 +226,16 @@ export type ProteomicsRowPage = { count: number; next: string | null; previous: 
 
 export type ProteomicsRunRequest = {
   name?: string;
+  analysisMode?: "differential_table" | "raw_matrix";
+  matrixDesign?: {
+    identifierColumn: string;
+    sampleColumns: string[];
+    controlSamples: string[];
+    treatmentSamples: string[];
+    valuesAreLog2: boolean;
+    normalization: "none" | "median_center";
+    missingPolicy: "complete_rows" | "available_replicates";
+  };
   externalReactome?: boolean;
   externalString?: boolean;
   externalGProfiler?: boolean;

@@ -26,6 +26,10 @@ const initialMapping = {
   directionColumn: "",
 };
 
+function splitColumnNames(value: string) {
+  return [...new Set(value.split(/[,，、;；|\n\r]+/).map((item) => item.trim()).filter(Boolean))];
+}
+
 function errorMessage(error: unknown) {
   return error instanceof ApiError ? error.message : "请求未完成，请稍后重试。";
 }
@@ -47,6 +51,24 @@ function mappingStatusLabel(status: string) {
     unmapped: "未映射",
     missing: "缺少标识",
   } as Record<string, string>)[status] ?? status;
+}
+
+function qualityReasonLabel(reason: string) {
+  return ({
+    missing_identifier: "缺少基因/蛋白标识",
+    invalid_sample_values: "样本数值非法",
+    missing_sample_values: "样本值缺失",
+    incomplete_samples: "部分样本缺失，整行未检验",
+    insufficient_valid_replicates: "有效重复数不足",
+    test_not_estimable: "当前重复值无法估计统计检验",
+    invalid_log2fc: "log2FC 数值非法",
+    missing_log2fc: "缺少 log2FC",
+    log2fc_below_threshold: "log2FC 未达到阈值",
+    missing_significance: "缺少显著性数值",
+    invalid_significance: "显著性数值非法",
+    fdr_above_threshold: "FDR 超过阈值",
+    p_value_above_threshold: "P 值超过阈值",
+  } as Record<string, string>)[reason] ?? reason;
 }
 
 function downloadJson(filename: string, value: unknown) {
@@ -75,7 +97,14 @@ export function ProteomicsPage() {
   const [datasetId, setDatasetId] = useState<number | "">("");
   const [task, setTask] = useState<AnalysisTask | null>(null);
   const [visualizationTask, setVisualizationTask] = useState<AnalysisTask | null>(null);
+  const [analysisMode, setAnalysisMode] = useState<"differential_table" | "raw_matrix">("differential_table");
   const [mapping, setMapping] = useState(initialMapping);
+  const [matrixIdentifierColumn, setMatrixIdentifierColumn] = useState("");
+  const [controlSampleColumns, setControlSampleColumns] = useState("");
+  const [treatmentSampleColumns, setTreatmentSampleColumns] = useState("");
+  const [matrixValueScale, setMatrixValueScale] = useState("");
+  const [matrixNormalization, setMatrixNormalization] = useState("");
+  const [matrixMissingPolicy, setMatrixMissingPolicy] = useState("");
   const [thresholds, setThresholds] = useState({ log2FcMin: "1", fdrMax: "0.05", pValueMax: "0.05" });
   const [referenceTargets, setReferenceTargets] = useState("");
   const [externalReactome, setExternalReactome] = useState(false);
@@ -162,6 +191,19 @@ export function ProteomicsPage() {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedDataset) return;
+    const controlColumns = splitColumnNames(controlSampleColumns);
+    const treatmentColumns = splitColumnNames(treatmentSampleColumns);
+    if (analysisMode === "raw_matrix" && (
+      !matrixIdentifierColumn.trim() || controlColumns.length < 2 || treatmentColumns.length < 2
+      || !matrixValueScale || !matrixNormalization || !matrixMissingPolicy
+    )) {
+      setError("原始矩阵分析需要填写标识列、每组至少 2 个样本，并明确选择数值尺度、归一化和缺失值策略。");
+      return;
+    }
+    if (analysisMode === "raw_matrix" && new Set([...controlColumns, ...treatmentColumns]).size > 100) {
+      setError("原始矩阵每次最多选择 100 个样本列。");
+      return;
+    }
     setSubmitting(true);
     setError(null);
     setNotice(null);
@@ -170,7 +212,18 @@ export function ProteomicsPage() {
     setVisualizationTask(null);
     try {
       const taskResponse = await runProteomicsAnalysis(selectedDataset.id, {
-        mapping,
+        analysisMode,
+        ...(analysisMode === "raw_matrix" ? {
+          matrixDesign: {
+            identifierColumn: matrixIdentifierColumn.trim(),
+            sampleColumns: [...new Set([...controlColumns, ...treatmentColumns])],
+            controlSamples: controlColumns,
+            treatmentSamples: treatmentColumns,
+            valuesAreLog2: matrixValueScale === "log2",
+            normalization: matrixNormalization as "none" | "median_center",
+            missingPolicy: matrixMissingPolicy as "complete_rows" | "available_replicates",
+          },
+        } : { mapping }),
         thresholds: {
           log2FcMin: Number(thresholds.log2FcMin),
           fdrMax: Number(thresholds.fdrMax),
@@ -253,8 +306,10 @@ export function ProteomicsPage() {
               </select></label> : <div className="empty-state"><strong>还没有可分析的数据集</strong><p>先上传差异蛋白 CSV、TSV 或 Excel 文件。</p><Link className="btn btn-secondary" to="/datasets">上传数据集</Link></div>}
 
             {datasets.length > 0 && <>
-              <p className="section-help">常见表头会自动识别。若使用了特殊表头，请填写文件中的确切列名；基因列和蛋白列至少能识别一个。</p>
-              <div className="proteomics-column-grid">
+              <label className="form-label" htmlFor="proteomics-analysis-mode">输入数据类型<select className="field" id="proteomics-analysis-mode" value={analysisMode} onChange={(event) => setAnalysisMode(event.target.value as "differential_table" | "raw_matrix")}><option value="differential_table">已计算的差异蛋白表</option><option value="raw_matrix">原始定量矩阵（非配对设计）</option></select></label>
+              {analysisMode === "differential_table" ? <>
+                <p className="section-help">常见表头会自动识别。若使用了特殊表头，请填写文件中的确切列名；基因列和蛋白列至少能识别一个。</p>
+                <div className="proteomics-column-grid">
                 {([
                   ["geneColumn", "基因列", "Gene Symbol / 基因符号"],
                   ["proteinColumn", "蛋白列", "Protein / UniProt"],
@@ -265,7 +320,18 @@ export function ProteomicsPage() {
                 ] as const).map(([key, label, placeholder]) => <label className="form-label" key={key}>{label}
                   <input className="field" value={mapping[key]} placeholder={placeholder} onChange={(event) => setMapping((value) => ({ ...value, [key]: event.target.value }))} />
                 </label>)}
-              </div>
+                </div>
+              </> : <section className="raw-matrix-design">
+                <p className="section-help">请根据实验记录手动指定列。此首版只支持独立样本的非配对 Welch 检验；配对实验请上传已完成的差异结果表。不会从列名猜测实验组别。</p>
+                <label className="form-label">蛋白/基因标识列<input className="field" value={matrixIdentifierColumn} onChange={(event) => setMatrixIdentifierColumn(event.target.value)} placeholder="例如：Gene Symbol、UniProt" required /></label>
+                <label className="form-label">对照组样本列<textarea className="field case-textarea case-textarea-short" value={controlSampleColumns} onChange={(event) => setControlSampleColumns(event.target.value)} placeholder="例如：Control_1, Control_2, Control_3" required /></label>
+                <label className="form-label">实验组样本列<textarea className="field case-textarea case-textarea-short" value={treatmentSampleColumns} onChange={(event) => setTreatmentSampleColumns(event.target.value)} placeholder="例如：Treatment_1, Treatment_2, Treatment_3" required /></label>
+                <div className="proteomics-column-grid">
+                  <label className="form-label">样本数值尺度<select className="field" value={matrixValueScale} onChange={(event) => setMatrixValueScale(event.target.value)} required><option value="">请选择</option><option value="linear">原始正值强度（执行 log2 转换）</option><option value="log2">文件中已经是 log2 值</option></select></label>
+                  <label className="form-label">样本归一化<select className="field" value={matrixNormalization} onChange={(event) => setMatrixNormalization(event.target.value)} required><option value="">请选择</option><option value="median_center">按样本中位数中心化</option><option value="none">不再归一化（数据已处理）</option></select></label>
+                  <label className="form-label">缺失值策略<select className="field" value={matrixMissingPolicy} onChange={(event) => setMatrixMissingPolicy(event.target.value)} required><option value="">请选择</option><option value="complete_rows">任一样本缺失则排除整行</option><option value="available_replicates">按可用重复计算（每组至少 2 个）</option></select></label>
+                </div>
+              </section>}
               <div className="proteomics-threshold-grid">
                 <label className="form-label">|log2FC| ≥<input className="field" type="number" min="0" max="100" step="0.1" value={thresholds.log2FcMin} onChange={(event) => setThresholds((value) => ({ ...value, log2FcMin: event.target.value }))} /></label>
                 <label className="form-label">FDR ≤<input className="field" type="number" min="0" max="1" step="0.01" value={thresholds.fdrMax} onChange={(event) => setThresholds((value) => ({ ...value, fdrMax: event.target.value }))} /></label>
@@ -354,6 +420,12 @@ function ProteomicsResultView({
       <Metric label="候选交集" value={result.summary.candidateOverlapCount} />
     </div>
 
+    {result.differentialAnalysis && <section className="panel raw-matrix-method">
+      <h3 className="section-title-sm">原始矩阵统计设计</h3>
+      <dl className="dataset-provenance"><div><dt>统计检验</dt><dd>{result.differentialAnalysis.test}</dd></div><div><dt>效应量</dt><dd>{result.differentialAnalysis.effect}</dd></div><div><dt>多重校正</dt><dd>{result.differentialAnalysis.pValueAdjustment}</dd></div><div><dt>变换 / 归一化</dt><dd>{result.differentialAnalysis.inputScaleTransform === "log2" ? "log2 转换" : "不转换"} / {{ none: "不再归一化", median_center: "样本中位数中心化" }[result.differentialAnalysis.normalization] ?? result.differentialAnalysis.normalization}</dd></div><div><dt>缺失策略</dt><dd>{{ complete_rows: "仅完整样本行", available_replicates: "使用可用重复值" }[result.differentialAnalysis.missingPolicy] ?? result.differentialAnalysis.missingPolicy}</dd></div><div><dt>对照组样本</dt><dd>{result.differentialAnalysis.controlSamples.join("、")}</dd></div><div><dt>实验组样本</dt><dd>{result.differentialAnalysis.treatmentSamples.join("、")}</dd></div></dl>
+      <p className="notice-warning">本首版为非配对 Welch 检验，不进行数值插补，也不适用于配对设计；统计结果应按实验设计和领域规范复核。</p>
+    </section>}
+
     <section className="proteomics-qc panel">
       <div className="panel-header"><div><h3 className="section-title-sm">输入质量检查</h3><p className="section-help">所有输入行都保留了筛选结果和排除原因。</p></div></div>
       <div className="proteomics-qc-grid">
@@ -362,8 +434,9 @@ function ProteomicsResultView({
         <Metric label="重复标识" value={result.qc.duplicateIdentifierCount} />
         <Metric label="非法数值行" value={result.qc.invalidNumericValueRowCount} />
         <Metric label="排除行" value={result.qc.excludedRowCount} />
+        {result.qc.rawMatrix && <Metric label="完成检验" value={result.qc.rawMatrix.rowsTested} note={`缺失单元格 ${result.qc.rawMatrix.missingSampleValueCount} · 非法数值单元格 ${result.qc.rawMatrix.invalidSampleValueCount}`} />}
       </div>
-      {Object.keys(result.qc.excludedReasonCounts).length > 0 && <p className="section-help">排除原因：{Object.entries(result.qc.excludedReasonCounts).map(([reason, count]) => `${reason} ${count}`).join(" · ")}</p>}
+      {Object.keys(result.qc.excludedReasonCounts).length > 0 && <p className="section-help">排除原因：{Object.entries(result.qc.excludedReasonCounts).map(([reason, count]) => `${qualityReasonLabel(reason)} ${count}`).join(" · ")}</p>}
     </section>
 
     {result.warnings.map((warning) => <p className="notice-warning" key={warning}>{warning}</p>)}
@@ -450,7 +523,7 @@ function ProteomicsResultView({
       {result.previewTruncated && !showRows && <p className="section-help">预览超过 500 行；打开逐行 QC 可分页读取完整结果。</p>}
       {showRows && <>
         {rowPage ? <div className="table-scroll"><table className="data-table"><thead><tr><th>行</th><th>原始标识</th><th>规范标识</th><th>映射状态</th><th>log2FC</th><th>FDR</th><th>筛选</th><th>排除/警告</th></tr></thead><tbody>
-          {rowPage.results.map((row) => <tr key={row.row_index}><td>{row.row_index + 1}</td><td>{row.original_label || "—"}</td><td>{row.normalized_symbol || "—"}</td><td>{mappingStatusLabel(row.mapping_status)}</td><td>{formatNumber(row.log2_fold_change)}</td><td>{formatNumber(row.fdr)}</td><td>{row.selected ? "通过" : "排除"}</td><td>{[...row.exclusion_reasons, ...row.qc_warnings].join("、") || "—"}</td></tr>)}
+          {rowPage.results.map((row) => <tr key={row.row_index}><td>{row.row_index + 1}</td><td>{row.original_label || "—"}</td><td>{row.normalized_symbol || "—"}</td><td>{mappingStatusLabel(row.mapping_status)}</td><td>{formatNumber(row.log2_fold_change)}</td><td>{formatNumber(row.fdr)}</td><td>{row.selected ? "通过" : "排除"}</td><td>{[...row.exclusion_reasons, ...row.qc_warnings].map(qualityReasonLabel).join("、") || "—"}</td></tr>)}
         </tbody></table></div> : <p className="section-help">正在读取逐行结果…</p>}
         {rowPage && <div className="case-pagination"><button className="btn btn-secondary" type="button" disabled={!rowPage.previous} onClick={() => onRowPageChange(Math.max(1, rowPageNumber - 1))}>上一页</button>
           <span>第 {rowPageNumber} 页 / 共 {rowPage.count} 行</span><button className="btn btn-secondary" type="button" disabled={!rowPage.next} onClick={() => onRowPageChange(rowPageNumber + 1)}>下一页</button></div>}

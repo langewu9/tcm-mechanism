@@ -74,6 +74,8 @@ class ResearchDatasetViewSet(viewsets.ModelViewSet):
             dataset=dataset,
             input_parameters={
                 "name": data.get("name") or dataset.name,
+                "analysisMode": data["analysisMode"],
+                "matrixDesign": data.get("matrixDesign"),
                 "datasetSha256": dataset.content_sha256,
                 "algorithmVersion": ALGORITHM_VERSION,
                 "externalReactome": data["externalReactome"],

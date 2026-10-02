@@ -72,6 +72,38 @@ class ProteomicsApiTests(APITestCase):
         self.assertEqual(hidden.status_code, 404)
         self.assertEqual(AnalysisTask.objects.count(), 1)
 
+    def test_raw_matrix_requires_explicit_non_overlapping_sample_design(self):
+        self.client.force_authenticate(self.owner)
+        url = reverse("dataset-analyze", args=[self.dataset.pk])
+        missing_design = self.client.post(url, {"analysisMode": "raw_matrix"}, format="json")
+        self.assertEqual(missing_design.status_code, 400)
+        self.assertEqual(AnalysisTask.objects.count(), 0)
+
+        design = {
+            "identifierColumn": "Gene",
+            "sampleColumns": ["Control_1", "Control_2", "Treatment_1", "Treatment_2"],
+            "controlSamples": ["Control_1", "Control_2"],
+            "treatmentSamples": ["Treatment_1", "Treatment_2"],
+            "valuesAreLog2": False,
+            "normalization": "median_center",
+            "missingPolicy": "complete_rows",
+        }
+        overlapping = {**design, "treatmentSamples": ["Control_1", "Treatment_2"]}
+        invalid = self.client.post(
+            url, {"analysisMode": "raw_matrix", "matrixDesign": overlapping}, format="json"
+        )
+        self.assertEqual(invalid.status_code, 400)
+        self.assertEqual(AnalysisTask.objects.count(), 0)
+
+        with patch("apps.proteomics.tasks.run_proteomics_task.apply_async"):
+            response = self.client.post(
+                url, {"analysisMode": "raw_matrix", "matrixDesign": design}, format="json"
+            )
+        self.assertEqual(response.status_code, 202, response.data)
+        task = AnalysisTask.objects.get()
+        self.assertEqual(task.input_parameters["analysisMode"], "raw_matrix")
+        self.assertEqual(task.input_parameters["matrixDesign"], design)
+
     def test_external_mapping_and_reactome_are_only_enabled_by_explicit_opt_in(self):
         self.client.force_authenticate(self.owner)
         with patch("apps.proteomics.tasks.run_proteomics_task.apply_async"):

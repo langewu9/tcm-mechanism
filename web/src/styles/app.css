@@ -125,6 +125,8 @@
 .network-graph-selection > small { color: var(--color-ink-faint); font-size: 0.65rem; }
 .network-graph-selection .proteomics-pathways { margin-top: 0.4rem; }
 .proteomics-column-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.7rem; }
+.raw-matrix-design { display: grid; gap: 0.7rem; border: 1px solid var(--color-border); border-radius: 0.7rem; padding: 0.85rem; background: rgba(255, 253, 248, 0.5); }
+.raw-matrix-method { margin-block: 1rem; padding: 1rem; }
 .proteomics-threshold-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.7rem; }
 .proteomics-consent { display: flex; align-items: flex-start; gap: 0.65rem; border: 1px solid var(--color-border); background: rgba(255, 253, 248, 0.7); padding: 0.75rem; cursor: pointer; }
 .proteomics-consent input { margin-top: 0.18rem; accent-color: var(--color-cinnabar); }

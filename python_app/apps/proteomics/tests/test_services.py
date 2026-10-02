@@ -154,6 +154,135 @@ class ProteomicsServiceTests(TestCase):
         self.assertEqual(result["dataset"]["sha256"], "abc123")
         self.assertTrue(any("符号格式" in warning for warning in result["warnings"]))
 
+    def test_raw_matrix_uses_explicit_design_welch_test_and_bh_fdr(self):
+        content = (
+            "Gene Symbol,Control_1,Control_2,Control_3,Treatment_1,Treatment_2,Treatment_3\n"
+            "TP53,8,9,8,64,72,64\n"
+            "IL6,4,5,4,4,5,4\n"
+            "MISSING,6,7,,48,56,48\n"
+            "BAD,0,7,8,48,56,48\n"
+        ).encode()
+        dataset = self.make_dataset("raw-matrix.csv", content)
+        task = AnalysisTask.objects.create(
+            owner=self.owner,
+            task_type=AnalysisTask.TaskType.PROTEOMICS,
+            dataset=dataset,
+            input_parameters={
+                "analysisMode": "raw_matrix",
+                "matrixDesign": {
+                    "identifierColumn": "Gene Symbol",
+                    "sampleColumns": ["Control_1", "Control_2", "Control_3", "Treatment_1", "Treatment_2", "Treatment_3"],
+                    "controlSamples": ["Control_1", "Control_2", "Control_3"],
+                    "treatmentSamples": ["Treatment_1", "Treatment_2", "Treatment_3"],
+                    "valuesAreLog2": False,
+                    "normalization": "none",
+                    "missingPolicy": "complete_rows",
+                },
+                "thresholds": {"log2FcMin": 1.0, "fdrMax": 0.05, "pValueMax": 0.05},
+                "referenceTargets": [],
+            },
+        )
+
+        result, stored_rows, release_ids = run_proteomics_analysis(task)
+
+        self.assertEqual(result["differentialAnalysis"]["test"], "Welch two-sample t-test (unpaired)")
+        self.assertEqual(result["differentialAnalysis"]["pValueAdjustment"], "Benjamini-Hochberg FDR")
+        self.assertEqual(result["differentialAnalysis"]["controlSamples"], ["Control_1", "Control_2", "Control_3"])
+        self.assertEqual(result["qc"]["rawMatrix"]["rowsTested"], 2)
+        self.assertEqual(result["qc"]["rawMatrix"]["missingSampleValueCount"], 1)
+        self.assertEqual(result["qc"]["rawMatrix"]["invalidSampleValueCount"], 1)
+        tp53 = next(row for row in stored_rows if row.original_label == "TP53")
+        self.assertAlmostEqual(tp53.log2_fold_change, 3.0, places=6)
+        self.assertLess(tp53.p_value, 0.05)
+        self.assertLessEqual(tp53.fdr, 0.05)
+        self.assertTrue(tp53.selected)
+        incomplete = next(row for row in stored_rows if row.original_label == "MISSING")
+        self.assertIn("incomplete_samples", incomplete.exclusion_reasons)
+        invalid = next(row for row in stored_rows if row.original_label == "BAD")
+        self.assertIn("invalid_sample_values", invalid.exclusion_reasons)
+        self.assertTrue(any("配对设计不适用" in warning for warning in result["warnings"]))
+        self.assertIn(self.release.pk, release_ids)
+
+    def test_raw_matrix_available_replicates_policy_is_explicit_and_does_not_impute(self):
+        from apps.proteomics.raw_matrix import analyze_raw_matrix
+
+        rows = [
+            {"ID": "TP53", "C1": "8", "C2": "9", "C3": "8", "T1": "64", "T2": "72", "T3": ""},
+            {"ID": "IL6", "C1": "4", "C2": "5", "C3": "4", "T1": "4", "T2": "5", "T3": "4"},
+        ]
+        design = {
+            "identifierColumn": "ID",
+            "sampleColumns": ["C1", "C2", "C3", "T1", "T2", "T3"],
+            "controlSamples": ["C1", "C2", "C3"],
+            "treatmentSamples": ["T1", "T2", "T3"],
+            "valuesAreLog2": False,
+            "normalization": "median_center",
+            "missingPolicy": "available_replicates",
+        }
+        synthetic, exclusions, details, warnings = analyze_raw_matrix(rows, design)
+
+        self.assertEqual(exclusions, {})
+        self.assertNotEqual(synthetic[0]["__log2fc"], "")
+        self.assertEqual(details["qc"]["rowsTested"], 2)
+        self.assertEqual(details["qc"]["missingSampleValueCount"], 1)
+        self.assertEqual(details["rowWarnings"][0], ["missing_sample_values"])
+        self.assertTrue(any("未执行数值填补" in warning for warning in warnings))
+
+    def test_raw_matrix_non_estimable_zero_variance_row_is_excluded(self):
+        from apps.proteomics.raw_matrix import analyze_raw_matrix
+
+        rows = [{"ID": "TP53", "C1": "1", "C2": "1", "T1": "5", "T2": "5"}]
+        design = {
+            "identifierColumn": "ID",
+            "sampleColumns": ["C1", "C2", "T1", "T2"],
+            "controlSamples": ["C1", "C2"],
+            "treatmentSamples": ["T1", "T2"],
+            "valuesAreLog2": True,
+            "normalization": "none",
+            "missingPolicy": "complete_rows",
+        }
+
+        synthetic, exclusions, details, _warnings = analyze_raw_matrix(rows, design)
+
+        self.assertEqual(exclusions, {0: ["test_not_estimable"]})
+        self.assertEqual(synthetic[0]["__pvalue"], "")
+        self.assertEqual(details["qc"]["rowsTested"], 0)
+
+    def test_analysis_succeeds_with_zero_significant_rows_and_preserves_qc(self):
+        content = (
+            "Gene,Control_1,Control_2,Treatment_1,Treatment_2\n"
+            "TP53,8,9,64,72\n"
+            "IL6,4,5,4,5\n"
+        ).encode()
+        dataset = self.make_dataset("no-hits.csv", content)
+        task = AnalysisTask.objects.create(
+            owner=self.owner,
+            task_type=AnalysisTask.TaskType.PROTEOMICS,
+            dataset=dataset,
+            input_parameters={
+                "analysisMode": "raw_matrix",
+                "matrixDesign": {
+                    "identifierColumn": "Gene",
+                    "sampleColumns": ["Control_1", "Control_2", "Treatment_1", "Treatment_2"],
+                    "controlSamples": ["Control_1", "Control_2"],
+                    "treatmentSamples": ["Treatment_1", "Treatment_2"],
+                    "valuesAreLog2": False,
+                    "normalization": "none",
+                    "missingPolicy": "complete_rows",
+                },
+                "thresholds": {"log2FcMin": 99.0, "fdrMax": 0.05, "pValueMax": 0.05},
+                "referenceTargets": [],
+            },
+        )
+
+        result, stored_rows, release_ids = run_proteomics_analysis(task)
+
+        self.assertEqual(result["summary"]["selectedRowCount"], 0)
+        self.assertEqual(result["qc"]["rawMatrix"]["rowsTested"], 2)
+        self.assertEqual(len(stored_rows), 2)
+        self.assertTrue(all(not row.selected for row in stored_rows))
+        self.assertEqual(release_ids, [])
+
     def test_celery_task_persists_results_and_is_idempotent(self):
         with patch("apps.proteomics.tasks.run_opt_in_reactome") as external_analysis, patch(
             "apps.proteomics.tasks.run_opt_in_string"
@@ -169,7 +298,7 @@ class ProteomicsServiceTests(TestCase):
         self.assertEqual(outcome["status"], AnalysisTask.Status.SUCCEEDED)
         self.assertEqual(self.task.status, AnalysisTask.Status.SUCCEEDED)
         self.assertEqual(self.task.progress, 100)
-        self.assertEqual(self.task.result["algorithmVersion"], "proteomics-py-1.3")
+        self.assertEqual(self.task.result["algorithmVersion"], "proteomics-py-1.4")
         self.assertEqual(ProteomicsRowResult.objects.filter(task=self.task).count(), 6)
         self.assertEqual(list(self.task.source_releases.values_list("id", flat=True)), [self.release.pk])
         self.assertEqual(run_proteomics_task.run(self.task.pk)["status"], "skipped")
