@@ -120,22 +120,27 @@ class ApiErrorContractTests(APITestCase):
 
 
     def test_react_session_login_uses_csrf_and_creates_server_session(self):
-        from django.test import Client
+        from django.test import Client, override_settings
 
         user = get_user_model().objects.create_user(username="researcher", password="test-password-123")
         client = Client(enforce_csrf_checks=True)
-        csrf_response = client.get("/api/v1/auth/csrf/")
+        with override_settings(CSRF_TRUSTED_ORIGINS=["http://127.0.0.1:5173", "http://localhost:5173"]):
+            csrf_response = client.get("/api/v1/auth/csrf/", HTTP_HOST="127.0.0.1:8020")
 
-        response = client.post(
-            "/api/v1/auth/session/",
-            {"username": "researcher", "password": "test-password-123"},
-            content_type="application/json",
-            HTTP_X_CSRFTOKEN=csrf_response.json()["csrfToken"],
-        )
+        with override_settings(CSRF_TRUSTED_ORIGINS=["http://127.0.0.1:5173", "http://localhost:5173"]):
+            response = client.post(
+                "/api/v1/auth/session/",
+                {"username": "researcher", "password": "test-password-123"},
+                content_type="application/json",
+                HTTP_HOST="127.0.0.1:8020",
+                HTTP_ORIGIN="http://127.0.0.1:5173",
+                HTTP_X_CSRFTOKEN=csrf_response.json()["csrfToken"],
+            )
+            session_response = client.get("/api/v1/auth/session/", HTTP_HOST="127.0.0.1:8020")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["user"]["id"], user.pk)
-        self.assertTrue(client.get("/api/v1/auth/session/").json()["authenticated"])
+        self.assertTrue(session_response.json()["authenticated"])
 
 
     def test_unauthenticated_api_request_uses_authentication_error(self):
