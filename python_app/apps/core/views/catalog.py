@@ -20,7 +20,7 @@ class DataSourceViewSet(viewsets.ReadOnlyModelViewSet):
 class KnowledgeEntityViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = KnowledgeEntitySerializer
     permission_classes = [IsAuthenticated]
-    queryset = KnowledgeEntity.objects.all()
+    queryset = KnowledgeEntity.objects.select_related("source_release", "source_release__source")
     search_fields = ["stable_id", "label"]
     filterset_fields = ["entity_type", "organism"]
 

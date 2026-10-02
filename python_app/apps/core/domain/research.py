@@ -71,13 +71,20 @@ class AnalysisTask(models.Model):
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="analysis_tasks"
     )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="created_analysis_tasks",
+    )
     task_type = models.CharField(max_length=20, choices=TaskType.choices)
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.QUEUED)
     dataset = models.ForeignKey(
-        ResearchDataset, on_delete=models.SET_NULL, null=True, blank=True, related_name="analysis_tasks"
+        ResearchDataset, on_delete=models.PROTECT, null=True, blank=True, related_name="analysis_tasks"
     )
     medical_case = models.ForeignKey(
-        MedicalCase, on_delete=models.SET_NULL, null=True, blank=True, related_name="analysis_tasks"
+        MedicalCase, on_delete=models.PROTECT, null=True, blank=True, related_name="analysis_tasks"
     )
     input_parameters = models.JSONField(default=dict, blank=True)
     source_releases = models.ManyToManyField(SourceRelease, blank=True, related_name="analysis_tasks")

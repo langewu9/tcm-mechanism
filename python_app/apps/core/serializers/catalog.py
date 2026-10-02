@@ -22,6 +22,9 @@ class DataSourceSerializer(serializers.ModelSerializer):
 
 
 class KnowledgeEntitySerializer(serializers.ModelSerializer):
+    source_slug = serializers.CharField(source="source_release.source.slug", read_only=True)
+    source_version = serializers.CharField(source="source_release.version", read_only=True)
+
     class Meta:
         model = KnowledgeEntity
         fields = [
@@ -30,6 +33,9 @@ class KnowledgeEntitySerializer(serializers.ModelSerializer):
             "stable_id",
             "label",
             "organism",
+            "source_release",
+            "source_slug",
+            "source_version",
             "synonyms",
             "metadata",
         ]

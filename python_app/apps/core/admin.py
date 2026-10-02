@@ -65,7 +65,7 @@ class MedicalCaseAdmin(admin.ModelAdmin):
 
 @admin.register(AnalysisTask)
 class AnalysisTaskAdmin(admin.ModelAdmin):
-    list_display = ("id", "task_type", "status", "owner", "progress", "created_at")
+    list_display = ("id", "task_type", "status", "owner", "created_by", "progress", "created_at")
     list_filter = ("task_type", "status")
     search_fields = ("owner__username", "owner__email")
     readonly_fields = ("created_at", "started_at", "finished_at")

@@ -55,3 +55,14 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   if (!response.ok) throw await readError(response);
   return (await response.json()) as T;
 }
+
+export async function apiRequestBlob(path: string): Promise<Blob> {
+  let response: Response;
+  try {
+    response = await fetch(path, { credentials: "same-origin" });
+  } catch {
+    throw new ApiError("无法连接平台服务，请确认服务已启动后重试。", "NETWORK_ERROR", null, null, 0);
+  }
+  if (!response.ok) throw await readError(response);
+  return response.blob();
+}

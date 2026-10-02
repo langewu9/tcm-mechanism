@@ -2,12 +2,13 @@ from django.conf import settings
 from django.core.files.storage import default_storage
 from rest_framework import serializers
 
+from ..exceptions import ResourceConflict
 from ..models import AnalysisTask, MedicalCase, ResearchDataset
 
 
 class ResearchDatasetSerializer(serializers.ModelSerializer):
     owner_id = serializers.ReadOnlyField()
-    owner_username = serializers.ReadOnlyField(source="owner.get_username")
+    owner_username = serializers.CharField(source="owner.username", read_only=True)
     file = serializers.FileField(write_only=True, required=False)
 
     class Meta:
@@ -52,6 +53,8 @@ class ResearchDatasetSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         if self.instance is None and "file" not in attrs:
             raise serializers.ValidationError({"file": "请上传 CSV 或 Excel 文件。"})
+        if self.instance and "file" in attrs and self.instance.analysis_tasks.exists():
+            raise ResourceConflict("数据集已有分析任务，不能替换原始文件；请另存为新数据集。")
         return attrs
 
     def _store_upload(self, validated_data, upload, owner_id=None):
@@ -95,7 +98,7 @@ class ResearchDatasetSerializer(serializers.ModelSerializer):
 
 class MedicalCaseSerializer(serializers.ModelSerializer):
     owner_id = serializers.ReadOnlyField()
-    owner_username = serializers.ReadOnlyField(source="owner.get_username")
+    owner_username = serializers.CharField(source="owner.username", read_only=True)
 
     class Meta:
         model = MedicalCase
@@ -117,10 +120,21 @@ class MedicalCaseSerializer(serializers.ModelSerializer):
 
 
 class AnalysisTaskSerializer(serializers.ModelSerializer):
+    owner_id = serializers.ReadOnlyField()
+    owner_username = serializers.CharField(source="owner.username", read_only=True)
+    requested_by_id = serializers.ReadOnlyField(source="created_by_id")
+    requested_by_username = serializers.CharField(
+        source="created_by.username", read_only=True, allow_null=True
+    )
+
     class Meta:
         model = AnalysisTask
         fields = [
             "id",
+            "owner_id",
+            "owner_username",
+            "requested_by_id",
+            "requested_by_username",
             "task_type",
             "status",
             "dataset",

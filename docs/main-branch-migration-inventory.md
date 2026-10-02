@@ -16,9 +16,9 @@
 |---|---|---|---|
 | `src/components/AppShell.tsx`、`AppNavigation.tsx`、`PageHeader.tsx`、`src/app/product.css` | 主导航、页面框架和产品视觉样式 | `web/src` 中复用样式/交互，路由改为 React Router | 首页、医案和数据集已接入；通用工作台导航待整理 |
 | `src/app/cases/page.tsx`、`src/components/CaseForm.tsx`、`src/app/api/cases/*` | 医案新增、列表、删除 | `/cases` + `/api/v1/research/cases/`，归属由 Django session 决定 | 已接入；目前页面支持创建/查看/删除，API 保留更新能力 |
-| `src/app/datasets/page.tsx`、`DatasetUploader.tsx`、`DeleteButton.tsx`、`src/app/api/datasets/*` | 上传 CSV/Excel、查看数据集、删除 | `/datasets` + `/api/v1/research/datasets/`，文件私有保存、带校验值和权限下载 | 原文件 CRUD 已接入；解析、行预览和 QC 待蛋白组学阶段 |
-| `src/lib/upload.ts` | CSV、XLS、XLSX 表格解析 | Python 上传解析服务，复用样例和字段意图；限制行数、校验列并保留原始文件 | 待迁移；当前上传只保存原文件，不同步插入未经验证的行 |
-| `src/app/proteomics/page.tsx`、`ProteomicsWorkbench.tsx`、`src/lib/proteomics.ts`、`src/app/api/proteomics/*` | 列映射、差异蛋白阈值、标准化、富集/网络结果 | React 页面接 Django 的 proteomics API；算法落 Python worker/service | 待迁移；先建立 CSV/XLSX 黄金样例和 main 结果基准 |
+| `src/app/datasets/page.tsx`、`DatasetUploader.tsx`、`DeleteButton.tsx`、`src/app/api/datasets/*` | 上传 CSV/Excel、查看数据集、删除 | `/datasets` + `/api/v1/research/datasets/`，文件私有保存、带校验值和权限下载 | 私有文件 CRUD 已接入；数据集被分析任务引用后禁止替换或删除 |
+| `src/lib/upload.ts` | CSV、XLS、XLSX 表格解析 | Python 解析器，限制大小/行/列/单元格、保留原始文件并生成逐行 QC | CSV/TSV/XLS/XLSX 已支持第一版解析与行数限制；尚无独立上传预览，也未做到 main 样例逐项结果对照 |
+| `src/app/proteomics/page.tsx`、`ProteomicsWorkbench.tsx`、`src/lib/proteomics.ts`、`src/app/api/proteomics/*` | 列映射、差异蛋白阈值、基因符号回退、通路网络和候选交集 | React `/proteomics` + Django API + Celery；本地知识库映射、任务结果与来源版本持久化 | 第一版本地链路已接入：自动常见列名/手动列名、阈值/QC、显式标记未验证符号、本地实体及通路证据、候选交集、任务行记录和 CSV/XLSX/JSON 导出；外部 ID 映射、富集/PPI、黄金样例结果对照、图表/PDF 仍待完成 |
 | `src/app/analysis/page.tsx`、`AnalysisWorkbench.tsx`、`src/lib/analysis.ts`、`src/app/api/analysis/tasks/*` | 医案/文本分析和任务结果 | Django 任务 API + Celery worker；结果和输入版本持久化 | 待迁移；当前 AnalysisTask 是只读记录，还没有执行器 |
 | `src/app/research/page.tsx`、`ResearchWorkbench.tsx`、`src/app/api/research/route.ts` | 研究问题、证候/方剂/药物等证据链 | Django research/knowledge service 与 React 研究工作台 | 待迁移；迁移前需审查 760 行路由中的业务与外部数据依赖 |
 | `src/app/api/network-pharmacology/route.ts`、`pathway-enrichment/route.ts`、`src/lib/reactome.ts`、`NetworkPharmacologyWorkbench.tsx` | 靶点交集、Reactome 富集和网络药理视图 | Django connector/service；任务固定数据源版本，页面显示证据来源 | 待迁移；需先验证外部 API 限流、许可和版本语义 |
@@ -46,7 +46,7 @@
 | `DatasetRow` | 暂不直接映射 | 当前不向数据库无界写行 JSON；要按分析用途设计受控导入/分块与原始文件追溯 |
 | `MedicalCase` | `MedicalCase` | `symptoms` → `deidentified_text`；`patientInfo/tonguePulse/diagnosis` → `structured_data`；`source` → `source_reference`；记录用户和时间 |
 | `AnalysisTask` / `AnalysisResult` | `AnalysisTask` + 待设计结果/工件模型 | 输入医案、参数、状态、证据、网络、算法/来源版本分别建模；不能把历史 `COMPLETED` 假设成新任务状态 |
-| `ProteomicsDataset` / `ProteomicsRow` / `ProteomicsAnalysis` | 待设计 `proteomics` 与 `analysis` 数据模型 | 原始文件、列映射、原始标签、规范基因 ID、阈值、未映射/排除记录、结果和来源版本均可复核 |
+| `ProteomicsDataset` / `ProteomicsRow` / `ProteomicsAnalysis` | `ResearchDataset` + `AnalysisTask` + `ProteomicsRowResult` | 原始文件 SHA-256、列映射、阈值、算法版本、逐行原始标识/规范标识/映射状态/排除原因和来源版本均已入账；差异统计矩阵、外部富集结果、PPI 和可视化工件模型仍待扩展 |
 | `Syndrome` / `Formula` / `Herb` / `Compound` / `Target` / `Gene` / `Pathway` | `KnowledgeEntity` + `EvidenceRelation`，必要时扩充类型字段 | 保留外部 ID、规范 ID、物种、关系类型、证据分值、来源版本；导入前做唯一键与重复规则 |
 | `DatabaseSource` / `DatabaseSyncRun` | `DataSource` / `SourceRelease` / `SyncRun` | 来源配置不含明文密钥；保留游标、运行状态、版本、计数、摘要和失败阶段 |
 

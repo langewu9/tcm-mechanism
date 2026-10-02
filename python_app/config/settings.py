@@ -35,6 +35,7 @@ INSTALLED_APPS = [
     "django_filters",
     "drf_spectacular",
     "apps.core.apps.CoreConfig",
+    "apps.proteomics.apps.ProteomicsConfig",
 ]
 
 MIDDLEWARE = [
@@ -88,6 +89,9 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 MEDIA_ROOT = (BASE_DIR / env("MEDIA_ROOT", default="var/media")).resolve()
 MEDIA_URL = "media/"
 DATASET_UPLOAD_MAX_BYTES = env.int("DATASET_UPLOAD_MAX_BYTES", default=100 * 1024 * 1024)
+PROTEOMICS_MAX_ROWS = env.int("PROTEOMICS_MAX_ROWS", default=25_000)
+PROTEOMICS_MAX_COLUMNS = env.int("PROTEOMICS_MAX_COLUMNS", default=250)
+PROTEOMICS_MAX_CELLS = env.int("PROTEOMICS_MAX_CELLS", default=1_000_000)
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 CSRF_FAILURE_VIEW = "config.api_errors.csrf_failure"
@@ -118,3 +122,14 @@ SPECTACULAR_SETTINGS = {
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
 }
+
+CELERY_BROKER_URL = env("CELERY_BROKER_URL", default="redis://127.0.0.1:6379/0")
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_TRACK_STARTED = True
+CELERY_TASK_ACKS_LATE = True
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+CELERY_TASK_TIME_LIMIT = 1200
+CELERY_TASK_SOFT_TIME_LIMIT = 1080
+CELERY_TASK_IGNORE_RESULT = True

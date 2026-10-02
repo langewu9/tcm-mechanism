@@ -2,6 +2,8 @@ from django.db import models
 
 from .sources import SourceRelease
 
+from .sources import SourceRelease
+
 class KnowledgeEntity(models.Model):
     class EntityType(models.TextChoices):
         HERB = "herb", "中药"
@@ -16,6 +18,13 @@ class KnowledgeEntity(models.Model):
     stable_id = models.CharField(max_length=160)
     label = models.CharField(max_length=300)
     organism = models.CharField(max_length=120, blank=True)
+    source_release = models.ForeignKey(
+        SourceRelease,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="knowledge_entities",
+    )
     synonyms = models.JSONField(default=list, blank=True)
     metadata = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

@@ -1,18 +1,34 @@
 # Django API 后端
 
-`python_app/` 提供认证、权限、研究数据 API 和管理后台。React 前端位于仓库根目录的 `web/`；本地开发时 Vite 在 `5173` 端口，将 `/api/` 代理到此服务的 `8020` 端口。生产反向代理和容器编排仍待完成。
+`python_app/` 提供认证、权限、研究数据 API、管理后台和蛋白组学分析任务。React 前端位于仓库根目录的 `web/`；本地开发时 Vite 在 `5173` 端口，将 `/api/` 代理到 Django `8020` 端口。当前 Compose 仅用于本地开发，生产反向代理和部署加固仍待完成。
 
 ## Linux 本地启动
 
-要求 Python 3.12+ 和 Docker Compose。仓库根目录启动本地 PostgreSQL：
+要求 Python 3.12+ 和 Docker Compose。仓库根目录启动 Django API、PostgreSQL、Redis 和 Celery worker：
 
 ```bash
-docker compose -f deploy/compose.python.yml up -d postgres
+docker compose -f deploy/compose.python.yml up -d --build
 ```
 
-在 `python_app/` 目录：
+Compose 中的密钥只用于本机开发。前端开发服务器单独在 `web/` 目录启动：
 
 ```bash
+pnpm dev --host 127.0.0.1
+```
+
+React/Vite 使用同源代理把 `/api/` 请求转发到 Django `127.0.0.1:8020`。
+
+首次启动后，可在仓库根目录新开终端创建 Django 超级管理员：
+
+```bash
+docker compose -f deploy/compose.python.yml exec api python manage.py createsuperuser
+```
+
+也可以在主机上启动 Django API 和 Celery worker。先只启动数据库与 Redis：
+
+```bash
+docker compose -f deploy/compose.python.yml up -d postgres redis
+cd python_app
 python3.12 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
@@ -22,7 +38,15 @@ python manage.py createsuperuser
 python manage.py runserver 127.0.0.1:8020
 ```
 
-后端独立运行时根路径跳转到 `/api/docs/`；研究者前端由 `web/` 提供。
+另开终端启动 worker：
+
+```bash
+cd python_app
+source .venv/bin/activate
+celery -A config worker --loglevel=INFO
+```
+
+后端独立运行时根路径跳转到 `/api/docs/`。
 
 ## API 模块
 
@@ -30,6 +54,9 @@ python manage.py runserver 127.0.0.1:8020
 - `GET /api/v1/home-stats/`：公开首页显示的知识目录计数。
 - `/api/v1/auth/csrf/`、`/api/v1/auth/session/`：Django 会话登录、状态查询和退出。
 - `/api/v1/research/datasets/`、`cases/`、`analysis-tasks/`：研究者工作区记录。研究者只访问自己的数据，超级管理员可看全部。
+- `POST /api/v1/research/datasets/{id}/analyze/`：将已保存的数据集排入 Celery，创建有归属和原文件 SHA-256 的分析任务。
+- `GET /api/v1/research/analysis-tasks/{id}/rows/`：分页读取蛋白组学行级筛选、映射和排除原因；支持 `?selected=true` / `?selected=false`。
+- `GET /api/v1/research/analysis-tasks/{id}/export/?file_format=csv|xlsx`：按任务所有者权限导出所有行级结果；CSV/XLSX 会转义公式型用户输入。
 - `/api/v1/catalog/sources/`、`entities/`、`evidence/`：外部数据源、规范实体和来源证据目录。
 - `/api/schema/`、`/api/docs/`：OpenAPI schema 与交互式文档。
 
@@ -51,4 +78,4 @@ DJANGO_DEBUG=true DATABASE_URL=sqlite:///:memory: python manage.py test
 
 ## 尚未实现
 
-研究数据集支持上传、私有下载和删除，默认保存于 `MEDIA_ROOT`，单个文件上限由 `DATASET_UPLOAD_MAX_BYTES` 控制（默认 100 MiB）；部署时不得通过静态 Web 服务器直接公开该目录。表格解析/QC、对象存储适配、自助注册、异步分析执行、外部数据同步、蛋白组学与医案候选流程、R 绘图、本地模型接入、审计日志、公网安全加固和生产反向代理仍在后续阶段。SQLite 测试不代替 PostgreSQL 环境验证。
+研究数据集支持上传、私有下载和删除，默认保存于 `MEDIA_ROOT`，单个文件上限由 `DATASET_UPLOAD_MAX_BYTES` 控制（默认 100 MiB）；部署时不得通过静态 Web 服务器直接公开该目录。蛋白组学已支持 CSV/TSV/XLS/XLSX 解析、常见列名识别、基础阈值/QC、本地实体映射、来源关联通路网络、候选靶点交集、Celery 后台任务和 CSV/XLSX/JSON 结果导出。当前不做外部 ID 映射、GO/KEGG/Reactome 富集、STRING PPI 或原始矩阵统计分析。对象存储适配、自助注册、外部数据同步、医案候选流程、R 绘图、本地模型接入、审计日志、公网安全加固和生产反向代理仍在后续阶段。SQLite 测试不代替 PostgreSQL 环境验证。
