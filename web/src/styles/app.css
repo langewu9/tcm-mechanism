@@ -30,6 +30,9 @@
 .workspace-nav { display: flex; min-height: 5rem; align-items: center; justify-content: space-between; gap: 1rem; border-bottom: 1px solid var(--color-border); background: rgba(255, 250, 245, 0.8); padding: 0.7rem max(1rem, calc((100vw - 1360px) / 2)); }
 .workspace-nav .site-brand { color: var(--color-ink); }
 .workspace-nav-actions { display: flex; align-items: center; gap: 0.8rem; }
+.workspace-module-nav { display: flex; align-items: center; gap: 0.35rem; }
+.workspace-module-nav a { border: 1px solid transparent; border-radius: var(--radius-sm); padding: 0.55rem 0.75rem; color: var(--color-ink-soft); font-size: 0.78rem; font-weight: 800; }
+.workspace-module-nav a:hover, .workspace-module-nav a[aria-current="page"] { border-color: var(--color-border); background: var(--color-cinnabar-soft); color: var(--color-cinnabar); }
 .workspace-user { color: var(--color-ink-soft); font-size: 0.78rem; font-weight: 700; }
 .workspace-main { padding-top: 2.1rem; }
 .workspace-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.65rem; }
@@ -60,6 +63,15 @@
 .case-pagination { display: flex; align-items: center; justify-content: center; gap: 0.9rem; margin-top: 1rem; color: var(--color-ink-soft); font-size: 0.75rem; }
 .case-pagination .btn { min-height: 2.35rem; }
 .workspace-redirect { display: block; padding: 5rem 1rem; text-align: center; }
+.dataset-workspace-grid { grid-template-columns: minmax(18rem, 0.7fr) minmax(0, 1.3fr); }
+.dataset-list-items { display: grid; gap: 0.85rem; }
+.dataset-record { min-width: 0; padding: 1.1rem 1.2rem; }
+.dataset-record .case-record-top h3 { overflow-wrap: anywhere; }
+.dataset-description { margin-top: 0.65rem; color: var(--color-ink-soft); font-size: 0.78rem; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
+.dataset-provenance { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.65rem 1rem; margin-top: 0.9rem; border-top: 1px solid var(--color-border); padding-top: 0.8rem; }
+.dataset-provenance dt { margin-bottom: 0.18rem; color: var(--color-cinnabar); font-size: 0.64rem; font-weight: 800; }
+.dataset-provenance dd { color: var(--color-ink-soft); font-size: 0.72rem; overflow-wrap: anywhere; }
+.dataset-file-input { padding: 0.5rem; font-size: 0.78rem; }
 
 @media (max-width: 850px) {
   .case-workspace-grid { grid-template-columns: minmax(0, 1fr); }
@@ -67,9 +79,12 @@
 @media (max-width: 560px) {
   .workspace-nav { min-height: 4.4rem; padding-inline: 0.8rem; }
   .workspace-nav .brand-mark { width: 2.15rem; height: 2.15rem; }
+  .workspace-module-nav { gap: 0; }
+  .workspace-module-nav a { padding-inline: 0.42rem; font-size: 0.68rem; }
   .workspace-user { display: none; }
   .workspace-main { padding: 1.2rem 0.8rem 5rem; }
   .case-form-footer { align-items: flex-start; flex-direction: column; }
   .case-form-footer .btn { width: 100%; }
   .case-record-meta { grid-template-columns: minmax(0, 1fr); }
+  .dataset-provenance { grid-template-columns: minmax(0, 1fr); }
 }

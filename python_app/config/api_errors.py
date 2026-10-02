@@ -52,6 +52,8 @@ def api_exception_handler(exc, context):
         code, message = "INVALID_CREDENTIALS", "用户名或密码不正确。"
     elif getattr(exc, "default_code", None) == "not_authenticated":
         code, message = "AUTHENTICATION_REQUIRED", "请先登录后再操作。"
+    elif status_code == 403 and str(getattr(exc, "detail", "")).startswith("CSRF Failed:"):
+        code, message = "CSRF_FAILED", "请求校验失败，请刷新页面后重试。"
     response.data = error_payload(code, message, response.data, request)
     return response
 
@@ -64,7 +66,18 @@ class ApiErrorEnvelopeMiddleware:
 
     def __call__(self, request):
         request.request_id = str(uuid.uuid4())
-        response = self.get_response(request)
+        try:
+            response = self.get_response(request)
+        except Exception:
+            if not request.path.startswith("/api/"):
+                raise
+            logger.exception("Unhandled API exception request_id=%s", request.request_id)
+            response = api_json_error(
+                request,
+                code="INTERNAL_ERROR",
+                message="服务器暂时无法处理请求，请稍后重试。",
+                status_code=500,
+            )
         return self.process_response(request, response)
 
     def process_response(self, request, response):
@@ -82,20 +95,6 @@ class ApiErrorEnvelopeMiddleware:
                 )
         response["X-Request-ID"] = request.request_id
         return response
-
-    def process_exception(self, request, exception):
-        if not request.path.startswith("/api/"):
-            return None
-        logger.exception("Unhandled API exception request_id=%s", request.request_id)
-        response = api_json_error(
-            request,
-            code="INTERNAL_ERROR",
-            message="服务器暂时无法处理请求，请稍后重试。",
-            status_code=500,
-        )
-        response["X-Request-ID"] = request.request_id
-        return response
-
 
 def csrf_failure(request, reason=""):
     if request.path.startswith("/api/"):

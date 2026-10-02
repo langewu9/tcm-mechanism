@@ -1,9 +1,17 @@
+import hashlib
+import json
+import tempfile
+
 from django.contrib.auth import get_user_model
+from django.core.files.storage import default_storage
 from django.db.models.deletion import ProtectedError
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
+from django.test import RequestFactory, override_settings
 from rest_framework.test import APITestCase
 
 from apps.core.models import AnalysisTask, MedicalCase, ResearchDataset
+from config.api_errors import ApiErrorEnvelopeMiddleware
 
 
 class PrivateWorkspaceApiTests(APITestCase):
@@ -59,6 +67,95 @@ class PrivateWorkspaceApiTests(APITestCase):
         self.assertEqual(response.data["owner_id"], self.other_user.pk)
         self.assertEqual(response.data["owner_username"], self.other_user.username)
 
+    def test_dataset_upload_is_private_and_records_file_provenance(self):
+        contents = b"gene,log2fc\nTP53,1.25\n"
+        with tempfile.TemporaryDirectory() as media_root, override_settings(MEDIA_ROOT=media_root):
+            self.client.force_authenticate(self.other_user)
+            response = self.client.post(
+                reverse("dataset-list"),
+                {
+                    "name": "Differential proteins",
+                    "description": "Pilot upload",
+                    "owner_id": self.owner.pk,
+                    "file": SimpleUploadedFile("proteins.csv", contents, content_type="text/csv"),
+                },
+                format="multipart",
+            )
+
+            self.assertEqual(response.status_code, 201)
+            dataset = ResearchDataset.objects.get(pk=response.data["id"])
+            self.assertEqual(dataset.owner, self.other_user)
+            self.assertEqual(response.data["owner_username"], self.other_user.username)
+            self.assertEqual(dataset.original_filename, "proteins.csv")
+            self.assertEqual(dataset.byte_size, len(contents))
+            self.assertEqual(dataset.content_sha256, hashlib.sha256(contents).hexdigest())
+            self.assertTrue(default_storage.exists(dataset.storage_key))
+
+            self.client.force_authenticate(self.owner)
+            response = self.client.get(reverse("dataset-list"))
+            self.assertEqual(response.data["count"], 1)
+            self.assertEqual(response.data["results"][0]["id"], self.dataset.pk)
+
+            missing_permission_response = self.client.get(
+                reverse("dataset-download", args=[dataset.pk])
+            )
+            self.assertEqual(missing_permission_response.status_code, 404)
+            self.client.force_authenticate(self.other_user)
+            download_response = self.client.get(reverse("dataset-download", args=[dataset.pk]))
+            self.assertEqual(download_response.status_code, 200)
+            self.assertEqual(b"".join(download_response.streaming_content), contents)
+
+    def test_dataset_upload_rejects_unsupported_file_types(self):
+        self.client.force_authenticate(self.owner)
+
+        response = self.client.post(
+            reverse("dataset-list"),
+            {"name": "Unsupported", "file": SimpleUploadedFile("payload.exe", b"not a dataset")},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data["error"]["code"], "VALIDATION_ERROR")
+        self.assertIn("file", response.data["error"]["details"])
+
+    def test_dataset_upload_enforces_configured_size_limit(self):
+        self.client.force_authenticate(self.owner)
+        with override_settings(DATASET_UPLOAD_MAX_BYTES=4):
+            response = self.client.post(
+                reverse("dataset-list"),
+                {"name": "Too large", "file": SimpleUploadedFile("large.csv", b"12345")},
+                format="multipart",
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data["error"]["code"], "VALIDATION_ERROR")
+        self.assertEqual(ResearchDataset.objects.filter(name="Too large").count(), 0)
+
+    def test_only_dataset_owner_can_delete_and_deletion_removes_private_file(self):
+        with tempfile.TemporaryDirectory() as media_root, override_settings(MEDIA_ROOT=media_root):
+            self.client.force_authenticate(self.owner)
+            create_response = self.client.post(
+                reverse("dataset-list"),
+                {
+                    "name": "Private dataset",
+                    "file": SimpleUploadedFile("private.tsv", b"id\tvalue\nA\t1\n"),
+                },
+                format="multipart",
+            )
+            dataset = ResearchDataset.objects.get(pk=create_response.data["id"])
+            storage_key = dataset.storage_key
+            self.assertTrue(default_storage.exists(storage_key))
+
+            self.client.force_authenticate(self.other_user)
+            forbidden_delete = self.client.delete(reverse("dataset-detail", args=[dataset.pk]))
+            self.assertEqual(forbidden_delete.status_code, 404)
+            self.assertTrue(default_storage.exists(storage_key))
+
+            self.client.force_authenticate(self.owner)
+            delete_response = self.client.delete(reverse("dataset-detail", args=[dataset.pk]))
+            self.assertEqual(delete_response.status_code, 204)
+            self.assertFalse(default_storage.exists(storage_key))
+
     def test_case_update_and_delete_are_limited_to_the_owner(self):
         self.client.force_authenticate(self.other_user)
 
@@ -107,6 +204,21 @@ class PrivateWorkspaceApiTests(APITestCase):
 
 
 class ApiErrorContractTests(APITestCase):
+    def test_unhandled_api_exception_is_returned_in_standard_error_envelope(self):
+        request = RequestFactory().get("/api/v1/failing-endpoint/")
+
+        def raise_error(_request):
+            raise RuntimeError("private diagnostic detail")
+
+        with self.assertLogs("config.api_errors", level="ERROR"):
+            response = ApiErrorEnvelopeMiddleware(raise_error)(request)
+        payload = json.loads(response.content)
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(payload["error"]["code"], "INTERNAL_ERROR")
+        self.assertNotIn("private diagnostic detail", response.content.decode())
+        self.assertEqual(response["X-Request-ID"], payload["error"]["requestId"])
+
     def test_unknown_api_route_uses_standard_json_error(self):
         response = self.client.get("/api/v1/route-that-does-not-exist/")
 
@@ -170,3 +282,27 @@ class ApiErrorContractTests(APITestCase):
 
         self.assertEqual(response.status_code, 401)
         self.assertEqual(response.data["error"]["code"], "AUTHENTICATION_REQUIRED")
+
+    def test_dataset_mutation_requires_csrf_for_cookie_authenticated_session(self):
+        from django.test import Client
+
+        user = get_user_model().objects.create_user(username="upload-researcher", password="test-password-123")
+        client = Client(enforce_csrf_checks=True)
+        client.force_login(user)
+        url = reverse("dataset-list")
+
+        rejected = client.post(
+            url,
+            {"name": "Missing token", "file": SimpleUploadedFile("missing.csv", b"x\n1\n")},
+        )
+        self.assertEqual(rejected.status_code, 403)
+        self.assertEqual(rejected.json()["error"]["code"], "CSRF_FAILED")
+
+        csrf_token = client.get("/api/v1/auth/csrf/").json()["csrfToken"]
+        accepted = client.post(
+            url,
+            {"name": "CSRF verified", "file": SimpleUploadedFile("valid.csv", b"x\n1\n")},
+            HTTP_X_CSRFTOKEN=csrf_token,
+        )
+        self.assertEqual(accepted.status_code, 201)
+        self.assertEqual(ResearchDataset.objects.get(pk=accepted.json()["id"]).owner, user)

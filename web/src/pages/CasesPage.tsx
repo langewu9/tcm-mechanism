@@ -104,6 +104,7 @@ export function CasesPage() {
         <img src="/images/yuanzhi-mark.png" alt="" width={42} height={42} className="brand-mark" />
         <span><strong>远志 AI Scientist</strong><small>研究者工作区</small></span>
       </Link>
+      <nav className="workspace-module-nav" aria-label="研究模块"><Link to="/cases" aria-current="page">医案管理</Link><Link to="/datasets">研究数据集</Link></nav>
       <div className="workspace-nav-actions"><span className="workspace-user">{user.username}{user.isSuperuser ? " · 平台管理员" : " · 研究者"}</span>
         <button className="btn btn-secondary" type="button" onClick={signOut}><LogOut size={16} />退出</button>
       </div>

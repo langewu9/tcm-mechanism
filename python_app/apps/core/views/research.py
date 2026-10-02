@@ -1,6 +1,10 @@
 """Researcher-owned datasets, cases, and analysis task records."""
 
+from django.core.files.storage import default_storage
+from django.http import FileResponse
+from rest_framework.exceptions import NotFound
 from rest_framework import viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 
 from ..models import AnalysisTask, MedicalCase, ResearchDataset
@@ -22,6 +26,24 @@ class ResearchDatasetViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(owner=self.request.user)
+
+    def perform_destroy(self, instance):
+        storage_key = instance.storage_key
+        super().perform_destroy(instance)
+        if storage_key:
+            default_storage.delete(storage_key)
+
+    @action(detail=True, methods=["get"])
+    def download(self, request, pk=None):
+        dataset = self.get_object()
+        if not dataset.storage_key or not default_storage.exists(dataset.storage_key):
+            raise NotFound("原始文件暂不可用。")
+        filename = dataset.original_filename or f"dataset-{dataset.pk}"
+        return FileResponse(
+            default_storage.open(dataset.storage_key, "rb"),
+            as_attachment=True,
+            filename=filename,
+        )
 
 
 class MedicalCaseViewSet(viewsets.ModelViewSet):

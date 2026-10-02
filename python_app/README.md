@@ -51,4 +51,4 @@ DJANGO_DEBUG=true DATABASE_URL=sqlite:///:memory: python manage.py test
 
 ## 尚未实现
 
-文件上传、对象存储、自助注册、异步分析执行、外部数据同步、蛋白组学与医案候选流程、R 绘图、本地模型接入、审计日志、公网安全加固和生产反向代理仍在后续阶段。SQLite 测试不代替 PostgreSQL 环境验证。
+研究数据集支持上传、私有下载和删除，默认保存于 `MEDIA_ROOT`，单个文件上限由 `DATASET_UPLOAD_MAX_BYTES` 控制（默认 100 MiB）；部署时不得通过静态 Web 服务器直接公开该目录。表格解析/QC、对象存储适配、自助注册、异步分析执行、外部数据同步、蛋白组学与医案候选流程、R 绘图、本地模型接入、审计日志、公网安全加固和生产反向代理仍在后续阶段。SQLite 测试不代替 PostgreSQL 环境验证。

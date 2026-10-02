@@ -87,6 +87,7 @@ STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 MEDIA_ROOT = (BASE_DIR / env("MEDIA_ROOT", default="var/media")).resolve()
 MEDIA_URL = "media/"
+DATASET_UPLOAD_MAX_BYTES = env.int("DATASET_UPLOAD_MAX_BYTES", default=100 * 1024 * 1024)
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 CSRF_FAILURE_VIEW = "config.api_errors.csrf_failure"
