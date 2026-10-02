@@ -156,7 +156,11 @@ function ExternalTaskResult({ task, kind }: { task: AnalysisTask; kind: "reactom
     </div>;
   }
   const edges = Array.isArray(value.edges) ? value.edges as Array<Record<string, unknown>> : [];
+  const nodes = Array.isArray(value.nodes) ? value.nodes as Array<Record<string, unknown>> : [];
   return <div className="panel source-record"><h3>STRING 网络 · {String(value.sourceVersion ?? "版本未配置")}</h3><p className="section-help">互作 {String(value.interactionCount ?? 0)} 条 · 阈值 {String(value.requiredScore ?? 0)}</p>
+    {nodes.length > 0 && <><p className="section-help">中心性按当前筛选物理互作图计算：degree 为邻居数；betweenness 为归一化无权 Brandes 最短路径中介中心性，不代表因果作用。</p><div className="table-scroll"><table className="data-table"><thead><tr><th>蛋白</th><th>degree</th><th>betweenness</th></tr></thead><tbody>
+      {[...nodes].sort((left, right) => (Number(right.betweenness) || 0) - (Number(left.betweenness) || 0) || (Number(right.degree) || 0) - (Number(left.degree) || 0)).slice(0, 30).map((node, index) => <tr key={`${String(node.id)}-${index}`}><td>{String(node.label ?? node.id ?? "")}</td><td>{String(node.degree ?? "—")}</td><td>{typeof node.betweenness === "number" ? node.betweenness.toPrecision(4) : "—"}</td></tr>)}
+    </tbody></table></div></>}
     {edges.length ? <ul className="proteomics-pathways">{edges.slice(0, 30).map((item, index) => <li key={`${String(item.source)}-${String(item.target)}-${index}`}><strong>{String(item.source)} ↔ {String(item.target)}</strong><span>score {String(item.scoreOutOf1000)}/1000</span></li>)}</ul> : <p className="section-help">当前标识和置信度下没有返回互作边。</p>}
   </div>;
 }

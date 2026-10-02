@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import time
+from collections import deque
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -24,6 +25,9 @@ from apps.proteomics.external_reactome import (
 STRING_VERSION_URL = "https://string-db.org/api/json/version"
 STRING_VERSION_RE = re.compile(r"^[0-9]+(?:\.[0-9]+)*$")
 MAX_STRING_IDENTIFIERS = 200
+MAX_STRING_RESPONSE_BYTES = 8 * 1024 * 1024
+MAX_STRING_INTERACTIONS = MAX_STRING_IDENTIFIERS * (MAX_STRING_IDENTIFIERS - 1) // 2
+MAX_STRING_NODES = MAX_STRING_IDENTIFIERS * 2
 
 
 class ExternalAnalysisError(RuntimeError):
@@ -157,14 +161,74 @@ def _request_string_network(
             # STRING requests at least one second between API calls.
             time.sleep(1)
         with _open_string(request, timeout=30) as response:
-            payload = json.loads(response.read().decode("utf-8"))
+            raw = response.read(MAX_STRING_RESPONSE_BYTES + 1)
+        if len(raw) > MAX_STRING_RESPONSE_BYTES:
+            raise ExternalAnalysisError("STRING 互作响应超过安全大小限制。")
+        payload = json.loads(raw.decode("utf-8"))
     except HTTPError as exc:
         raise ExternalAnalysisError(f"STRING 返回 HTTP {exc.code}。") from None
     except (URLError, TimeoutError, OSError, UnicodeDecodeError, json.JSONDecodeError):
         raise ExternalAnalysisError("STRING 服务暂时无法连接或返回了无效数据。") from None
     if not isinstance(payload, list):
         raise ExternalAnalysisError("STRING 返回的数据格式无效。")
+    if len(payload) > MAX_STRING_INTERACTIONS:
+        raise ExternalAnalysisError("STRING 返回的互作数量超过本次输入上限。")
     return [item for item in payload if isinstance(item, dict)]
+
+
+def calculate_unweighted_betweenness(node_ids: list[str], edges: list[dict]) -> dict[str, dict[str, float | int]]:
+    """Calculate neighbor degree and normalized Brandes betweenness on an undirected PPI graph."""
+    adjacency = {node_id: set() for node_id in node_ids}
+    for edge in edges:
+        left = edge.get("source")
+        right = edge.get("target")
+        if left in adjacency and right in adjacency and left != right:
+            adjacency[left].add(right)
+            adjacency[right].add(left)
+
+    node_count = len(adjacency)
+    raw_betweenness = dict.fromkeys(adjacency, 0.0)
+    for source in adjacency:
+        predecessors = {node_id: [] for node_id in adjacency}
+        shortest_path_count = dict.fromkeys(adjacency, 0)
+        shortest_path_count[source] = 1
+        distance = dict.fromkeys(adjacency, -1)
+        distance[source] = 0
+        queue = deque([source])
+        stack = []
+
+        while queue:
+            node = queue.popleft()
+            stack.append(node)
+            for neighbor in sorted(adjacency[node]):
+                if distance[neighbor] < 0:
+                    distance[neighbor] = distance[node] + 1
+                    queue.append(neighbor)
+                if distance[neighbor] == distance[node] + 1:
+                    shortest_path_count[neighbor] += shortest_path_count[node]
+                    predecessors[neighbor].append(node)
+
+        dependency = dict.fromkeys(adjacency, 0.0)
+        while stack:
+            node = stack.pop()
+            for predecessor in predecessors[node]:
+                dependency[predecessor] += (
+                    shortest_path_count[predecessor]
+                    / shortest_path_count[node]
+                    * (1.0 + dependency[node])
+                )
+            if node != source:
+                raw_betweenness[node] += dependency[node]
+
+    normalizer = (node_count - 1) * (node_count - 2)
+    normalized = {
+        node_id: round(value / normalizer, 6) if normalizer > 0 else 0.0
+        for node_id, value in raw_betweenness.items()
+    }
+    return {
+        node_id: {"degree": len(adjacency[node_id]), "betweenness": normalized[node_id]}
+        for node_id in adjacency
+    }
 
 
 def _string_api_release() -> tuple[str, str, bool]:
@@ -221,12 +285,17 @@ def _run_string(labels: list[str], required_score: int) -> tuple[dict, str | Non
             continue
         nodes[left_id] = {"id": left_id, "label": left, "type": "protein"}
         nodes[right_id] = {"id": right_id, "label": right, "type": "protein"}
+        if len(nodes) > MAX_STRING_NODES:
+            raise ExternalAnalysisError("STRING 返回的节点数量超过本次输入上限。")
         edges.append({
             "source": left_id,
             "target": right_id,
             "score": score,
             "scoreOutOf1000": round(score * 1000),
         })
+    centrality = calculate_unweighted_betweenness(list(nodes), edges)
+    for node in nodes.values():
+        node.update(centrality[node["id"]])
     return {
         "analysisKind": "string_ppi",
         "organism": "Homo sapiens",
@@ -241,6 +310,7 @@ def _run_string(labels: list[str], required_score: int) -> tuple[dict, str | Non
         "interactionCount": len(edges),
         "nodes": list(nodes.values()),
         "edges": edges,
+        "centralityMethod": "degree=unique_neighbors; betweenness=normalized_unweighted_brandes",
         "retrievedAt": timezone.now().isoformat(),
         "note": "该网络来自 STRING 物理互作评分；数据库关联不单独证明因果关系。",
     }, version

@@ -407,6 +407,13 @@ function ProteomicsResultView({
           return <tr key={`${edge.source}:${edge.target}:${index}`}><td>{externalStringNodes.get(edge.source) ?? edge.source}</td><td>{externalStringNodes.get(edge.target) ?? edge.target}</td><td>{edge.scoreOutOf1000}/1000</td></tr>;
         })}
       </tbody></table></div> : <p className="section-help">本次没有可展示的物理互作边。</p>}
+      {result.externalString.nodes.length > 0 && <>
+        <h4 className="section-title-sm">STRING 网络中心性</h4>
+        <p className="section-help">degree 为互作邻居数；betweenness 是当前阈值网络中的无权最短路径中介中心性（归一化）。这些指标只描述网络结构，不代表因果作用。</p>
+        <div className="table-scroll"><table className="data-table"><thead><tr><th>蛋白</th><th>degree</th><th>betweenness</th></tr></thead><tbody>
+          {[...result.externalString.nodes].sort((left, right) => (right.betweenness ?? 0) - (left.betweenness ?? 0) || (right.degree ?? 0) - (left.degree ?? 0)).slice(0, 30).map((node) => <tr key={node.id}><td>{node.label}</td><td>{node.degree ?? "—"}</td><td>{node.betweenness == null ? "—" : node.betweenness.toPrecision(4)}</td></tr>)}
+        </tbody></table></div>
+      </>}
       {result.externalString.truncatedIdentifierCount > 0 && <p className="section-help">超出每次 200 个标识的上限，未发送 {result.externalString.truncatedIdentifierCount} 个。</p>}
     </section>}
 

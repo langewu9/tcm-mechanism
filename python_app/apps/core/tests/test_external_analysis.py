@@ -6,7 +6,7 @@ from django.test import SimpleTestCase, override_settings
 from rest_framework.test import APITestCase
 
 from apps.core.models import AnalysisTask, DataSource, SourceRelease
-from apps.core.services.external_analysis import query_string_physical_network
+from apps.core.services.external_analysis import calculate_unweighted_betweenness, query_string_physical_network
 from apps.core.tasks import run_external_analysis_task
 
 
@@ -100,6 +100,12 @@ class ExternalAnalysisWorkerTests(APITestCase):
         self.assertEqual(outcome["status"], AnalysisTask.Status.SUCCEEDED)
         self.assertEqual(task.result["interactionCount"], 1)
         self.assertEqual(task.result["edges"][0]["scoreOutOf1000"], 910)
+        self.assertEqual(task.result["nodes"][0]["degree"], 1)
+        self.assertEqual(task.result["nodes"][0]["betweenness"], 0.0)
+        self.assertEqual(
+            task.result["centralityMethod"],
+            "degree=unique_neighbors; betweenness=normalized_unweighted_brandes",
+        )
         self.assertEqual(task.result["sourceEndpoint"], "https://version-12-0.string-db.org/api")
         self.assertEqual(list(task.source_releases.all()), [self.release])
 
@@ -204,3 +210,60 @@ class ProteomicsStringConnectorTests(SimpleTestCase):
             query_string_physical_network(["TP53", "TP53"], 700)
 
         run_string.assert_not_called()
+
+
+class StringCentralityTests(SimpleTestCase):
+    def test_normalized_betweenness_on_a_path_graph(self):
+        centrality = calculate_unweighted_betweenness(
+            ["a", "b", "c"],
+            [{"source": "a", "target": "b"}, {"source": "b", "target": "c"}],
+        )
+
+        self.assertEqual(centrality["a"], {"degree": 1, "betweenness": 0.0})
+        self.assertEqual(centrality["b"], {"degree": 2, "betweenness": 1.0})
+        self.assertEqual(centrality["c"], {"degree": 1, "betweenness": 0.0})
+
+    def test_equal_shortest_paths_split_betweenness_and_duplicate_edges_do_not_inflate_degree(self):
+        edges = [
+            {"source": "a", "target": "b"},
+            {"source": "a", "target": "c"},
+            {"source": "b", "target": "d"},
+            {"source": "c", "target": "d"},
+            {"source": "a", "target": "b"},
+            {"source": "a", "target": "a"},
+            {"source": "unknown", "target": "d"},
+        ]
+
+        centrality = calculate_unweighted_betweenness(["a", "b", "c", "d"], edges)
+
+        self.assertEqual(centrality["a"]["degree"], 2)
+        self.assertEqual(centrality["b"]["degree"], 2)
+        self.assertAlmostEqual(centrality["b"]["betweenness"], 1 / 6, places=6)
+        self.assertAlmostEqual(centrality["c"]["betweenness"], 1 / 6, places=6)
+
+
+class StringResponseBoundsTests(SimpleTestCase):
+    @patch("apps.core.services.external_analysis._open_string")
+    def test_string_network_response_is_read_with_a_fixed_byte_limit(self, open_string):
+        from apps.core.services.external_analysis import (
+            ExternalAnalysisError,
+            MAX_STRING_RESPONSE_BYTES,
+            _request_string_network,
+        )
+
+        class OversizedResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self, limit):
+                self.limit = limit
+                return b"x" * limit
+
+        response = OversizedResponse()
+        open_string.return_value = response
+        with self.assertRaisesRegex(ExternalAnalysisError, "超过安全大小限制"):
+            _request_string_network(["TP53", "IL6"], 700, "https://version-12-5.string-db.org/api", False)
+        self.assertEqual(response.limit, MAX_STRING_RESPONSE_BYTES + 1)

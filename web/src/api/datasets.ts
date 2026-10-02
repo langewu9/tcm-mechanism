@@ -95,8 +95,9 @@ export type ProteomicsResult = {
     truncatedIdentifierCount: number;
     rejectedIdentifierCount?: number;
     interactionCount: number;
-    nodes: Array<{ id: string; label: string; type: string }>;
+    nodes: Array<{ id: string; label: string; type: string; degree?: number; betweenness?: number }>;
     edges: Array<{ source: string; target: string; score: number; scoreOutOf1000: number }>;
+    centralityMethod?: string;
     consentRecorded: boolean;
     failureStage?: string;
   };
