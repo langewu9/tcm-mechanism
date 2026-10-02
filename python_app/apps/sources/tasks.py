@@ -7,12 +7,15 @@ from rest_framework.exceptions import ValidationError
 
 from apps.core.models import SyncRun
 from apps.sources.services import (
+    PUBCHEM_CONNECTOR,
     REACTOME_CONNECTOR,
     UNIPROT_CONNECTOR,
+    apply_pubchem_sync,
     apply_reactome_sync,
     apply_uniprot_sync,
     preview_reactome_sync,
     preview_uniprot_sync,
+    preview_pubchem_sync,
 )
 from apps.sources.sqlite_sync import SQLITE_CONNECTOR, apply_sqlite_sync, preview_sqlite_sync
 
@@ -46,6 +49,10 @@ def sync_source_run(run_id: int) -> dict[str, str | int]:
             preview_uniprot_sync(run)
         elif connector == UNIPROT_CONNECTOR and mode == "apply":
             apply_uniprot_sync(run)
+        elif connector == PUBCHEM_CONNECTOR and mode == "preview":
+            preview_pubchem_sync(run)
+        elif connector == PUBCHEM_CONNECTOR and mode == "apply":
+            apply_pubchem_sync(run)
         elif connector == SQLITE_CONNECTOR and mode == "preview":
             preview_sqlite_sync(run)
         elif connector == SQLITE_CONNECTOR and mode == "apply":

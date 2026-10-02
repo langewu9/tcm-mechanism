@@ -102,8 +102,8 @@ class EntityIdentifier(models.Model):
             ),
             models.UniqueConstraint(
                 fields=["namespace", "identifier"],
-                condition=models.Q(namespace="uniprot"),
-                name="uniq_uniprot_accession_identifier",
+                condition=models.Q(namespace__in=["uniprot", "pubchem"]),
+                name="uniq_global_external_identifier",
             ),
         ]
         indexes = [models.Index(fields=["entity", "namespace"], name="entity_namespace_idx")]

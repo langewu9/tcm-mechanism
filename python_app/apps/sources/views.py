@@ -19,6 +19,7 @@ from apps.sources.serializers import (
 )
 from apps.sources.connectors.sqlite_tcm import SQLiteSourceError, inspect_sqlite_source
 from apps.sources.services import (
+    PUBCHEM_CONNECTOR,
     REACTOME_CONNECTOR,
     REACTOME_SOURCE_SLUG,
     UNIPROT_CONNECTOR,
@@ -95,7 +96,7 @@ class SourceSyncPreviewView(APIView):
         connector = (source.configuration or {}).get("connector") or (
             REACTOME_CONNECTOR if source.slug == REACTOME_SOURCE_SLUG else ""
         )
-        if connector not in {REACTOME_CONNECTOR, SQLITE_CONNECTOR, UNIPROT_CONNECTOR}:
+        if connector not in {REACTOME_CONNECTOR, SQLITE_CONNECTOR, UNIPROT_CONNECTOR, PUBCHEM_CONNECTOR}:
             raise ValidationError("当前版本不支持该数据源的同步连接器。")
         if not source.enabled:
             raise ValidationError("该数据源已停用，不能执行同步。")
@@ -126,7 +127,7 @@ class SourceSyncApplyView(APIView):
             connector = (preview.preview_summary or {}).get("connector") or (
                 REACTOME_CONNECTOR if preview.source.slug == REACTOME_SOURCE_SLUG else ""
             )
-            if connector not in {REACTOME_CONNECTOR, SQLITE_CONNECTOR, UNIPROT_CONNECTOR} or not preview.release_id or not preview.cursor:
+            if connector not in {REACTOME_CONNECTOR, SQLITE_CONNECTOR, UNIPROT_CONNECTOR, PUBCHEM_CONNECTOR} or not preview.release_id or not preview.cursor:
                 raise ValidationError("预览记录缺少可应用的来源版本信息。")
             if not preview.source.enabled:
                 raise ValidationError("该数据源已停用，不能执行同步。")

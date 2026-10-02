@@ -9,6 +9,12 @@ from apps.sources.connectors.reactome import (
     ReactomeCatalogSnapshot,
     fetch_reactome_human_pathway_catalog,
 )
+from apps.sources.connectors.pubchem import (
+    PubChemCatalogSnapshot,
+    PubChemCatalogError,
+    fetch_pubchem_compound_catalog,
+    validate_pubchem_mappings,
+)
 from apps.sources.connectors.uniprot import UniProtCatalogSnapshot, UniProtProtein, fetch_uniprot_human_catalog
 
 
@@ -16,6 +22,8 @@ REACTOME_SOURCE_SLUG = "reactome"
 REACTOME_CONNECTOR = "reactome-catalog"
 UNIPROT_SOURCE_SLUG = "uniprot-human"
 UNIPROT_CONNECTOR = "uniprot-human-catalog"
+PUBCHEM_SOURCE_SLUG = "pubchem-compounds"
+PUBCHEM_CONNECTOR = "pubchem-compound-catalog"
 
 
 def enqueue_sync_run(run: SyncRun) -> None:
@@ -469,4 +477,230 @@ def apply_uniprot_sync(run: SyncRun) -> None:
                 "records_seen", "records_created", "records_updated", "records_retired", "preview_summary"
             ]
         )
+        DataSource.objects.filter(pk=run.source_id).update(last_success_at=now)
+
+
+def _get_pubchem_snapshot(source: DataSource) -> PubChemCatalogSnapshot:
+    configuration = source.configuration or {}
+    try:
+        mappings = validate_pubchem_mappings(configuration.get("mappings"))
+    except PubChemCatalogError as exc:
+        raise ValidationError(str(exc)) from exc
+    stable_ids = {mapping.stable_id for mapping in mappings}
+    compounds = {
+        row.stable_id: row
+        for row in KnowledgeEntity.objects.filter(
+            entity_type=KnowledgeEntity.EntityType.COMPOUND,
+            is_active=True,
+            stable_id__in=stable_ids,
+        ).only("id", "stable_id")
+    }
+    missing = sorted(stable_ids - set(compounds))
+    if missing:
+        example = ", ".join(missing[:3])
+        raise ValidationError(f"PubChem 映射引用了不存在或已停用的本地成分 stableId：{example}。")
+
+    existing_identifiers = {
+        row.identifier: row
+        for row in EntityIdentifier.objects.filter(
+            namespace="pubchem",
+            identifier__in=[mapping.cid for mapping in mappings],
+        ).select_related("entity")
+    }
+    for mapping in mappings:
+        previous = existing_identifiers.get(mapping.cid)
+        if previous and previous.entity.stable_id != mapping.stable_id:
+            raise ValidationError(
+                f"PubChem CID {mapping.cid} 已关联到其他本地成分；请先人工核对稳定 ID，不能自动改绑。"
+            )
+    try:
+        return fetch_pubchem_compound_catalog(configuration.get("mappings"))
+    except PubChemCatalogError as exc:
+        raise ValidationError(str(exc)) from exc
+
+
+def build_pubchem_preview(source: DataSource, snapshot: PubChemCatalogSnapshot) -> dict:
+    incoming = {row.cid: row for row in snapshot.compounds}
+    target_entities = {
+        row.stable_id: row
+        for row in KnowledgeEntity.objects.filter(
+            entity_type=KnowledgeEntity.EntityType.COMPOUND,
+            stable_id__in=[item.stable_id for item in snapshot.compounds],
+        ).only("id", "stable_id", "label")
+    }
+    existing = {
+        row.identifier: row
+        for row in EntityIdentifier.objects.filter(
+            namespace="pubchem",
+            identifier__in=incoming,
+        ).select_related("source_release")
+    }
+    owned_active = set(
+        EntityIdentifier.objects.filter(
+            namespace="pubchem",
+            source_release__source=source,
+            is_active=True,
+        ).values_list("identifier", flat=True)
+    )
+    created = sum(cid not in existing for cid in incoming)
+    unchanged = sum(
+        row.is_active
+        and row.source_release.source_id == source.pk
+        and row.source_release.version == snapshot.release_version
+        for row in existing.values()
+    )
+    updated = len(incoming) - created - unchanged
+    preview_records = []
+    for record in snapshot.compounds[:20]:
+        compound = target_entities.get(record.stable_id)
+        preview_records.append({
+            "compound": compound.label if compound else record.stable_id,
+            "stableId": record.stable_id,
+            "cid": record.cid,
+            "molecularFormula": record.molecular_formula,
+            "molecularWeight": record.molecular_weight,
+            "inchiKey": record.inchikey,
+            "iupacName": record.iupac_name,
+        })
+    return {
+        "mode": "preview",
+        "connector": PUBCHEM_CONNECTOR,
+        "sourceVersion": snapshot.source_version,
+        "releaseVersion": snapshot.release_version,
+        "checksumSha256": snapshot.checksum_sha256,
+        "endpoint": snapshot.endpoint,
+        "totalRecords": len(snapshot.compounds),
+        "pageCount": snapshot.page_count,
+        "wouldCreate": created,
+        "wouldUpdate": updated,
+        "unchanged": unchanged,
+        "wouldRetire": len(owned_active - set(incoming)),
+        "previewRecords": preview_records,
+        "previewRecordsTruncated": len(snapshot.compounds) > len(preview_records),
+    }
+
+
+def preview_pubchem_sync(run: SyncRun) -> None:
+    if run.source.slug != PUBCHEM_SOURCE_SLUG:
+        raise ValidationError("该同步连接器只用于经人工映射的 PubChem 成分属性。")
+    snapshot = _get_pubchem_snapshot(run.source)
+    release, _ = SourceRelease.objects.get_or_create(
+        source=run.source,
+        version=snapshot.release_version,
+        defaults={
+            "checksum_sha256": snapshot.checksum_sha256,
+            "metadata": {
+                "sourceVersion": snapshot.source_version,
+                "endpoint": snapshot.endpoint,
+                "retrievedAt": timezone.now().isoformat(),
+                "recordCount": len(snapshot.compounds),
+                "pageCount": snapshot.page_count,
+                "versionNote": "PubChem 不提供此组属性的统一目录版本；版本由检索日期和响应/映射 SHA-256 共同标识。",
+            },
+        },
+    )
+    if release.checksum_sha256 != snapshot.checksum_sha256:
+        raise ValidationError("PubChem 快照版本与已有校验值不一致，请重新预览并检查来源记录。")
+    run.release = release
+    run.cursor = snapshot.checksum_sha256
+    run.records_seen = len(snapshot.compounds)
+    run.preview_summary = build_pubchem_preview(run.source, snapshot)
+    run.save(update_fields=["release", "cursor", "records_seen", "preview_summary"])
+
+
+def apply_pubchem_sync(run: SyncRun) -> None:
+    if run.source.slug != PUBCHEM_SOURCE_SLUG:
+        raise ValidationError("该同步连接器只用于经人工映射的 PubChem 成分属性。")
+    if run.release_id is None or not run.cursor:
+        raise ValidationError("缺少 PubChem 预览版本信息，请先重新运行预览。")
+
+    snapshot = _get_pubchem_snapshot(run.source)
+    if snapshot.checksum_sha256 != run.cursor or snapshot.checksum_sha256 != run.release.checksum_sha256:
+        raise ValidationError("PubChem 属性或人工映射在预览后已变化，请重新预览再应用。")
+
+    with transaction.atomic():
+        now = timezone.now()
+        stable_ids = {row.stable_id for row in snapshot.compounds}
+        entities = {
+            row.stable_id: row
+            for row in KnowledgeEntity.objects.select_for_update().filter(
+                entity_type=KnowledgeEntity.EntityType.COMPOUND,
+                is_active=True,
+                stable_id__in=stable_ids,
+            )
+        }
+        if set(entities) != stable_ids:
+            raise ValidationError("预览后本地成分映射发生变化，请重新预览。")
+        incoming = {row.cid: row for row in snapshot.compounds}
+        previous_ids = set(
+            EntityIdentifier.objects.filter(
+                namespace="pubchem",
+                source_release__source=run.source,
+            ).values_list("identifier", flat=True)
+        )
+        existing = {
+            row.identifier: row
+            for row in EntityIdentifier.objects.select_for_update().filter(
+                namespace="pubchem", identifier__in=incoming
+            )
+        }
+        for record in snapshot.compounds:
+            previous = existing.get(record.cid)
+            if previous and previous.entity_id != entities[record.stable_id].pk:
+                raise ValidationError(f"PubChem CID {record.cid} 已关联到其他本地成分，已中止应用。")
+
+        EntityIdentifier.objects.filter(
+            namespace="pubchem",
+            source_release__source=run.source,
+            is_active=True,
+        ).update(is_active=False, updated_at=now)
+
+        identifier_rows = []
+        changed_entities = []
+        for record in snapshot.compounds:
+            entity = entities[record.stable_id]
+            pubchem_metadata = {
+                "cid": record.cid,
+                "iupacName": record.iupac_name,
+                "molecularFormula": record.molecular_formula,
+                "molecularWeight": record.molecular_weight,
+                "canonicalSmiles": record.canonical_smiles,
+                "inchiKey": record.inchikey,
+                "sourceRelease": run.release.version,
+            }
+            metadata = entity.metadata if isinstance(entity.metadata, dict) else {}
+            entity.metadata = {**metadata, "pubchem": pubchem_metadata}
+            entity.updated_at = now
+            changed_entities.append(entity)
+            identifier_rows.append(EntityIdentifier(
+                entity=entity,
+                source_release=run.release,
+                namespace="pubchem",
+                identifier=record.cid,
+                is_active=True,
+                metadata={"source": PUBCHEM_SOURCE_SLUG},
+                updated_at=now,
+            ))
+        KnowledgeEntity.objects.bulk_update(changed_entities, ["metadata", "updated_at"], batch_size=500)
+        if identifier_rows:
+            EntityIdentifier.objects.bulk_create(
+                identifier_rows,
+                batch_size=500,
+                update_conflicts=True,
+                unique_fields=["namespace", "identifier", "entity"],
+                update_fields=["source_release", "is_active", "metadata", "updated_at"],
+            )
+
+        current_ids = set(incoming)
+        run.records_seen = len(current_ids)
+        run.records_created = len(current_ids - set(existing))
+        run.records_updated = len(current_ids & set(existing))
+        run.records_retired = len(previous_ids - current_ids)
+        run.preview_summary = {
+            **(run.preview_summary or {}),
+            "mode": "apply",
+            "appliedAt": now.isoformat(),
+            "checksumSha256": snapshot.checksum_sha256,
+        }
+        run.save(update_fields=["records_seen", "records_created", "records_updated", "records_retired", "preview_summary"])
         DataSource.objects.filter(pk=run.source_id).update(last_success_at=now)
