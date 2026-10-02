@@ -42,6 +42,24 @@ server {
         proxy_read_timeout 120s;
     }
 
+    location = /api/v1/auth/register/ {
+        limit_req zone=researcher_registration burst=2 nodelay;
+        limit_req_status 429;
+        error_page 429 = @registration_rate_limited;
+        proxy_pass http://api:8020;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location @registration_rate_limited {
+        default_type application/json;
+        add_header X-Request-ID $request_id always;
+        return 429 '{"error":{"code":"RATE_LIMITED","message":"请求过于频繁，请稍后重试。","details":null,"requestId":"$request_id"}}';
+    }
+
     location /accounts/ {
         proxy_pass http://api:8020;
         proxy_set_header Host $host;

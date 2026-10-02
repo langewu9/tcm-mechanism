@@ -262,6 +262,12 @@ class PrivateWorkspaceApiTests(APITestCase):
 
 
 class ApiErrorContractTests(APITestCase):
+    def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()
+        self.addCleanup(cache.clear)
+
     def test_unhandled_api_exception_is_returned_in_standard_error_envelope(self):
         request = RequestFactory().get("/api/v1/failing-endpoint/")
 
@@ -309,6 +315,108 @@ class ApiErrorContractTests(APITestCase):
 
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.json()["error"]["code"], "CSRF_FAILED")
+
+    def test_researcher_registration_creates_inactive_non_admin_account(self):
+        from django.contrib.auth import authenticate
+
+        password = "Lemon-Cedar-47!river"
+        response = self.client.post(
+            "/api/v1/auth/register/",
+            {
+                "username": "evidence-reader",
+                "email": " Reader@Example.org ",
+                "password": password,
+                "password_confirmation": password,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["status"], "pending_approval")
+        user = get_user_model().objects.get(username="evidence-reader")
+        self.assertEqual(user.email, "reader@example.org")
+        self.assertFalse(user.is_active)
+        self.assertFalse(user.is_staff)
+        self.assertFalse(user.is_superuser)
+        self.assertTrue(user.check_password(password))
+        self.assertIsNone(authenticate(username="evidence-reader", password=password))
+
+        user.is_active = True
+        user.save(update_fields=["is_active"])
+        self.assertEqual(authenticate(username="evidence-reader", password=password), user)
+
+    def test_researcher_registration_rejects_mismatched_and_weak_passwords(self):
+        response = self.client.post(
+            "/api/v1/auth/register/",
+            {
+                "username": "new-reader",
+                "email": "new-reader@example.org",
+                "password": "password",
+                "password_confirmation": "different-password",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data["error"]["code"], "VALIDATION_ERROR")
+        self.assertIn("password_confirmation", response.data["error"]["details"])
+        self.assertFalse(get_user_model().objects.filter(username="new-reader").exists())
+
+    def test_researcher_registration_requires_csrf_and_accepts_csrf_token(self):
+        from django.test import Client
+
+        client = Client(enforce_csrf_checks=True)
+        payload = {
+            "username": "csrf-reader",
+            "email": "csrf-reader@example.org",
+            "password": "Lemon-Cedar-47!river",
+            "password_confirmation": "Lemon-Cedar-47!river",
+        }
+        rejected = client.post("/api/v1/auth/register/", payload, content_type="application/json")
+        self.assertEqual(rejected.status_code, 403)
+        self.assertEqual(rejected.json()["error"]["code"], "CSRF_FAILED")
+
+        csrf_token = client.get("/api/v1/auth/csrf/").json()["csrfToken"]
+        accepted = client.post(
+            "/api/v1/auth/register/",
+            json.dumps(payload),
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=csrf_token,
+        )
+        self.assertEqual(accepted.status_code, 201)
+        self.assertFalse(get_user_model().objects.get(username="csrf-reader").is_active)
+
+    def test_researcher_registration_is_rate_limited(self):
+        from django.core.cache import cache
+
+        cache.clear()
+        password = "Lemon-Cedar-47!river"
+        for index in range(5):
+            response = self.client.post(
+                "/api/v1/auth/register/",
+                {
+                    "username": f"rate-reader-{index}",
+                    "email": f"rate-reader-{index}@example.org",
+                    "password": password,
+                    "password_confirmation": password,
+                },
+                format="json",
+            )
+            self.assertEqual(response.status_code, 201)
+
+        limited = self.client.post(
+            "/api/v1/auth/register/",
+            {
+                "username": "rate-reader-over-limit",
+                "email": "rate-reader-over-limit@example.org",
+                "password": password,
+                "password_confirmation": password,
+            },
+            format="json",
+        )
+        self.assertEqual(limited.status_code, 429)
+        self.assertEqual(limited.data["error"]["code"], "RATE_LIMITED")
+        self.assertFalse(get_user_model().objects.filter(username="rate-reader-over-limit").exists())
 
 
     def test_react_session_login_uses_csrf_and_creates_server_session(self):

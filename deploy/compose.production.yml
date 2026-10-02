@@ -14,6 +14,7 @@ x-django-environment: &django-environment
   DJANGO_SECURE_HSTS_SECONDS: "31536000"
   DATABASE_URL: postgres://tcm_platform:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.production}@postgres:5432/tcm_platform
   CELERY_BROKER_URL: redis://:${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env.production}@redis:6379/0
+  CACHE_URL: redis://:${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env.production}@redis:6379/1
   S3_STORAGE_ENABLED: "true"
   S3_BUCKET_NAME: ${S3_BUCKET_NAME:?Set S3_BUCKET_NAME in .env.production}
   S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:?Set S3_ENDPOINT_URL in .env.production}

@@ -52,7 +52,7 @@ celery -A config worker --loglevel=INFO
 
 - `GET /api/v1/health/`：应用与数据库健康状态。
 - `GET /api/v1/home-stats/`：公开首页显示的知识目录计数。
-- `/api/v1/auth/csrf/`、`/api/v1/auth/session/`：Django 会话登录、状态查询和退出。
+- `/api/v1/auth/csrf/`、`/api/v1/auth/session/`：Django 会话登录、状态查询和退出；`POST /api/v1/auth/register/` 接收待审核的研究者账号申请（Django/Redis 5 次/小时，CSRF 校验；生产 Nginx 另有限速），仅管理员启用后可登录。邮箱所有权验证和申请通知尚未接通。
 - `/api/v1/research/datasets/`、`cases/`、`analysis-tasks/`：研究者工作区记录。研究者只访问自己的数据，超级管理员可看全部。
 - 医案支持私有审计查询 `GET /api/v1/research/cases/{id}/audit/`；平台管理员可显式 `POST /api/v1/research/cases/{id}/review/`（`{"decision":"approve"}`）标记审核。审计日志保留操作人、时间、变更字段与内容哈希，不重复存储医案正文。研究者还可在 `GET/POST /api/v1/research/cases/{id}/analysis/` 查询或发起明确同意的本机/内网模型分析，并在 `POST /api/v1/research/cases/{id}/candidates/{candidate_id}/review/` 逐项确认/驳回。只发送脱敏正文、舌脉和诊断；候选需带有与原文逐字相符的引文并唯一对应本地规范实体，确认后才加入带来源版本的关系链。设置 `CASE_MODEL_BASE_URL`、`CASE_MODEL_NAME`、实际 `CASE_MODEL_VERSION` 和可选 API key；Compose worker 访问宿主机模型时使用 `host.docker.internal`，宿主机进程运行 worker 时使用 `127.0.0.1`。公网模型端点会被拒绝。
 - `POST /api/v1/research/datasets/{id}/analyze/`：将已保存的数据集排入 Celery，创建有归属和原文件 SHA-256 的分析任务。

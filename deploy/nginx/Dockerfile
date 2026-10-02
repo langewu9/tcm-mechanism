@@ -9,5 +9,6 @@ RUN pnpm build
 
 FROM nginx:stable-alpine
 COPY --from=web-build /src/dist/ /usr/share/nginx/html/
+COPY deploy/nginx/rate-limits.conf /etc/nginx/conf.d/00-rate-limits.conf
 COPY deploy/nginx/default.conf.template /etc/nginx/templates/default.conf.template
 EXPOSE 80 443
