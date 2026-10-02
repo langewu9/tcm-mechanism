@@ -36,6 +36,7 @@ INSTALLED_APPS = [
     "drf_spectacular",
     "apps.core.apps.CoreConfig",
     "apps.proteomics.apps.ProteomicsConfig",
+    "apps.sources.apps.SourcesConfig",
 ]
 
 MIDDLEWARE = [

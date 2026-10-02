@@ -73,6 +73,15 @@
 .dataset-provenance dt { margin-bottom: 0.18rem; color: var(--color-cinnabar); font-size: 0.64rem; font-weight: 800; }
 .dataset-provenance dd { color: var(--color-ink-soft); font-size: 0.72rem; overflow-wrap: anywhere; }
 .dataset-file-input { padding: 0.5rem; font-size: 0.78rem; }
+.source-sync-layout { display: grid; grid-template-columns: minmax(18rem, 0.75fr) minmax(0, 1.25fr); align-items: start; gap: 1.4rem; }
+.source-record, .source-run-record { min-width: 0; padding: 1.1rem 1.2rem; }
+.source-last-success, .source-release-line { margin-top: 0.75rem; color: var(--color-ink-soft); font-size: 0.72rem; line-height: 1.6; }
+.source-record-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.8rem; }
+.source-record > .section-help { margin-top: 0.75rem; }
+.source-sync-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: 0.85rem; }
+.source-checksum { display: block; margin-top: 0.55rem; color: var(--color-ink-soft); font-size: 0.64rem; overflow-wrap: anywhere; }
+.source-apply-button { margin-top: 0.8rem; }
+.source-run-error { margin-top: 0.75rem; }
 .proteomics-workspace-grid { grid-template-columns: minmax(19rem, 0.78fr) minmax(0, 1.22fr); }
 .proteomics-column-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.7rem; }
 .proteomics-threshold-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.7rem; }
@@ -113,6 +122,7 @@
 
 @media (max-width: 850px) {
   .case-workspace-grid { grid-template-columns: minmax(0, 1fr); }
+  .source-sync-layout { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 560px) {
   .workspace-nav { min-height: 4.4rem; padding-inline: 0.8rem; }
@@ -134,4 +144,5 @@
   .workspace-nav { flex-wrap: wrap; }
   .workspace-module-nav { order: 3; width: 100%; justify-content: center; }
   .workspace-module-nav a { flex: 1; justify-content: center; text-align: center; }
+  .source-sync-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

@@ -22,7 +22,7 @@
 | `src/app/analysis/page.tsx`、`AnalysisWorkbench.tsx`、`src/lib/analysis.ts`、`src/app/api/analysis/tasks/*` | 医案/文本分析和任务结果 | Django 任务 API + Celery worker；结果和输入版本持久化 | 待迁移；当前 AnalysisTask 是只读记录，还没有执行器 |
 | `src/app/research/page.tsx`、`ResearchWorkbench.tsx`、`src/app/api/research/route.ts` | 研究问题、证候/方剂/药物等证据链 | Django research/knowledge service 与 React 研究工作台 | 待迁移；迁移前需审查 760 行路由中的业务与外部数据依赖 |
 | `src/app/api/network-pharmacology/route.ts`、`pathway-enrichment/route.ts`、`src/lib/reactome.ts`、`NetworkPharmacologyWorkbench.tsx` | 靶点交集、Reactome 富集和网络药理视图 | Django connector/service；任务固定数据源版本，页面显示证据来源 | 待迁移；需先验证外部 API 限流、许可和版本语义 |
-| `src/app/admin/page.tsx`、`DatabaseSyncConsole.tsx`、`ReactomeCatalogSync.tsx`、`src/lib/database-sync.ts` | 管理员数据源管理、测试和同步 | Django Admin + 受管理员权限保护的同步 API/控制台 | 待迁移；不暴露原始连接串和密钥 |
+| `src/app/admin/page.tsx`、`DatabaseSyncConsole.tsx`、`ReactomeCatalogSync.tsx`、`src/lib/database-sync.ts` | 管理员数据源管理、测试和同步 | Django Admin + 受管理员权限保护的同步 API/控制台 | Reactome 目录的后台预览/人工应用已接入，保留版本、SHA-256、操作者、记录计数与失败信息；真实目录 2,883 条已在临时 SQLite 上验证。main 的 SQLite 中药—成分—靶点游标同步、连接测试、UniProt/PubChem/STRING connector 仍待迁移；未知路径不接受任意浏览器输入 |
 | `src/app/assistant/page.tsx`、`AssistantWorkspace.tsx`、`src/app/api/assistant/route.ts`、`backend/qwen_service.py` | 科研助手和 Qwen/BianCang 接口 | Django provider adapter/异步服务，前端呈现证据和模型版本 | 待迁移；不默认调用无鉴权公网模型地址 |
 | `src/app/api/analysis/results/*`、`src/lib/exporters.ts`、`Charts.tsx`、`NetworkGraph.tsx` | 结果、CSV/PDF 导出和图形展示 | Django 授权结果 API；React 交互图表；R 工件后续集成 | 待迁移 |
 
@@ -75,7 +75,7 @@
 
 - 逐个旧数据文件登记实际路径、格式、记录数、来源、许可和是否有身份/健康敏感字段。
 - 建立 Prisma → Django 字段映射、主键映射、导入/去重规则和可回退备份步骤。
-- 为 proteomics、Reactome、network pharmacology、医案分析留存代表输入/输出样例，并确认输出字段和算法版本。
+- 为 proteomics、Reactome、network pharmacology、医案分析留存代表输入/输出样例，并确认输出字段和算法版本。Reactome 当前目录实际快照已验证 2,883 条；main 的 proteomics 和医案结果黄金样例尚未提供。
 - 检查旧 `tests/test_api.py` 与 `src` 业务当前是否仍可运行；保留可以复现的结果作为迁移验收样例。
 - 为每个外部来源记录调用许可、限流、更新频率、引用要求和失效处理策略。
 - 获取旧代码依赖的 Excel/SQLite 原始文件，并核实持有人、许可、版本、敏感字段及导入权限。

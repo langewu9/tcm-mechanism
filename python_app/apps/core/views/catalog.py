@@ -20,7 +20,9 @@ class DataSourceViewSet(viewsets.ReadOnlyModelViewSet):
 class KnowledgeEntityViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = KnowledgeEntitySerializer
     permission_classes = [IsAuthenticated]
-    queryset = KnowledgeEntity.objects.select_related("source_release", "source_release__source")
+    queryset = KnowledgeEntity.objects.filter(is_active=True).select_related(
+        "source_release", "source_release__source"
+    )
     search_fields = ["stable_id", "label"]
     filterset_fields = ["entity_type", "organism"]
 
@@ -28,7 +30,7 @@ class KnowledgeEntityViewSet(viewsets.ReadOnlyModelViewSet):
 class EvidenceRelationViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = EvidenceRelationSerializer
     permission_classes = [IsAuthenticated]
-    queryset = EvidenceRelation.objects.select_related(
+    queryset = EvidenceRelation.objects.filter(subject__is_active=True, object__is_active=True).select_related(
         "subject", "object", "source_release", "source_release__source"
     )
     filterset_fields = ["relation_type", "evidence_type", "organism", "source_release"]
@@ -50,7 +52,7 @@ class HomeStatsView(APIView):
 
     @extend_schema(responses=HomeStatsSerializer)
     def get(self, request):
-        counts = KnowledgeEntity.objects.aggregate(
+        counts = KnowledgeEntity.objects.filter(is_active=True).aggregate(
             herbs=Count("id", filter=Q(entity_type=KnowledgeEntity.EntityType.HERB)),
             compounds=Count("id", filter=Q(entity_type=KnowledgeEntity.EntityType.COMPOUND)),
             targets=Count(

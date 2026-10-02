@@ -33,6 +33,7 @@ class KnowledgeEntitySerializer(serializers.ModelSerializer):
             "stable_id",
             "label",
             "organism",
+            "is_active",
             "source_release",
             "source_slug",
             "source_version",

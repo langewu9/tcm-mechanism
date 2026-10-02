@@ -459,6 +459,7 @@ def _build_result(
     selected_rows = [row for row in rows if row.selected]
     entities = list(
         KnowledgeEntity.objects.filter(
+            is_active=True,
             entity_type__in=[KnowledgeEntity.EntityType.GENE, KnowledgeEntity.EntityType.PROTEIN]
         ).select_related("source_release", "source_release__source").order_by("id")
     )
@@ -522,6 +523,7 @@ def _build_result(
         EvidenceRelation.objects.filter(
             subject_id__in=selected_entity_ids,
             object__entity_type=KnowledgeEntity.EntityType.PATHWAY,
+            object__is_active=True,
         ).select_related("subject", "object", "source_release", "source_release__source")
     ) if selected_entity_ids else []
     relations = [

@@ -9,7 +9,7 @@ const workflow = [
   { index: "01", title: "确认研究者身份", text: "研究记录关联登录账号，保留数据责任人。" },
   { index: "02", title: "整理知识目录", text: "按规范实体与来源版本组织可追溯数据。" },
   { index: "03", title: "创建研究记录", text: "数据集、医案与任务接口已建立个人访问边界。" },
-  { index: "04", title: "逐步接入分析", text: "蛋白组学、医案分析和模型服务仍待迁移。" },
+  { index: "04", title: "逐步接入分析", text: "蛋白组学首版已接通；医案分析和模型服务仍待迁移。" },
   { index: "05", title: "补齐结果导出", text: "表格、图表和报告导出会在业务模块接通后加入。" },
 ];
 export function HomePage() {
@@ -36,14 +36,14 @@ export function HomePage() {
     <section className="product-hero">
       <div className="product-hero-paper" aria-hidden="true" /><div className="product-hero-watermark" aria-hidden="true"><span>远</span><span>志</span></div>
       <div className="product-hero-content"><p className="hero-kicker">Traditional medicine, computational evidence</p><h1>远志 AI Scientist</h1>
-        <p className="hero-lead">平台从知识目录、来源追溯和研究者工作区开始建设；文件上传与分析引擎将在后续阶段接入。</p>
+        <p className="hero-lead">平台从知识目录、来源追溯和研究者工作区开始建设；文件上传与蛋白组学首版已接通，其余分析能力逐步迁入。</p>
         <div className="hero-actions"><Link to="/cases" className="hero-primary">进入研究工作台 <ArrowRight size={18} /></Link><a href="/api/docs/" className="hero-secondary"><FileSearch size={17} /> 查看平台接口</a></div>
       </div>
       <HeroScroll /><div className="hero-metrics" aria-label="知识库规模">{metrics.map((item) => <HomeMetric key={item.label} {...item} />)}</div>
     </section>
     <section id="workflow" className="home-band home-workflow"><div className="home-section-heading"><p>Evidence workflow</p><h2>从研究问题到可复核证据</h2><span>目前已完成身份、数据结构和 API 的基础搭建；研究分析流程仍在迁移中。</span></div><div className="workflow-grid">{workflow.map((item) => <article key={item.index}><span>{item.index}</span><h3>{item.title}</h3><p>{item.text}</p></article>)}</div></section>
     <section id="capabilities" className="home-band home-capabilities"><div className="capability-intro"><p>Research infrastructure</p><h2>围绕真实科研任务设计</h2><span>先把模块边界与数据归属搭稳，再按来源代码补齐科研工作流。</span></div>
-      <div className="capability-list"><article><Database size={22} /><div><h3>统一数据底座</h3><p>已建立带来源及版本字段的结构化数据模型；外部数据同步仍待接入。</p></div></article><article><Network size={22} /><div><h3>查询驱动图谱</h3><p>知识实体和来源证据已有只读 API，交互式检索与图谱页面待迁移。</p></div></article><article><BookOpenCheck size={22} /><div><h3>本地模型辅助</h3><p>本地模型和医案分析服务尚未接通，后续按实施计划逐项迁移。</p></div></article><article><Download size={22} /><div><h3>研究材料导出</h3><p>导入、分析结果和报告导出会在对应业务接口实现后补齐。</p></div></article></div>
+      <div className="capability-list"><article><Database size={22} /><div><h3>统一数据底座</h3><p>已建立带来源及版本字段的结构化数据模型；Reactome 目录支持管理员预览和确认同步。</p></div></article><article><Network size={22} /><div><h3>查询驱动图谱</h3><p>知识实体和来源证据已有只读 API，交互式检索与图谱页面待迁移。</p></div></article><article><BookOpenCheck size={22} /><div><h3>本地模型辅助</h3><p>本地模型和医案分析服务尚未接通，后续按实施计划逐项迁移。</p></div></article><article><Download size={22} /><div><h3>研究材料导出</h3><p>数据集和蛋白组学结果可导出；可视化报告会在对应业务模块实现后补齐。</p></div></article></div>
     </section>
     <section className="home-cta"><div><p>Ready for research</p><h2>用真实数据开始下一次分析</h2></div><Link to="/register">创建研究账号 <ArrowRight size={17} /></Link></section>
     <footer className="site-footer"><span>远志 AI Scientist</span><span>中医药理知识图谱与网络药理学分析平台</span></footer>

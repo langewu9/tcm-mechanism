@@ -29,15 +29,15 @@ class SourceReleaseAdmin(admin.ModelAdmin):
 
 @admin.register(SyncRun)
 class SyncRunAdmin(admin.ModelAdmin):
-    list_display = ("source", "status", "trigger", "records_seen", "created_at", "finished_at")
+    list_display = ("source", "status", "trigger", "requested_by", "records_seen", "created_at", "finished_at")
     list_filter = ("status", "trigger", "source")
-    readonly_fields = ("created_at",)
+    readonly_fields = ("created_at", "started_at", "finished_at", "preview_summary", "cursor")
 
 
 @admin.register(KnowledgeEntity)
 class KnowledgeEntityAdmin(admin.ModelAdmin):
-    list_display = ("label", "entity_type", "stable_id", "organism", "updated_at")
-    list_filter = ("entity_type", "organism")
+    list_display = ("label", "entity_type", "stable_id", "organism", "is_active", "updated_at")
+    list_filter = ("entity_type", "organism", "is_active")
     search_fields = ("label", "stable_id")
 
 

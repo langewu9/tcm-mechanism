@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 
 class DataSource(models.Model):
@@ -66,6 +67,14 @@ class SyncRun(models.Model):
     records_updated = models.PositiveBigIntegerField(default=0)
     records_retired = models.PositiveBigIntegerField(default=0)
     error_summary = models.TextField(blank=True)
+    preview_summary = models.JSONField(default=dict, blank=True)
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="source_sync_runs",
+    )
     started_at = models.DateTimeField(null=True, blank=True)
     finished_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
