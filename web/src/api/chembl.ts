@@ -9,6 +9,20 @@ export type ChemblMolecule = {
   naturalProduct: 0 | 1 | null;
   canonicalSmiles: string;
   recordUrl: string;
+  sourceQuery: string;
+  matchedQueries: string[];
+  componentChinese: string;
+  componentEnglish: string;
+  componentLatin: string;
+};
+
+export type ChemblNameMatch = {
+  query: string;
+  chinese: string;
+  english: string;
+  latin: string;
+  matchedTerms: string;
+  hitCount: number;
 };
 
 export type ChemblMoleculeSearch = {
@@ -16,9 +30,18 @@ export type ChemblMoleculeSearch = {
   sourceVersion: string;
   releaseDate: string;
   query: string;
+  queries: string[];
+  resolvedQueries: string[];
+  nameMatches: ChemblNameMatch[];
+  aliasSource: string;
+  aliasSourceCommit: string;
+  failedQueries: string[];
   endpoint: string;
   retrievedAt: string;
-  limit: number;
+  queriedTerms: number;
+  resultLimit: number;
+  totalCount: number;
+  truncated: boolean;
   results: ChemblMolecule[];
 };
 
@@ -58,4 +81,45 @@ export const searchChemblMolecules = (query: string, consent: boolean) =>
 export const searchChemblActivities = (chemblId: string, consent: boolean) =>
   apiRequest<ChemblActivitySearch>("/api/v1/analysis/chembl/activities/", {
     method: "POST", body: { chemblId, consent },
+  });
+
+export type ComponentCompareRow = {
+  group?: string;
+  normalizedKey?: string;
+  input?: string;
+  detectedInput?: string;
+  referenceInput?: string;
+  chinese?: string;
+  english?: string;
+  latin?: string;
+  familyName?: string;
+  detectedEnglish?: string;
+  referenceEnglish?: string;
+  status?: string;
+};
+
+export type ComponentComparison = {
+  aliasSource: string;
+  aliasSourceCommit: string;
+  detected: Array<Record<string, unknown>>;
+  reference: Array<Record<string, unknown>>;
+  exactMatches: ComponentCompareRow[];
+  detectedOnly: Array<Record<string, unknown>>;
+  referenceOnly: Array<Record<string, unknown>>;
+  familyMatches: ComponentCompareRow[];
+  rows: ComponentCompareRow[];
+  counts: {
+    detected: number;
+    reference: number;
+    matched: number;
+    detectedOnly: number;
+    referenceOnly: number;
+    familyMatches: number;
+    matchRate: number;
+  };
+};
+
+export const compareComponents = (detected: string, reference: string) =>
+  apiRequest<ComponentComparison>("/api/v1/analysis/component-compare/", {
+    method: "POST", body: { detected, reference },
   });

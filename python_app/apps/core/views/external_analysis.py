@@ -9,6 +9,8 @@ from rest_framework.views import APIView
 from ..serializers.chembl import (
     ChemblActivityRequestSerializer,
     ChemblActivityResponseSerializer,
+    ComponentCompareRequestSerializer,
+    ComponentCompareResponseSerializer,
     ChemblMoleculeSearchRequestSerializer,
     ChemblMoleculeSearchResponseSerializer,
 )
@@ -22,6 +24,7 @@ from ..services.external_analysis import (
     enqueue_string_network,
 )
 from ..services.chembl import ChemblServiceError, molecule_activities, search_molecules
+from ..services.component_names import compare_components_multilingual
 
 
 class ChemblUnavailable(APIException):
@@ -70,6 +73,8 @@ class ChemblMoleculeSearchView(APIView):
         serializer.is_valid(raise_exception=True)
         try:
             result = search_molecules(serializer.validated_data["query"])
+        except ValueError as exc:
+            raise ValidationError({"query": str(exc)}) from exc
         except ChemblServiceError as exc:
             raise ChemblUnavailable(str(exc)) from exc
         return Response(result)
@@ -91,4 +96,21 @@ class ChemblActivitySearchView(APIView):
             raise ValidationError({"chemblId": str(exc)}) from exc
         except ChemblServiceError as exc:
             raise ChemblUnavailable(str(exc)) from exc
+        return Response(result)
+
+
+class ComponentCompareView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(request=ComponentCompareRequestSerializer, responses=ComponentCompareResponseSerializer)
+    def post(self, request):
+        serializer = ComponentCompareRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            result = compare_components_multilingual(
+                serializer.validated_data["detected"],
+                serializer.validated_data["reference"],
+            )
+        except ValueError as exc:
+            raise ValidationError({"components": str(exc)}) from exc
         return Response(result)

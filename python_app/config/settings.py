@@ -169,7 +169,7 @@ REST_FRAMEWORK = {
     "NUM_PROXIES": 1,
     "DEFAULT_THROTTLE_RATES": {
         "registration": "5/hour",
-        "chembl": "20/hour",
+        "chembl": "10/hour",
     },
 }
 

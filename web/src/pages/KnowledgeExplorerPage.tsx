@@ -4,7 +4,7 @@ import { ArrowLeft, Download, Search } from "lucide-react";
 import { logout, type Session } from "../api/auth";
 import { ApiError } from "../api/client";
 import { getEntityNeighborhood, searchCatalogEntities, type EntityNeighborhood, type KnowledgeEntity } from "../api/catalog";
-import { searchChemblActivities, searchChemblMolecules, type ChemblActivitySearch, type ChemblMoleculeSearch } from "../api/chembl";
+import { compareComponents, searchChemblActivities, searchChemblMolecules, type ChemblActivitySearch, type ChemblMoleculeSearch, type ComponentComparison } from "../api/chembl";
 
 const entityTypes = [
   ["", "全部实体"], ["disease", "疾病"], ["herb", "中药"], ["formula", "方剂"], ["compound", "成分"],
@@ -28,7 +28,7 @@ function downloadNeighborhood(data: EntityNeighborhood) {
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
-function downloadChemblJson(filename: string, data: ChemblMoleculeSearch | ChemblActivitySearch) {
+function downloadJson(filename: string, data: unknown) {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
@@ -38,6 +38,10 @@ function downloadChemblJson(filename: string, data: ChemblMoleculeSearch | Chemb
   anchor.click();
   anchor.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function displayCompareRow(row: { detectedInput?: string; referenceInput?: string; input?: string }) {
+  return { detected: row.detectedInput ?? row.input ?? "—", reference: row.referenceInput ?? "—" };
 }
 
 export function KnowledgeExplorerPage() {
@@ -61,6 +65,11 @@ export function KnowledgeExplorerPage() {
   const [chemblBusy, setChemblBusy] = useState(false);
   const [chemblBusyId, setChemblBusyId] = useState<string | null>(null);
   const [chemblError, setChemblError] = useState<string | null>(null);
+  const [detectedComponents, setDetectedComponents] = useState("");
+  const [referenceComponents, setReferenceComponents] = useState("");
+  const [componentComparison, setComponentComparison] = useState<ComponentComparison | null>(null);
+  const [componentCompareBusy, setComponentCompareBusy] = useState(false);
+  const [componentCompareError, setComponentCompareError] = useState<string | null>(null);
   const detailRequest = useRef(0);
 
   async function loadEntities(search: string, type: string, page: number) {
@@ -133,6 +142,20 @@ export function KnowledgeExplorerPage() {
     }
   }
 
+  async function submitComponentCompare(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setComponentCompareBusy(true);
+    setComponentCompareError(null);
+    try {
+      setComponentComparison(await compareComponents(detectedComponents, referenceComponents));
+    } catch (cause) {
+      setComponentComparison(null);
+      setComponentCompareError(errorMessage(cause));
+    } finally {
+      setComponentCompareBusy(false);
+    }
+  }
+
   async function selectEntity(entity: KnowledgeEntity) {
     const requestId = ++detailRequest.current;
     setSelected(entity);
@@ -161,29 +184,48 @@ export function KnowledgeExplorerPage() {
       <div className="workspace-nav-actions"><span className="workspace-user">{user.username}{user.isSuperuser ? " · 平台管理员" : " · 研究者"}</span><button className="btn btn-secondary" type="button" onClick={() => void signOut()}>退出</button></div>
     </header>
     <div className="app-main workspace-main"><div className="app-main-inner">
-      <div className="page-heading"><div className="page-heading-copy"><p className="page-kicker">Research knowledge catalogue</p><h1 className="page-title">科研知识检索</h1><p className="page-description">检索已导入的疾病、中药、方剂、成分、基因、蛋白和通路，并查看逐条关系证据与来源版本。这里只查询本地目录，不会调用外部服务。</p></div><Link to="/" className="btn btn-secondary"><ArrowLeft size={16} />返回首页</Link></div>
+      <div className="page-heading"><div className="page-heading-copy"><p className="page-kicker">Research knowledge catalogue</p><h1 className="page-title">科研知识检索</h1><p className="page-description">页面分开提供两类功能：本地目录只查询已导入知识；ChEMBL 外部查询仅在你主动勾选同意后才会发送查询词。</p></div><Link to="/" className="btn btn-secondary"><ArrowLeft size={16} />返回首页</Link></div>
       <section className="panel chembl-panel">
         <div className="panel-header"><div><p className="page-kicker">External evidence · ChEMBL</p><h2 className="section-title-sm">化合物与生物活性检索</h2><p className="section-help">借鉴 main 分支的 ChEMBL 化合物/活性查询。通过 ChEMBL 官方服务获取化合物编号、结构摘要、实验测定值和靶点信息。</p></div><a href="https://www.ebi.ac.uk/chembl/" target="_blank" rel="noreferrer">ChEMBL 官方数据</a></div>
         <form className="chembl-search-form" onSubmit={(event) => void submitChemblSearch(event)}>
-          <label className="form-label" htmlFor="chembl-query">化合物名称或 ChEMBL 编号<input className="field" id="chembl-query" value={chemblQuery} maxLength={120} onChange={(event) => setChemblQuery(event.target.value)} placeholder="例如：quercetin、CHEMBL50" required /></label>
+          <label className="form-label" htmlFor="chembl-query">化合物名称或 ChEMBL 编号（多个名称可用逗号、顿号分隔）<input className="field" id="chembl-query" value={chemblQuery} maxLength={120} onChange={(event) => setChemblQuery(event.target.value)} placeholder="例如：槲皮素、quercetin、CHEMBL50" required /></label>
           <button className="btn btn-primary" type="submit" disabled={chemblBusy}>{chemblBusy ? "正在查询…" : "查询 ChEMBL"}</button>
-          <label className="chembl-consent"><input type="checkbox" checked={chemblConsent} onChange={(event) => setChemblConsent(event.target.checked)} /><span>我同意将输入的查询词，以及我选择的 ChEMBL 编号用于后续活性查询，发送到 ChEMBL 官方服务。不会发送医案正文、上传文件或账号标识。</span></label>
+          <label className="chembl-consent"><input type="checkbox" checked={chemblConsent} onChange={(event) => setChemblConsent(event.target.checked)} /><span>我同意将输入的查询词、系统按 main 内置别名展开出的英文检索词，以及我选择的 ChEMBL 编号用于后续活性查询，发送到 ChEMBL 官方服务。不会发送医案正文、上传文件或账号标识。</span></label>
         </form>
         {chemblError && <div className="notice-error workspace-notice" role="alert">{chemblError}</div>}
         {chemblSearch && <section className="chembl-results" aria-live="polite">
-          <div className="case-list-heading"><div><p className="page-kicker">{chemblSearch.source} · {chemblSearch.sourceVersion}</p><h3 className="section-title-sm">化合物结果</h3></div><div className="case-list-actions"><span>{chemblSearch.results.length} / 最多 {chemblSearch.limit} 条</span><button className="btn btn-secondary" type="button" onClick={() => downloadChemblJson(`chembl-molecules-${chemblSearch.sourceVersion}.json`, chemblSearch)}><Download size={14} />导出 JSON</button></div></div>
+          <div className="case-list-heading"><div><p className="page-kicker">{chemblSearch.source} · {chemblSearch.sourceVersion}</p><h3 className="section-title-sm">化合物结果</h3></div><div className="case-list-actions"><span>{chemblSearch.results.length} / {chemblSearch.totalCount} 条</span><button className="btn btn-secondary" type="button" onClick={() => downloadJson(`chembl-molecules-${chemblSearch.sourceVersion}.json`, chemblSearch)}><Download size={14} />导出 JSON</button></div></div>
           <p className="knowledge-evidence-source">数据版本 {chemblSearch.sourceVersion}{chemblSearch.releaseDate ? `（${chemblSearch.releaseDate}）` : ""} · 查询时间 {new Date(chemblSearch.retrievedAt).toLocaleString()} · <a href="https://chembl.gitbook.io/chembl-interface-documentation/web-services/chembl-data-web-services" target="_blank" rel="noreferrer">官方 API 说明</a></p>
+          {chemblSearch.nameMatches.length > 0 && <p className="notice-info">项目内置名称对应：{chemblSearch.nameMatches.map((item) => `${item.query} → ${item.english}${item.latin ? ` / ${item.latin}` : ""}（命中 ${item.hitCount}）`).join("；")}。别名源自 {chemblSearch.aliasSource} @ {chemblSearch.aliasSourceCommit}，只用于扩展检索词，尚未以当前项目的药物标准库核实。</p>}
+          <p className="knowledge-evidence-source">发送到 ChEMBL 的检索词：{chemblSearch.resolvedQueries.join("、") || "无"}{chemblSearch.truncated ? ` · 结果已截断至 ${chemblSearch.resultLimit} 条` : ""}</p>
+          {chemblSearch.failedQueries.length > 0 && <p className="notice-warning">部分别名查询未能连通，已展示成功返回的子查询：{chemblSearch.failedQueries.join("、")}</p>}
           {!chemblSearch.results.length ? <div className="empty-state"><strong>ChEMBL 没有返回匹配的化合物</strong><p>可以尝试英文通用名、其他别名或化合物编号。</p></div> : <div className="chembl-molecule-list">{chemblSearch.results.map((molecule) => <article className="chembl-molecule-card" key={molecule.chemblId}>
             <div className="chembl-molecule-copy"><h4>{molecule.preferredName || molecule.chemblId}</h4><p><a href={molecule.recordUrl} target="_blank" rel="noreferrer">{molecule.chemblId}</a>{molecule.moleculeType ? ` · ${molecule.moleculeType}` : ""}{molecule.maxPhase ? ` · 最高研发阶段 ${molecule.maxPhase}` : ""}{molecule.naturalProduct === 1 ? " · 天然产物" : molecule.naturalProduct === 0 ? " · 非天然产物" : " · 天然产物分类未标注"}</p>{molecule.canonicalSmiles && <details><summary>查看 canonical SMILES</summary><code>{molecule.canonicalSmiles}</code></details>}</div>
             <button className="btn btn-secondary" type="button" disabled={chemblBusyId === molecule.chemblId || !chemblConsent} onClick={() => void loadChemblActivities(molecule.chemblId)}>{chemblBusyId === molecule.chemblId ? "正在查询…" : "查看活性与靶点"}</button>
           </article>)}</div>}
         </section>}
         {chemblActivity && <section className="chembl-results" aria-live="polite">
-          <div className="case-list-heading"><div><p className="page-kicker">{chemblActivity.chemblId} · {chemblActivity.sourceVersion}</p><h3 className="section-title-sm">实验活性与靶点</h3></div><div className="case-list-actions"><span>{chemblActivity.results.length} / {chemblActivity.totalCount} 条</span><button className="btn btn-secondary" type="button" onClick={() => downloadChemblJson(`chembl-activities-${chemblActivity.chemblId}-${chemblActivity.sourceVersion}.json`, chemblActivity)}><Download size={14} />导出 JSON</button></div></div>
+          <div className="case-list-heading"><div><p className="page-kicker">{chemblActivity.chemblId} · {chemblActivity.sourceVersion}</p><h3 className="section-title-sm">实验活性与靶点</h3></div><div className="case-list-actions"><span>{chemblActivity.results.length} / {chemblActivity.totalCount} 条</span><button className="btn btn-secondary" type="button" onClick={() => downloadJson(`chembl-activities-${chemblActivity.chemblId}-${chemblActivity.sourceVersion}.json`, chemblActivity)}><Download size={14} />导出 JSON</button></div></div>
           <p className="knowledge-evidence-source">显示上限 {chemblActivity.resultLimit} 条 · 查询时间 {new Date(chemblActivity.retrievedAt).toLocaleString()} · 来源 <a href={`https://www.ebi.ac.uk/chembl/compound_report_card/${chemblActivity.chemblId}/`} target="_blank" rel="noreferrer">ChEMBL {chemblActivity.chemblId}</a></p>
           {!chemblActivity.results.length ? <div className="empty-state"><strong>没有可显示的实验活性记录</strong></div> : <div className="chembl-table-scroll"><table className="chembl-activity-table"><thead><tr><th>测定类型</th><th>标准化结果</th><th>pChEMBL</th><th>靶点</th><th>实验</th><th>文献</th></tr></thead><tbody>{chemblActivity.results.map((activity, index) => <tr key={activity.activityId ?? index}><td>{activity.standardType || "未标注"}</td><td>{activity.relation} {activity.value} {activity.units}</td><td>{activity.pchemblValue || "—"}</td><td>{activity.targetName || "未标注"}{activity.targetId && <small>{activity.targetId}</small>}</td><td>{activity.assayType || "—"} · {activity.assayDescription || activity.assayId || "未标注"}</td><td>{activity.documentId || "—"}</td></tr>)}</tbody></table></div>}
           {chemblActivity.truncated && <p className="notice-warning">记录总数超过单次上限：先按 pChEMBL 值由高到低显示有该值的记录，再补充有标准化测量值的记录。</p>}
           <p className="notice-warning">活性值受实验条件、测定类型和靶点物种影响；这些记录不等于临床疗效，也不会自动推断为中药作用机制。</p>
+        </section>}
+      </section>
+      <section className="panel component-compare-panel">
+        <div className="panel-header"><div><p className="page-kicker">Local name normalization · main aliases</p><h2 className="section-title-sm">检测成分与参考列表对照</h2><p className="section-help">比较检测列表和你提供的参考列表；仅根据 main 中的中英文/拉丁名表进行标准化，不会调用外部服务，也不会核验检测值或参考数据的真实性。</p></div></div>
+        <form className="component-compare-form" onSubmit={(event) => void submitComponentCompare(event)}>
+          <label className="form-label" htmlFor="detected-components">检测成分<textarea className="field" id="detected-components" value={detectedComponents} maxLength={6000} onChange={(event) => setDetectedComponents(event.target.value)} placeholder="例如：槲皮素；黄芩素；Ginsenoside Rg2" required /></label>
+          <label className="form-label" htmlFor="reference-components">参考成分列表<textarea className="field" id="reference-components" value={referenceComponents} maxLength={6000} onChange={(event) => setReferenceComponents(event.target.value)} placeholder="例如：Quercetinum；Ginsenoside Rg1" required /></label>
+          <button className="btn btn-primary" type="submit" disabled={componentCompareBusy}>{componentCompareBusy ? "正在对照…" : "开始对照"}</button>
+        </form>
+        <p className="knowledge-evidence-source">名称可用逗号、分号、顿号或换行分隔；每侧最多 100 项。完全同名的标准化匹配计为精确交集；同家族只标候选，不计入命中率。</p>
+        {componentCompareError && <div className="notice-error workspace-notice" role="alert">{componentCompareError}</div>}
+        {componentComparison && <section className="chembl-results" aria-live="polite">
+          <div className="case-list-heading"><div><p className="page-kicker">Local alias comparison · {componentComparison.aliasSourceCommit}</p><h3 className="section-title-sm">名称对照结果</h3></div><button className="btn btn-secondary" type="button" onClick={() => downloadJson("component-list-comparison.json", componentComparison)}><Download size={14} />导出 JSON</button></div>
+          <div className="chembl-comparison-counts"><div><strong>{componentComparison.counts.detected}</strong><span>检测项</span></div><div><strong>{componentComparison.counts.reference}</strong><span>参考项</span></div><div><strong>{componentComparison.counts.matched}</strong><span>精确交集</span></div><div><strong>{componentComparison.counts.detectedOnly}</strong><span>仅检测</span></div><div><strong>{componentComparison.counts.referenceOnly}</strong><span>仅参考</span></div><div><strong>{componentComparison.counts.matchRate}%</strong><span>参考列表命中率</span></div></div>
+          <div className="chembl-table-scroll"><table className="chembl-activity-table"><thead><tr><th>分组</th><th>检测输入</th><th>参考输入</th><th>规范名称</th><th>状态</th></tr></thead><tbody>{componentComparison.rows.map((row, index) => { const pair = displayCompareRow(row); return <tr key={`${row.group}-${row.normalizedKey}-${index}`}><td>{row.group}</td><td>{pair.detected}</td><td>{pair.reference}</td><td>{row.chinese || row.english || "—"}{row.english && row.chinese ? ` · ${row.english}` : ""}{row.latin ? ` · ${row.latin}` : ""}</td><td>{row.status}</td></tr>; })}</tbody></table></div>
+          {componentComparison.familyMatches.length > 0 && <div className="notice-warning"><span>同家族候选（不计入精确交集）：{componentComparison.familyMatches.map((row) => `${row.detectedInput} ↔ ${row.referenceInput}（${row.familyName}）`).join("；")}</span></div>}
         </section>}
       </section>
       {error && <div className="notice-error workspace-notice" role="alert">{error}</div>}

@@ -95,12 +95,45 @@ class ChemblServiceTests(SimpleTestCase):
         self.assertEqual(result["results"][0]["chemblId"], "CHEMBL50")
         self.assertEqual(result["results"][0]["preferredName"], "Quercetin")
         self.assertEqual(result["results"][0]["naturalProduct"], 1)
+        self.assertEqual(result["resolvedQueries"], ["Quercetin"])
         self.assertNotIn("molfile", result["results"][0])
         request_json.assert_called_once_with("molecule/search.json", {
-            "q": "quercetin",
+            "q": "Quercetin",
             "limit": "10",
             "only": "molecule_chembl_id,pref_name,molecule_type,max_phase,first_approval,natural_product,molecule_structures",
         })
+
+    @patch("apps.core.services.chembl._source_release")
+    @patch("apps.core.services.chembl._request_json")
+    def test_chinese_component_name_uses_main_branch_english_alias_for_provider_query(self, request_json, source_release):
+        source_release.return_value = {"version": "ChEMBL_37", "releaseDate": "2026-05-01"}
+        request_json.return_value = {"molecules": [{
+            "molecule_chembl_id": "CHEMBL50", "pref_name": "QUERCETIN", "natural_product": 1,
+            "molecule_structures": {"canonical_smiles": "CO"},
+        }]}
+
+        result = chembl.search_molecules("槲皮素")
+
+        self.assertEqual(result["queries"], ["槲皮素"])
+        self.assertEqual(result["resolvedQueries"], ["Quercetin"])
+        self.assertEqual(result["nameMatches"][0]["chinese"], "槲皮素")
+        self.assertEqual(result["results"][0]["sourceQuery"], "Quercetin")
+        self.assertEqual(result["results"][0]["componentLatin"], "Quercetinum")
+        request_json.assert_called_once()
+        self.assertEqual(request_json.call_args.args[1]["q"], "Quercetin")
+
+    @patch("apps.core.services.chembl._source_release")
+    @patch("apps.core.services.chembl._request_json")
+    def test_ginsenoside_alias_expansion_is_bounded_to_main_branch_terms(self, request_json, source_release):
+        source_release.return_value = {"version": "ChEMBL_37", "releaseDate": "2026-05-01"}
+        request_json.return_value = {"molecules": []}
+
+        result = chembl.search_molecules("人参总皂苷")
+
+        self.assertEqual(result["queriedTerms"], 8)
+        self.assertEqual(result["results"], [])
+        self.assertEqual(request_json.call_count, 8)
+        self.assertIn("Ginsenoside", result["resolvedQueries"])
 
     @patch("apps.core.services.chembl._source_release")
     @patch("apps.core.services.chembl._request_json")

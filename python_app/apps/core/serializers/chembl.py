@@ -16,7 +16,7 @@ class ChemblMoleculeSearchRequestSerializer(serializers.Serializer):
 
     def validate_consent(self, value):
         if not value:
-            raise serializers.ValidationError("请先确认将查询词发送到 ChEMBL 官方服务。")
+            raise serializers.ValidationError("请先确认将查询词及系统展开的别名发送到 ChEMBL 官方服务。")
         return value
 
 
@@ -39,6 +39,20 @@ class ChemblMoleculeSerializer(serializers.Serializer):
     naturalProduct = serializers.IntegerField(allow_null=True)
     canonicalSmiles = serializers.CharField(allow_blank=True)
     recordUrl = serializers.URLField()
+    sourceQuery = serializers.CharField()
+    matchedQueries = serializers.ListField(child=serializers.CharField())
+    componentChinese = serializers.CharField(allow_blank=True)
+    componentEnglish = serializers.CharField()
+    componentLatin = serializers.CharField(allow_blank=True)
+
+
+class ChemblNameMatchSerializer(serializers.Serializer):
+    query = serializers.CharField()
+    chinese = serializers.CharField()
+    english = serializers.CharField()
+    latin = serializers.CharField()
+    matchedTerms = serializers.CharField()
+    hitCount = serializers.IntegerField()
 
 
 class ChemblMoleculeSearchResponseSerializer(serializers.Serializer):
@@ -46,10 +60,42 @@ class ChemblMoleculeSearchResponseSerializer(serializers.Serializer):
     sourceVersion = serializers.CharField()
     releaseDate = serializers.CharField(allow_blank=True)
     query = serializers.CharField()
+    queries = serializers.ListField(child=serializers.CharField())
+    resolvedQueries = serializers.ListField(child=serializers.CharField())
+    nameMatches = ChemblNameMatchSerializer(many=True)
+    aliasSource = serializers.CharField()
+    aliasSourceCommit = serializers.CharField()
+    failedQueries = serializers.ListField(child=serializers.CharField())
     endpoint = serializers.URLField()
     retrievedAt = serializers.DateTimeField()
-    limit = serializers.IntegerField()
+    queriedTerms = serializers.IntegerField()
+    resultLimit = serializers.IntegerField()
+    totalCount = serializers.IntegerField()
+    truncated = serializers.BooleanField()
     results = ChemblMoleculeSerializer(many=True)
+
+
+class ComponentCompareRequestSerializer(serializers.Serializer):
+    detected = serializers.CharField(max_length=6000, trim_whitespace=True)
+    reference = serializers.CharField(max_length=6000, trim_whitespace=True)
+
+    def validate(self, attrs):
+        if not attrs["detected"] or not attrs["reference"]:
+            raise serializers.ValidationError("请分别输入检测成分与参考成分。")
+        return attrs
+
+
+class ComponentCompareResponseSerializer(serializers.Serializer):
+    aliasSource = serializers.CharField()
+    aliasSourceCommit = serializers.CharField()
+    detected = serializers.ListField(child=serializers.DictField())
+    reference = serializers.ListField(child=serializers.DictField())
+    exactMatches = serializers.ListField(child=serializers.DictField())
+    detectedOnly = serializers.ListField(child=serializers.DictField())
+    referenceOnly = serializers.ListField(child=serializers.DictField())
+    familyMatches = serializers.ListField(child=serializers.DictField())
+    rows = serializers.ListField(child=serializers.DictField())
+    counts = serializers.DictField()
 
 
 class ChemblActivitySerializer(serializers.Serializer):

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -11,11 +12,14 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 from django.core.cache import cache
 from django.utils import timezone
 
+from .component_names import ALIAS_DATA, alias_for_name, resolve_component_names
+
 
 CHEMBL_API_BASE = "https://www.ebi.ac.uk/chembl/api/data"
 CHEMBL_COMPOUND_URL = "https://www.ebi.ac.uk/chembl/compound_report_card/{chembl_id}/"
 MAX_RESPONSE_BYTES = 4 * 1024 * 1024
 MOLECULE_LIMIT = 10
+MOLECULE_RESULT_LIMIT = 40
 ACTIVITY_LIMIT = 50
 CHEMBL_ID_RE = re.compile(r"^CHEMBL[0-9]+$", re.IGNORECASE)
 
@@ -77,46 +81,104 @@ def _clean_text(value, max_length: int = 500) -> str:
 
 
 def search_molecules(query: str) -> dict:
+    resolution = resolve_component_names(query)
+    if not resolution["queries"] or not resolution["candidates"]:
+        raise ValueError("请输入有效的化合物名称或标识。")
     release = _source_release()
-    payload = _request_json(
-        "molecule/search.json",
-        {
-            "q": query,
-            "limit": str(MOLECULE_LIMIT),
-            "only": "molecule_chembl_id,pref_name,molecule_type,max_phase,first_approval,natural_product,molecule_structures",
-        },
-    )
-    raw_molecules = payload.get("molecules")
-    if not isinstance(raw_molecules, list):
-        raise ChemblServiceError("ChEMBL 化合物结果格式无效。")
     molecules = []
-    for item in raw_molecules[:MOLECULE_LIMIT]:
-        if not isinstance(item, dict):
+    by_chembl_id = {}
+    profile_hits = {}
+    candidates = resolution["candidates"]
+
+    def fetch_candidate(candidate):
+        term = candidate["term"]
+        return _request_json(
+            "molecule/search.json",
+            {
+                "q": term,
+                "limit": str(MOLECULE_LIMIT),
+                "only": "molecule_chembl_id,pref_name,molecule_type,max_phase,first_approval,natural_product,molecule_structures",
+            },
+        )
+    payloads = [None] * len(candidates)
+    failed_queries = []
+    with ThreadPoolExecutor(max_workers=min(4, len(candidates))) as executor:
+        futures = {executor.submit(fetch_candidate, candidate): index for index, candidate in enumerate(candidates)}
+        for future in as_completed(futures):
+            index = futures[future]
+            try:
+                payloads[index] = future.result()
+            except ChemblServiceError:
+                failed_queries.append(candidates[index]["term"])
+    if all(payload is None for payload in payloads):
+        raise ChemblServiceError("ChEMBL 服务暂时无法完成本次名称检索。")
+
+    for candidate, payload in zip(candidates, payloads):
+        if payload is None:
             continue
-        chembl_id = item.get("molecule_chembl_id")
-        if not isinstance(chembl_id, str) or not CHEMBL_ID_RE.fullmatch(chembl_id):
-            continue
-        structure = item.get("molecule_structures")
-        smiles = structure.get("canonical_smiles") if isinstance(structure, dict) else None
-        molecules.append({
-            "chemblId": chembl_id,
-            "preferredName": _clean_text(item.get("pref_name") or item.get("preferred_name"), 250),
-            "moleculeType": _clean_text(item.get("molecule_type"), 80),
-            "maxPhase": _clean_text(item.get("max_phase"), 20),
-            "firstApproval": _clean_text(item.get("first_approval"), 20),
-            "naturalProduct": item.get("natural_product") if item.get("natural_product") in (0, 1) else None,
-            "canonicalSmiles": _clean_text(smiles, 1000),
-            "recordUrl": CHEMBL_COMPOUND_URL.format(chembl_id=chembl_id),
-        })
+        term = candidate["term"]
+        raw_molecules = payload.get("molecules")
+        if not isinstance(raw_molecules, list):
+            raise ChemblServiceError("ChEMBL 化合物结果格式无效。")
+        alias = alias_for_name(term)
+        if alias:
+            profile_hits[alias["english"]] = profile_hits.get(alias["english"], 0) + len(raw_molecules[:MOLECULE_LIMIT])
+        for item in raw_molecules[:MOLECULE_LIMIT]:
+            if not isinstance(item, dict):
+                continue
+            chembl_id = item.get("molecule_chembl_id")
+            if not isinstance(chembl_id, str) or not CHEMBL_ID_RE.fullmatch(chembl_id):
+                continue
+            if chembl_id in by_chembl_id:
+                existing = by_chembl_id[chembl_id]
+                if term not in existing["matchedQueries"]:
+                    existing["matchedQueries"].append(term)
+                continue
+            structure = item.get("molecule_structures")
+            smiles = structure.get("canonical_smiles") if isinstance(structure, dict) else None
+            molecule = {
+                "chemblId": chembl_id,
+                "preferredName": _clean_text(item.get("pref_name") or item.get("preferred_name"), 250),
+                "moleculeType": _clean_text(item.get("molecule_type"), 80),
+                "maxPhase": _clean_text(item.get("max_phase"), 20),
+                "firstApproval": _clean_text(item.get("first_approval"), 20),
+                "naturalProduct": item.get("natural_product") if item.get("natural_product") in (0, 1) else None,
+                "canonicalSmiles": _clean_text(smiles, 1000),
+                "recordUrl": CHEMBL_COMPOUND_URL.format(chembl_id=chembl_id),
+                "sourceQuery": term,
+                "matchedQueries": [term],
+                "componentChinese": alias["chinese"] if alias else "",
+                "componentEnglish": alias["english"] if alias else term,
+                "componentLatin": alias["latin"] if alias else "",
+            }
+            molecules.append(molecule)
+            by_chembl_id[chembl_id] = molecule
+    name_matches = [{
+        "query": profile["query"],
+        "chinese": profile["chinese"],
+        "english": profile["english"],
+        "latin": profile["latin"],
+        "matchedTerms": profile["matchedTerms"],
+        "hitCount": profile_hits.get(profile["english"], 0),
+    } for profile in resolution["profiles"]]
     return {
         "source": "ChEMBL",
         "sourceVersion": release["version"],
         "releaseDate": release["releaseDate"],
         "query": query,
+        "queries": resolution["queries"],
+        "resolvedQueries": [candidate["term"] for candidate in resolution["candidates"]],
+        "nameMatches": name_matches,
+        "aliasSource": ALIAS_DATA["source"],
+        "aliasSourceCommit": ALIAS_DATA["sourceCommit"],
+        "failedQueries": failed_queries,
         "endpoint": f"{CHEMBL_API_BASE}/molecule/search",
         "retrievedAt": timezone.now().isoformat(),
-        "limit": MOLECULE_LIMIT,
-        "results": molecules,
+        "queriedTerms": len(resolution["candidates"]),
+        "resultLimit": MOLECULE_RESULT_LIMIT,
+        "totalCount": len(molecules),
+        "truncated": len(molecules) > MOLECULE_RESULT_LIMIT,
+        "results": molecules[:MOLECULE_RESULT_LIMIT],
     }
 
 
