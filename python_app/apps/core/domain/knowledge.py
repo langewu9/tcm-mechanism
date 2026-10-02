@@ -76,3 +76,37 @@ class EvidenceRelation(models.Model):
 
     def __str__(self) -> str:
         return f"{self.subject} —{self.relation_type}→ {self.object}"
+
+
+class EntityIdentifier(models.Model):
+    """A versioned external identifier attached to a canonical knowledge entity."""
+
+    entity = models.ForeignKey(
+        KnowledgeEntity, on_delete=models.PROTECT, related_name="identifiers"
+    )
+    source_release = models.ForeignKey(
+        SourceRelease, on_delete=models.PROTECT, related_name="entity_identifiers"
+    )
+    namespace = models.CharField(max_length=64)
+    identifier = models.CharField(max_length=160)
+    is_active = models.BooleanField(default=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["namespace", "identifier"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["namespace", "identifier", "entity"], name="uniq_entity_external_identifier"
+            ),
+            models.UniqueConstraint(
+                fields=["namespace", "identifier"],
+                condition=models.Q(namespace="uniprot"),
+                name="uniq_uniprot_accession_identifier",
+            ),
+        ]
+        indexes = [models.Index(fields=["entity", "namespace"], name="entity_namespace_idx")]
+
+    def __str__(self) -> str:
+        return f"{self.namespace}:{self.identifier} → {self.entity}"

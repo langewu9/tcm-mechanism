@@ -165,7 +165,7 @@ export function SourcesPage() {
 
     <div className="app-main workspace-main"><div className="app-main-inner">
       <div className="page-heading"><div className="page-heading-copy"><p className="page-kicker">Source catalogue</p><h1 className="page-title">数据源同步</h1>
-        <p className="page-description">先试运行并检查差异，确认后再应用到本地知识目录。每次操作都会记录管理员、Reactome 版本和文件校验值。</p></div>
+        <p className="page-description">先试运行并检查差异，确认后再应用到本地知识目录。每次操作都会记录管理员、来源版本和文件校验值。</p></div>
         <Link to="/proteomics" className="btn btn-secondary"><ArrowLeft size={16} />返回研究工作区</Link>
       </div>
 
@@ -180,13 +180,14 @@ export function SourcesPage() {
               <div className="case-record-top"><div><h3>{source.name}</h3><time>{source.slug} · {source.access_mode === "download" ? "版本文件" : source.access_mode}</time></div>
                 <span className={`status-badge ${source.enabled ? "status-success" : "status-warning"}`}>{source.enabled ? "已启用" : "已停用"}</span></div>
               <p className="dataset-description">{source.description}</p>
-              {source.connector_type === "reactome-catalog" || source.slug === "reactome" ? <>
+              {source.connector_type === "reactome-catalog" || source.slug === "reactome" || source.connector_type === "uniprot-human-catalog" ? <>
                 <p className="source-last-success">最近一次成功应用：{dateTime(source.last_success_at)}</p>
+                {source.connector_type === "uniprot-human-catalog" && <p className="section-help">只同步人类 reviewed 蛋白条目。系统将先按基因符号尝试关联已有靶点；多重匹配会保留为歧义，应用前请检查预览。</p>}
                 <div className="source-record-actions">
                   <button className="btn btn-primary" type="button" disabled={!source.enabled || busy === source.id}
                     onClick={() => void startPreview(source)}>
                     {busy === source.id ? <RefreshCw size={15} className="spin" /> : <Database size={15} />}
-                    {busy === source.id ? "正在提交…" : "检查目录变更"}
+                    {busy === source.id ? "正在提交…" : source.connector_type === "uniprot-human-catalog" ? "预览 UniProt 目录" : "检查目录变更"}
                   </button>
                   {source.documentation_url && <a className="btn btn-secondary" href={source.documentation_url} target="_blank" rel="noreferrer">接口与来源说明</a>}
                 </div>
@@ -246,7 +247,8 @@ export function SourcesPage() {
             {runs.map((run) => {
               const summary = run.preview_summary;
               const isSQLite = summary.connector === "sqlite-herb-compound-target";
-              const syncLabel = isSQLite ? "SQLite 关系数据" : "Reactome 通路目录";
+              const isUniProt = summary.connector === "uniprot-human-catalog";
+              const syncLabel = isSQLite ? "SQLite 关系数据" : isUniProt ? "UniProt 人类审核蛋白目录" : "Reactome 通路目录";
               const canApply = summary.mode === "preview" && run.status === "succeeded" && !activeApplyBases.has(run.id);
               return <article className="panel source-run-record" key={run.id}>
                 <div className="case-record-top"><div><h3>{run.source_name} · {summary.mode === "apply" ? "应用数据" : "预览数据"} #{run.id}</h3>
@@ -265,6 +267,14 @@ export function SourcesPage() {
                       <Metric label="将新增实体" value={summary.wouldCreate ?? 0} />
                       <Metric label="将更新实体" value={summary.wouldUpdate ?? 0} />
                       <Metric label="将停用旧实体" value={summary.wouldRetire ?? 0} />
+                    </> : isUniProt ? <>
+                      <Metric label="审核蛋白条目" value={summary.totalRecords ?? run.records_seen} />
+                      <Metric label="新增 accession" value={summary.wouldCreate ?? 0} />
+                      <Metric label="将更新关联" value={summary.wouldUpdate ?? 0} />
+                      <Metric label="无需变化" value={summary.unchanged ?? 0} />
+                      <Metric label="将停用旧 accession" value={summary.wouldRetire ?? 0} />
+                      <Metric label="可关联现有靶点符号" value={summary.geneSymbolsMappedToExistingTargets ?? 0} />
+                      <Metric label="本地符号冲突" value={summary.ambiguousLocalGeneSymbols ?? 0} />
                     </> : <>
                       <Metric label="通路总数" value={summary.totalRecords ?? run.records_seen} />
                       <Metric label="新增" value={summary.wouldCreate ?? 0} />
@@ -272,7 +282,7 @@ export function SourcesPage() {
                       <Metric label="停用" value={summary.wouldRetire ?? 0} />
                     </>}
                   </div>
-                  <p className="source-release-line">{isSQLite ? `${summary.databaseFile ?? "SQLite 文件"} · ${summary.table ?? "数据表"} · ` : `Reactome v${summary.sourceVersion ?? "未知"} · `}来源版本 {summary.releaseVersion ?? run.release_version ?? "—"}</p>
+                  <p className="source-release-line">{isSQLite ? `${summary.databaseFile ?? "SQLite 文件"} · ${summary.table ?? "数据表"} · ` : isUniProt ? `UniProt ${summary.sourceVersion ?? "未知版本"} · ${summary.pageCount ?? 0} 页 · ` : `Reactome v${summary.sourceVersion ?? "未知"} · `}来源版本 {summary.releaseVersion ?? run.release_version ?? "—"}</p>
                   <code className="source-checksum">SHA-256：{summary.checksumSha256 ?? run.release_checksum ?? "—"}</code>
                   <p className="section-help">{syncLabel}预览只保存来源版本与变更统计，不会修改知识目录。应用时会重新读取来源并核对校验值。</p>
                   {canApply && <button className="btn btn-primary source-apply-button" type="button" disabled={busy === run.source}

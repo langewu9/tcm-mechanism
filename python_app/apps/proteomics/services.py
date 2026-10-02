@@ -19,13 +19,14 @@ from typing import Any, Iterable
 import xlrd
 from django.conf import settings
 from django.core.files.storage import default_storage
+from django.db.models import Prefetch
 from openpyxl import load_workbook
 
-from apps.core.models import AnalysisTask, EvidenceRelation, KnowledgeEntity
+from apps.core.models import AnalysisTask, EntityIdentifier, EvidenceRelation, KnowledgeEntity
 from apps.proteomics.models import ProteomicsRowResult
 
 
-ALGORITHM_VERSION = "proteomics-py-1.1"
+ALGORITHM_VERSION = "proteomics-py-1.2"
 MAX_CELL_CHARACTERS = 50_000
 MAX_XLSX_EXPANDED_BYTES = 512 * 1024 * 1024
 PATHWAY_RELATION_TYPES = {
@@ -430,6 +431,7 @@ def _parse_rows(
 def _entity_aliases(entity: KnowledgeEntity) -> set[str]:
     synonyms = entity.synonyms if isinstance(entity.synonyms, list) else []
     values: list[Any] = [entity.stable_id, entity.label, *synonyms]
+    values.extend(identifier.identifier for identifier in entity.identifiers.all())
     if isinstance(entity.metadata, dict):
         values.extend(
             entity.metadata.get(key)
@@ -448,6 +450,18 @@ def _entity_symbol(entity: KnowledgeEntity) -> str:
     return entity.label.strip()
 
 
+def _matched_external_identifier(entity: KnowledgeEntity, label: str) -> EntityIdentifier | None:
+    canonical = _canonical_label(label)
+    return next(
+        (
+            identifier
+            for identifier in entity.identifiers.all()
+            if _canonical_label(identifier.identifier) == canonical
+        ),
+        None,
+    )
+
+
 def _build_result(
     rows: list[AnalyzedRow],
     reference_targets: list[str],
@@ -461,7 +475,16 @@ def _build_result(
         KnowledgeEntity.objects.filter(
             is_active=True,
             entity_type__in=[KnowledgeEntity.EntityType.GENE, KnowledgeEntity.EntityType.PROTEIN]
-        ).select_related("source_release", "source_release__source").order_by("id")
+        ).select_related("source_release", "source_release__source")
+        .prefetch_related(
+            Prefetch(
+                "identifiers",
+                queryset=EntityIdentifier.objects.filter(is_active=True).select_related(
+                    "source_release", "source_release__source"
+                ),
+            )
+        )
+        .order_by("id")
     )
     aliases: dict[str, list[KnowledgeEntity]] = defaultdict(list)
     for entity in entities:
@@ -479,7 +502,13 @@ def _build_result(
             row.mapping_status = ProteomicsRowResult.MappingStatus.DATABASE
             row.normalized_symbol = _entity_symbol(entity)
             metadata = entity.metadata if isinstance(entity.metadata, dict) else {}
-            if entity.source_release_id:
+            external_identifier = _matched_external_identifier(entity, row.original_label)
+            if external_identifier:
+                row.mapping_source = (
+                    f"{external_identifier.namespace}"
+                    f":{external_identifier.source_release.version}"
+                )
+            elif entity.source_release_id:
                 row.mapping_source = f"{entity.source_release.source.slug}:{entity.source_release.version}"
             else:
                 row.mapping_source = str(metadata.get("source") or entity.entity_type)

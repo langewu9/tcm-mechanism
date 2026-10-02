@@ -12,7 +12,7 @@ export type AdminDataSource = {
   last_success_at: string | null;
   latest_run_status: string | null;
   latest_run_at: string | null;
-  connector_type: "reactome-catalog" | "sqlite-herb-compound-target" | string;
+  connector_type: "reactome-catalog" | "sqlite-herb-compound-target" | "uniprot-human-catalog" | string;
 };
 
 export type SyncRun = {
@@ -54,6 +54,10 @@ export type SyncRun = {
     table?: string;
     tableRowCounts?: Record<string, number>;
     fileBytes?: number;
+    pageCount?: number;
+    releaseDate?: string | null;
+    geneSymbolsMappedToExistingTargets?: number;
+    ambiguousLocalGeneSymbols?: number;
   };
   requested_by: number | null;
   requested_by_username: string | null;

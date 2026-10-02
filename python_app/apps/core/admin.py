@@ -3,6 +3,7 @@ from django.contrib import admin
 from .models import (
     AnalysisTask,
     DataSource,
+    EntityIdentifier,
     EvidenceRelation,
     KnowledgeEntity,
     MedicalCase,
@@ -41,6 +42,20 @@ class KnowledgeEntityAdmin(admin.ModelAdmin):
     list_display = ("label", "entity_type", "stable_id", "organism", "is_active", "updated_at")
     list_filter = ("entity_type", "organism", "is_active")
     search_fields = ("label", "stable_id")
+
+
+@admin.register(EntityIdentifier)
+class EntityIdentifierAdmin(admin.ModelAdmin):
+    list_display = ("namespace", "identifier", "entity", "source_release", "is_active")
+    list_filter = ("namespace", "is_active", "source_release__source")
+    search_fields = ("identifier", "entity__label", "entity__stable_id")
+    readonly_fields = tuple(field.name for field in EntityIdentifier._meta.fields)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(EvidenceRelation)
