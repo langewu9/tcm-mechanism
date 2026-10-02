@@ -13,6 +13,7 @@ export type KnowledgeEntity = {
   source_version: string | null;
   synonyms: string[];
   metadata: Record<string, unknown>;
+  matchedQueries?: string[];
 };
 
 export type CatalogPage<T> = {
@@ -20,6 +21,13 @@ export type CatalogPage<T> = {
   next: string | null;
   previous: string | null;
   results: T[];
+};
+
+export type KnowledgeSearchPage = CatalogPage<KnowledgeEntity> & {
+  query?: string;
+  expandedQueries?: string[];
+  aliasSource?: string;
+  aliasSourceCommit?: string;
 };
 
 export type EvidenceRelation = {
@@ -45,9 +53,13 @@ export type EntityNeighborhood = {
 };
 
 export function searchCatalogEntities(query: string, entityType: string, page = 1) {
+  if (entityType === "disease") {
+    const params = new URLSearchParams({ query, page: String(page) });
+    return apiRequest<KnowledgeSearchPage>(`/api/v1/catalog/diseases/alias-search/?${params}`);
+  }
   const params = new URLSearchParams({ search: query, page: String(page) });
   if (entityType) params.set("entity_type", entityType);
-  return apiRequest<CatalogPage<KnowledgeEntity>>(`/api/v1/catalog/entities/?${params}`);
+  return apiRequest<KnowledgeSearchPage>(`/api/v1/catalog/entities/?${params}`);
 }
 
 export function getEntityNeighborhood(entityId: number) {

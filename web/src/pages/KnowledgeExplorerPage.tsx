@@ -3,7 +3,7 @@ import { Link, useNavigate, useOutletContext } from "react-router-dom";
 import { ArrowLeft, Download, Search } from "lucide-react";
 import { logout, type Session } from "../api/auth";
 import { ApiError } from "../api/client";
-import { getEntityNeighborhood, searchCatalogEntities, type EntityNeighborhood, type KnowledgeEntity } from "../api/catalog";
+import { getEntityNeighborhood, searchCatalogEntities, type EntityNeighborhood, type KnowledgeEntity, type KnowledgeSearchPage } from "../api/catalog";
 import { compareComponents, searchChemblActivities, searchChemblMolecules, type ChemblActivitySearch, type ChemblMoleculeSearch, type ComponentComparison } from "../api/chembl";
 
 const entityTypes = [
@@ -52,7 +52,7 @@ export function KnowledgeExplorerPage() {
   const [activeQuery, setActiveQuery] = useState("");
   const [activeType, setActiveType] = useState("");
   const [pageNumber, setPageNumber] = useState(1);
-  const [entityPage, setEntityPage] = useState<{ count: number; next: string | null; previous: string | null; results: KnowledgeEntity[] } | null>(null);
+  const [entityPage, setEntityPage] = useState<KnowledgeSearchPage | null>(null);
   const [selected, setSelected] = useState<KnowledgeEntity | null>(null);
   const [neighborhood, setNeighborhood] = useState<EntityNeighborhood | null>(null);
   const [busy, setBusy] = useState(false);
@@ -241,8 +241,9 @@ export function KnowledgeExplorerPage() {
           </form>
           {entityPage && <section className="panel knowledge-search-results" aria-live="polite">
             <div className="case-list-heading"><div><p className="page-kicker">Local catalogue</p><h2 className="section-title-sm">匹配结果</h2></div><span>{entityPage.count} 条</span></div>
+            {activeType === "disease" && entityPage.expandedQueries && <p className="notice-info">main 疾病别名表 {entityPage.aliasSourceCommit} 展开的本地检索词：{entityPage.expandedQueries.join("、")}。这些词只帮助查找已导入记录；别名本身不表示疾病术语等价，也不构成研究证据。</p>}
             {!entityPage.results.length ? <div className="empty-state"><strong>没有匹配的已导入实体</strong><p>请检查名称，或联系平台管理员确认来源目录是否已同步。</p></div> : <div className="knowledge-entity-list">{entityPage.results.map((entity) => <button className="knowledge-entity-option" key={entity.id} type="button" aria-pressed={selected?.id === entity.id} onClick={() => void selectEntity(entity)}>
-              <span><strong>{entity.label}</strong><small>{entityTypeLabel[entity.entity_type] ?? entity.entity_type} · {entity.stable_id}</small></span><small>{entity.source_slug ? `${entity.source_slug} ${entity.source_version ?? ""}` : "来源版本未登记"}</small>
+              <span><strong>{entity.label}</strong><small>{entityTypeLabel[entity.entity_type] ?? entity.entity_type} · {entity.stable_id}</small>{entity.matchedQueries?.length ? <small>匹配检索词：{entity.matchedQueries.join("、")}</small> : null}</span><small>{entity.source_slug ? `${entity.source_slug} ${entity.source_version ?? ""}` : "来源版本未登记"}</small>
             </button>)}</div>}
             {(entityPage.previous || entityPage.next) && <div className="case-pagination"><button className="btn btn-secondary" type="button" disabled={!entityPage.previous || busy} onClick={() => void loadEntities(activeQuery, activeType, pageNumber - 1)}>上一页</button><span>第 {pageNumber} 页</span><button className="btn btn-secondary" type="button" disabled={!entityPage.next || busy} onClick={() => void loadEntities(activeQuery, activeType, pageNumber + 1)}>下一页</button></div>}
           </section>}
