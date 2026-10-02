@@ -107,6 +107,23 @@
 .assistant-selected-item small { color: var(--color-ink-faint); font-size: 0.65rem; }
 .assistant-task-result { display: grid; gap: 0.75rem; margin-top: 1rem; }
 .assistant-answer { white-space: pre-wrap; line-height: 1.75; }
+.network-graph-panel { display: grid; gap: 0.75rem; min-width: 0; padding: 0.85rem; }
+.network-graph-toolbar { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; }
+.network-graph-filters { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem 0.9rem; }
+.network-graph-filters label { display: inline-flex; align-items: center; gap: 0.32rem; color: var(--color-ink-soft); font-size: 0.66rem; }
+.network-graph-filters label span { width: 0.55rem; height: 0.55rem; border-radius: 50%; }
+.network-graph-zoom { display: flex; align-items: center; gap: 0.35rem; }
+.network-graph-zoom .btn { min-height: 2rem; padding: 0.3rem 0.55rem; }
+.network-graph-zoom span { min-width: 2.7rem; text-align: center; font-size: 0.68rem; }
+.network-graph-canvas { width: 100%; overflow: auto; border: 1px solid var(--color-border); border-radius: 0.65rem; background: rgba(255,253,248,0.75); }
+.network-graph-canvas svg { display: block; width: 100%; min-width: 760px; height: auto; }
+.network-graph-node { cursor: pointer; outline: none; }
+.network-graph-node:focus-visible circle { stroke: #2b1711; stroke-width: 4; }
+.network-graph-canvas path[role="button"] { cursor: pointer; outline: none; }
+.network-graph-canvas path[role="button"]:focus-visible { stroke: #9c2b22; stroke-width: 3; }
+.network-graph-selection { display: grid; gap: 0.3rem; border-left: 3px solid var(--color-cinnabar); padding: 0.5rem 0.75rem; background: rgba(156,43,34,0.045); }
+.network-graph-selection > small { color: var(--color-ink-faint); font-size: 0.65rem; }
+.network-graph-selection .proteomics-pathways { margin-top: 0.4rem; }
 .proteomics-column-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.7rem; }
 .proteomics-threshold-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.7rem; }
 .proteomics-consent { display: flex; align-items: flex-start; gap: 0.65rem; border: 1px solid var(--color-border); background: rgba(255, 253, 248, 0.7); padding: 0.75rem; cursor: pointer; }
