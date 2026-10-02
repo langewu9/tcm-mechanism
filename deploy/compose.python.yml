@@ -87,6 +87,12 @@ services:
       STRING_DB_VERSION: ${STRING_DB_VERSION:-}
       R_VIZ_BASE_URL: http://r-viz:8001
       R_VIZ_API_TOKEN: local-only-unsafe-render-token
+      CASE_MODEL_BASE_URL: ${CASE_MODEL_BASE_URL:-}
+      CASE_MODEL_NAME: ${CASE_MODEL_NAME:-}
+      CASE_MODEL_VERSION: ${CASE_MODEL_VERSION:-未配置}
+      CASE_MODEL_API_KEY: ${CASE_MODEL_API_KEY:-}
+      CASE_MODEL_TIMEOUT_SECONDS: ${CASE_MODEL_TIMEOUT_SECONDS:-180}
+      CASE_ANALYSIS_MAX_INPUT_CHARS: ${CASE_ANALYSIS_MAX_INPUT_CHARS:-20000}
     volumes:
       - tcm_platform_media:/app/var/media
       - ../var/source-databases:/app/var/source-databases:ro
@@ -100,6 +106,8 @@ services:
     networks:
       - default
       - visualization
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
 volumes:
   tcm_platform_pgdata:

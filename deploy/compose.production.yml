@@ -25,6 +25,12 @@ x-django-environment: &django-environment
   R_VIZ_API_TOKEN: ${R_VIZ_API_TOKEN:?Set R_VIZ_API_TOKEN in .env.production}
   DATASET_UPLOAD_MAX_BYTES: ${DATASET_UPLOAD_MAX_BYTES:-104857600}
   STRING_DB_VERSION: ${STRING_DB_VERSION:-}
+  CASE_MODEL_BASE_URL: ${CASE_MODEL_BASE_URL:-}
+  CASE_MODEL_NAME: ${CASE_MODEL_NAME:-}
+  CASE_MODEL_VERSION: ${CASE_MODEL_VERSION:-未配置}
+  CASE_MODEL_API_KEY: ${CASE_MODEL_API_KEY:-}
+  CASE_MODEL_TIMEOUT_SECONDS: ${CASE_MODEL_TIMEOUT_SECONDS:-180}
+  CASE_ANALYSIS_MAX_INPUT_CHARS: ${CASE_ANALYSIS_MAX_INPUT_CHARS:-20000}
 
 services:
   postgres:
@@ -114,6 +120,8 @@ services:
       r-viz:
         condition: service_healthy
     networks: [data, egress, visualization]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   nginx:
     build:

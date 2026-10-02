@@ -1,6 +1,6 @@
 # 岐黄中医药理智能平台
 
-本仓库正在把已确认的研究平台能力迁移到 **React/Vite 前端 + Django REST Framework 后端**。研究业务和账号由 Django 统一处理，研究数据计划使用 PostgreSQL；本地模型和分析服务在后续阶段按计划接入。
+本仓库正在把已确认的研究平台能力迁移到 **React/Vite 前端 + Django REST Framework 后端**。研究业务和账号由 Django 统一处理，研究数据目标为 PostgreSQL；医案本机/内网模型适配已有首版，但须由部署者提供并配置实际模型服务。
 
 ## 当前架构
 
@@ -13,9 +13,9 @@
 
 ## 当前已有与待补齐
 
-当前已有公开首页、登录 API、健康检查、知识库规模统计、知识实体/来源证据查询、按用户隔离的数据集与医案 API、分析任务记录和 Django 管理后台。API 错误统一返回 `error.code`、`error.message`、`error.details` 和 `error.requestId`。目前分析任务只是记录，不能实际运行算法。
+当前已有公开首页、登录 API、健康检查、知识库规模统计、知识实体/来源证据查询、按用户隔离的数据集与医案 API、分析任务记录和 Django 管理后台。API 错误统一返回 `error.code`、`error.message`、`error.details` 和 `error.requestId`。分析任务已用于运行蛋白组学、数据源同步、网络药理和图表后台链路；医案分析首版也可排入 Celery，但需要部署者提供本机/内网模型端点。
 
-自助注册、文件上传、对象存储、Celery/Redis、外部数据同步、蛋白组学分析、医案候选生成、R 绘图、本地模型接入、审计日志和公网部署还没有完成。现有数据文件也不会自动导入 PostgreSQL。
+项目仍在迁移完善中：完整 RAG、医案下游药理/组学编排、原始定量矩阵分析、真实旧库导入和 PostgreSQL/R/S3 生产环境验收尚未完成。医案本机模型候选、人工逐项复核和来源证据链已有首版；真实模型由部署者配置。现有数据文件不会自动导入 PostgreSQL。
 
 架构边界、接口分组和下一步迁移入口见 [`docs/architecture-current.md`](docs/architecture-current.md)。
 

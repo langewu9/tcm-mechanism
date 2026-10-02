@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate, useOutletContext } from "react-router-dom";
-import { ArrowLeft, BookOpen, FileHeart, LogOut, Plus, Trash2 } from "lucide-react";
-import { approveMedicalCase, createMedicalCase, deleteMedicalCase, getMedicalCaseAudit, getMedicalCases, type CaseAuditEvent, type MedicalCase, type Page } from "../api/cases";
+import { ArrowLeft, BookOpen, FileHeart, LogOut, Plus, Sparkles, Trash2 } from "lucide-react";
+import { approveMedicalCase, createMedicalCase, deleteMedicalCase, getMedicalCaseAnalysis, getMedicalCaseAudit, getMedicalCases, reviewMedicalCaseCandidate, startMedicalCaseAnalysis, type CaseAuditEvent, type CaseEvidence, type MedicalCase, type MedicalCaseCandidate, type MedicalCaseAnalysis, type Page } from "../api/cases";
+import { getAnalysisTask, type AnalysisTask } from "../api/datasets";
 import { logout, type Session } from "../api/auth";
 import { ApiError } from "../api/client";
 
@@ -14,9 +15,52 @@ function errorMessage(error: unknown) {
   return error instanceof ApiError ? error.message : "请求未完成，请稍后重试。";
 }
 
+type CaseAnalysisResult = {
+  model?: { name?: string; version?: string };
+  observations?: Array<{ type: string; value: string; evidence: CaseEvidence[] }>;
+  warnings?: string[];
+  evidenceChain?: {
+    nodes: Array<{ id: number; label: string; entityType: string; stableId: string }>;
+    links: Array<{ id: number; source: number; target: number; relationType: string; evidenceType: string; sourceName: string; sourceVersion: string; sourceRecordId: string; evidenceText: string }>;
+    sources: Array<{ id: number; source: string; version: string }>;
+    truncated?: boolean;
+  };
+};
+
+const observationLabels: Record<string, string> = { symptom: "症状", tongue: "舌象", pulse: "脉象", course: "病程", diagnosis: "已有诊断" };
+const evidenceFieldLabels: Record<string, string> = {
+  deidentified_text: "脱敏正文",
+  "structured_data.tongue_pulse": "舌脉资料",
+  "structured_data.diagnosis": "已有诊断",
+};
+const candidateMatchLabels: Record<MedicalCaseCandidate["match_status"], string> = {
+  exact: "已关联本地规范实体",
+  unmatched: "本地知识库暂未收录",
+  ambiguous: "本地存在多个同名实体",
+};
+const candidateReviewLabels: Record<MedicalCaseCandidate["review_status"], string> = {
+  pending: "待研究者确认",
+  accepted: "已确认",
+  rejected: "已驳回",
+};
+
+function caseResult(task: AnalysisTask | null): CaseAnalysisResult {
+  return task?.result && typeof task.result === "object" ? task.result as CaseAnalysisResult : {};
+}
+
+function taskStatusLabel(task: AnalysisTask | null) {
+  if (!task) return "尚未分析";
+  if (task.status === "queued") return "排队中";
+  if (task.status === "running") return `分析中 · ${task.progress}%`;
+  if (task.status === "succeeded") return "分析完成";
+  if (task.status === "failed") return "分析失败";
+  return "任务已取消";
+}
+
 export function CasesPage() {
   const user = useOutletContext<NonNullable<Session["user"]>>();
   const navigate = useNavigate();
+  const analysisRequestSequence = useRef(0);
   const [page, setPage] = useState<Page<MedicalCase> | null>(null);
   const [pageNumber, setPageNumber] = useState(1);
   const [refresh, setRefresh] = useState(0);
@@ -26,6 +70,15 @@ export function CasesPage() {
   const [auditCaseId, setAuditCaseId] = useState<number | null>(null);
   const [auditEvents, setAuditEvents] = useState<CaseAuditEvent[]>([]);
   const [reviewingId, setReviewingId] = useState<number | null>(null);
+  const [analysisCaseId, setAnalysisCaseId] = useState<number | null>(null);
+  const [analysisTask, setAnalysisTask] = useState<AnalysisTask | null>(null);
+  const [analysisCandidates, setAnalysisCandidates] = useState<MedicalCaseCandidate[]>([]);
+  const [analysisStale, setAnalysisStale] = useState(false);
+  const [analysisModelConfiguration, setAnalysisModelConfiguration] = useState<MedicalCaseAnalysis["modelConfiguration"]>({ configured: false, name: null, version: null });
+  const [analysisLoadingId, setAnalysisLoadingId] = useState<number | null>(null);
+  const [analysisPollFailures, setAnalysisPollFailures] = useState(0);
+  const [analysisConsent, setAnalysisConsent] = useState(false);
+  const [candidateReviewId, setCandidateReviewId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -42,6 +95,32 @@ export function CasesPage() {
   }, [pageNumber]);
 
   useEffect(() => { void loadCases(); }, [loadCases, refresh]);
+
+  useEffect(() => {
+    if (analysisCaseId === null || !analysisTask || !["queued", "running"].includes(analysisTask.status)) return;
+    const requestSequence = analysisRequestSequence.current;
+    const delay = Math.min(1500 * (2 ** analysisPollFailures), 12000);
+    const timer = window.setTimeout(() => {
+      void getAnalysisTask(analysisTask.id).then(async (latest) => {
+        if (requestSequence !== analysisRequestSequence.current) return;
+        setAnalysisPollFailures(0);
+        setAnalysisTask(latest);
+        if (!["queued", "running"].includes(latest.status)) {
+          const current = await getMedicalCaseAnalysis(analysisCaseId);
+          if (requestSequence !== analysisRequestSequence.current) return;
+          setAnalysisTask(current.task ?? latest);
+          setAnalysisCandidates(current.candidates);
+          setAnalysisStale(current.stale);
+          setAnalysisModelConfiguration(current.modelConfiguration);
+        }
+      }).catch((cause: unknown) => {
+        if (requestSequence !== analysisRequestSequence.current) return;
+        setError(errorMessage(cause));
+        setAnalysisPollFailures((count) => count + 1);
+      });
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [analysisCaseId, analysisTask, analysisPollFailures]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -125,6 +204,88 @@ export function CasesPage() {
     }
   }
 
+  async function toggleCaseAnalysis(item: MedicalCase) {
+    if (analysisCaseId === item.id) {
+      analysisRequestSequence.current += 1;
+      setAnalysisCaseId(null);
+      setAnalysisTask(null);
+      setAnalysisCandidates([]);
+      setAnalysisStale(false);
+      setAnalysisModelConfiguration({ configured: false, name: null, version: null });
+      setAnalysisPollFailures(0);
+      setAnalysisConsent(false);
+      return;
+    }
+    const requestSequence = analysisRequestSequence.current + 1;
+    analysisRequestSequence.current = requestSequence;
+    setAnalysisCaseId(item.id);
+    setAnalysisTask(null);
+    setAnalysisCandidates([]);
+    setAnalysisStale(false);
+    setAnalysisModelConfiguration({ configured: false, name: null, version: null });
+    setAnalysisPollFailures(0);
+    setAnalysisConsent(false);
+    setAnalysisLoadingId(item.id);
+    setError(null);
+    try {
+      const response = await getMedicalCaseAnalysis(item.id);
+      if (requestSequence !== analysisRequestSequence.current) return;
+      setAnalysisTask(response.task);
+      setAnalysisCandidates(response.candidates);
+      setAnalysisStale(response.stale);
+      setAnalysisModelConfiguration(response.modelConfiguration);
+    } catch (cause) {
+      if (requestSequence !== analysisRequestSequence.current) return;
+      setAnalysisCaseId(null);
+      setError(errorMessage(cause));
+    } finally {
+      if (requestSequence === analysisRequestSequence.current) setAnalysisLoadingId(null);
+    }
+  }
+
+  async function runCaseAnalysis(item: MedicalCase) {
+    const requestSequence = analysisRequestSequence.current;
+    setAnalysisLoadingId(item.id);
+    setError(null);
+    setNotice(null);
+    try {
+      const task = await startMedicalCaseAnalysis(item.id);
+      if (requestSequence !== analysisRequestSequence.current) return;
+      setAnalysisTask(task);
+      setAnalysisCandidates([]);
+      setAnalysisStale(false);
+      setAnalysisConsent(false);
+      setNotice("医案分析任务已提交到平台配置的本地模型。");
+    } catch (cause) {
+      if (requestSequence !== analysisRequestSequence.current) return;
+      setError(errorMessage(cause));
+    } finally {
+      if (requestSequence === analysisRequestSequence.current) setAnalysisLoadingId(null);
+    }
+  }
+
+  async function decideCandidate(item: MedicalCase, candidate: MedicalCaseCandidate, decision: "accept" | "reject") {
+    const requestSequence = analysisRequestSequence.current;
+    setCandidateReviewId(candidate.id);
+    setError(null);
+    setNotice(null);
+    try {
+      await reviewMedicalCaseCandidate(item.id, candidate.id, decision);
+      const refreshed = await getMedicalCaseAnalysis(item.id);
+      if (requestSequence !== analysisRequestSequence.current) return;
+      setAnalysisTask(refreshed.task);
+      setAnalysisCandidates(refreshed.candidates);
+      setAnalysisStale(refreshed.stale);
+      setAnalysisModelConfiguration(refreshed.modelConfiguration);
+      setNotice(decision === "accept" ? "候选已确认，并已更新带来源版本的证据链。" : "候选已驳回，审计记录已保存。");
+    } catch (cause) {
+      if (requestSequence !== analysisRequestSequence.current) return;
+      setError(errorMessage(cause));
+    } finally {
+      if (requestSequence === analysisRequestSequence.current) setCandidateReviewId(null);
+    }
+  }
+
   async function signOut() {
     setError(null);
     try {
@@ -186,9 +347,22 @@ export function CasesPage() {
               {item.research_notes && <details className="case-notes"><summary>研究备注</summary><p>{item.research_notes}</p></details>}
               <div className="source-record-actions">
                 <button className="btn btn-secondary" type="button" onClick={() => void toggleAudit(item)}>{auditCaseId === item.id ? "收起审计记录" : "查看审计记录"}</button>
+                <button className="btn btn-secondary" type="button" onClick={() => void toggleCaseAnalysis(item)}>{analysisCaseId === item.id ? "收起分析" : "证候与方剂分析"}</button>
                 {user.isSuperuser && item.review_status !== "reviewed" && <button className="btn btn-primary" type="button" onClick={() => void approveCase(item)} disabled={reviewingId === item.id}>{reviewingId === item.id ? "正在审核…" : "审核通过"}</button>}
               </div>
-              {auditCaseId === item.id && <div className="panel case-audit-history"><h4>操作记录</h4>{auditEvents.length ? <ul className="proteomics-pathways">{auditEvents.map((event) => <li key={event.id}><strong>{event.actor_username ?? "账号已删除"} · {event.action === "created" ? "创建" : event.action === "updated" ? "修改" : event.action === "reviewed" ? "审核" : "删除"}</strong><span>{new Date(event.created_at).toLocaleString("zh-CN")} · {event.changed_fields.join("、") || "无字段变化"}</span></li>)}</ul> : <p className="section-help">尚无操作记录。</p>}</div>}
+              {analysisCaseId === item.id && <CaseAnalysisPanel
+                task={analysisTask}
+                candidates={analysisCandidates}
+                stale={analysisStale}
+                modelConfiguration={analysisModelConfiguration}
+                loading={analysisLoadingId === item.id}
+                consent={analysisConsent}
+                reviewingCandidateId={candidateReviewId}
+                onConsentChange={setAnalysisConsent}
+                onAnalyze={() => void runCaseAnalysis(item)}
+                onDecision={(candidate, decision) => void decideCandidate(item, candidate, decision)}
+              />}
+              {auditCaseId === item.id && <div className="panel case-audit-history"><h4>操作记录</h4>{auditEvents.length ? <ul className="proteomics-pathways">{auditEvents.map((event) => <li key={event.id}><strong>{event.actor_username ?? "账号已删除"} · {event.action === "created" ? "创建" : event.action === "updated" ? "修改" : event.action === "reviewed" ? "审核" : event.action === "candidate" ? "候选审核" : event.action === "analyzed" ? "启动分析" : "删除"}</strong><span>{new Date(event.created_at).toLocaleString("zh-CN")} · {event.changed_fields.join("、") || "无字段变化"}</span></li>)}</ul> : <p className="section-help">尚无操作记录。</p>}</div>}
             </article>)}</div>
             : <div className="panel empty-state"><FileHeart size={27} /><strong>暂无医案</strong><p>可以在左侧录入第一条去标识化医案，并填写可核查的数据来源。</p></div>}
           {page && page.count > 0 && <div className="case-pagination"><button className="btn btn-secondary" type="button" disabled={!page.previous || loading} onClick={() => setPageNumber((value) => Math.max(1, value - 1))}>上一页</button>
@@ -197,4 +371,65 @@ export function CasesPage() {
       </div>
     </div></div>
   </main>;
+}
+
+function CaseAnalysisPanel({
+  task,
+  candidates,
+  stale,
+  modelConfiguration,
+  loading,
+  consent,
+  reviewingCandidateId,
+  onConsentChange,
+  onAnalyze,
+  onDecision,
+}: {
+  task: AnalysisTask | null;
+  candidates: MedicalCaseCandidate[];
+  stale: boolean;
+  modelConfiguration: MedicalCaseAnalysis["modelConfiguration"];
+  loading: boolean;
+  consent: boolean;
+  reviewingCandidateId: number | null;
+  onConsentChange: (value: boolean) => void;
+  onAnalyze: () => void;
+  onDecision: (candidate: MedicalCaseCandidate, decision: "accept" | "reject") => void;
+}) {
+  const result = caseResult(task);
+  const pending = Boolean(task && ["queued", "running"].includes(task.status));
+  const nodes = result.evidenceChain?.nodes ?? [];
+  const nodeNames = new Map(nodes.map((node) => [node.id, node.label]));
+  return <section className="panel case-analysis-panel" aria-label="证候与方剂分析">
+    <div className="case-analysis-heading"><div><h4>证候与方剂候选分析</h4><p className="section-help">{taskStatusLabel(task)}{task?.id ? ` · 任务 #${task.id}` : ""}</p></div>
+      {result.model && <span className="status-badge status-success">{result.model.name ?? "本地模型"} · {result.model.version ?? "版本未记录"}</span>}
+    </div>
+    {loading && !task ? <p className="section-help">正在读取分析记录…</p> : <>
+      <label className="proteomics-consent case-analysis-consent">
+        <input type="checkbox" checked={consent} onChange={(event) => onConsentChange(event.target.checked)} disabled={pending || loading} />
+        <span><strong>我确认医案已脱敏，并同意发送至平台配置的本地/内网模型</strong><small>{modelConfiguration.configured ? `本次模型：${modelConfiguration.name} · ${modelConfiguration.version}。` : "尚未配置可用的本地/内网模型。"}仅提交症状正文、舌脉和现有诊断；医案标题、患者信息栏、来源和研究备注不会发送。模型候选仅供科研整理，不能作为临床诊断。</small></span>
+      </label>
+      <div className="source-record-actions"><button className="btn btn-primary" type="button" onClick={onAnalyze} disabled={!consent || !modelConfiguration.configured || pending || loading}><Sparkles size={15} />{loading ? "正在提交…" : pending ? "后台分析中…" : task ? "重新分析" : "开始分析"}</button></div>
+      {task?.status === "failed" && <div className="notice-error" role="alert">{task.error_summary || "医案分析失败。"}</div>}
+      {stale && <div className="notice-warning" role="alert">医案的分析字段已改变，当前结果保留作历史追溯但不能确认候选；请重新分析。</div>}
+      {result.warnings?.map((warning) => <p className="notice-warning" key={warning}>{warning}</p>)}
+      {task?.status === "succeeded" && result.observations && <div className="case-analysis-section"><h5>原文观察</h5>
+        {result.observations.length ? <ul className="proteomics-pathways">{result.observations.map((observation, index) => <li key={`${observation.type}-${index}`}><strong>{observationLabels[observation.type] ?? observation.type}：{observation.value}</strong>{observation.evidence.map((evidence, evidenceIndex) => <span key={`${evidence.field}-${evidenceIndex}`}>{evidenceFieldLabels[evidence.field] ?? evidence.field}：“{evidence.quote}”</span>)}</li>)}</ul> : <p className="section-help">未找到可由原文核验的结构化观察。</p>}
+      </div>}
+      {task?.status === "succeeded" && <div className="case-analysis-section"><h5>证候 / 方剂候选 · 请逐条确认</h5>
+        {candidates.length ? <div className="case-candidate-list">{candidates.map((candidate) => <article className="case-candidate" key={candidate.id}>
+          <div className="case-analysis-heading"><div><strong>{candidate.candidate_type === "syndrome" ? "证候" : "方剂"}：{candidate.label}</strong><p className="section-help">{candidateMatchLabels[candidate.match_status]}{candidate.entity_label ? ` · ${candidate.entity_label}` : ""}</p></div><span className={`status-badge ${candidate.review_status === "accepted" ? "status-success" : candidate.review_status === "pending" ? "status-warning" : ""}`}>{candidateReviewLabels[candidate.review_status]}</span></div>
+          <p className="section-help">模型自评置信度 {Math.round(Number(candidate.confidence) * 100)}%（未经校准，不代表真实概率） · 排序 {candidate.rank}</p>
+          <ul className="proteomics-pathways">{candidate.evidence.map((evidence, index) => <li key={`${evidence.field}-${index}`}><strong>{evidenceFieldLabels[evidence.field] ?? evidence.field}</strong><span>“{evidence.quote}”</span></li>)}</ul>
+          <div className="source-record-actions"><button className="btn btn-primary" type="button" disabled={stale || !candidate.entity_id || reviewingCandidateId === candidate.id} onClick={() => onDecision(candidate, "accept")}>{reviewingCandidateId === candidate.id ? "正在记录…" : candidate.review_status === "accepted" ? "再次确认" : "确认候选"}</button><button className="btn btn-secondary" type="button" disabled={reviewingCandidateId === candidate.id} onClick={() => onDecision(candidate, "reject")}>{candidate.review_status === "rejected" ? "再次驳回" : "驳回候选"}</button></div>
+        </article>)}</div> : <p className="section-help">模型未返回有逐字原文证据的证候或方剂候选。系统不会自动补选其他实体。</p>}
+      </div>}
+      {task?.status === "succeeded" && <div className="case-analysis-section"><h5>已确认的知识库证据链</h5>
+        {result.evidenceChain?.links.length ? <><ul className="proteomics-pathways">{result.evidenceChain.links.map((link) => <li key={link.id}><strong>{nodeNames.get(link.source) ?? `实体 #${link.source}`} → {nodeNames.get(link.target) ?? `实体 #${link.target}`} · {link.relationType}</strong><span>{link.sourceName} {link.sourceVersion} / {link.sourceRecordId} · {link.evidenceType}{link.evidenceText ? ` · ${link.evidenceText}` : ""}</span></li>)}</ul>
+          {result.evidenceChain.truncated && <p className="section-help">证据关系较多，页面按系统上限截取；完整结果需缩小关联范围。</p>}
+          <p className="section-help">来源版本：{result.evidenceChain.sources.map((source) => `${source.source} ${source.version}`).join("；") || "未记录"}</p>
+        </> : <p className="section-help">当前已确认候选还没有在本地知识目录中找到后续有来源版本支持的关系。</p>}
+      </div>}
+    </>}
+  </section>;
 }

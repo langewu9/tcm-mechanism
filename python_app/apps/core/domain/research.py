@@ -62,11 +62,72 @@ class MedicalCase(models.Model):
         return self.title
 
 
+class MedicalCaseCandidate(models.Model):
+    class CandidateType(models.TextChoices):
+        SYNDROME = "syndrome", "证候"
+        FORMULA = "formula", "方剂"
+
+    class MatchStatus(models.TextChoices):
+        EXACT = "exact", "已关联规范实体"
+        UNMATCHED = "unmatched", "知识库暂无实体"
+        AMBIGUOUS = "ambiguous", "多个实体同名"
+
+    class ReviewStatus(models.TextChoices):
+        PENDING = "pending", "待研究者确认"
+        ACCEPTED = "accepted", "已确认"
+        REJECTED = "rejected", "已驳回"
+
+    task = models.ForeignKey(
+        "core.AnalysisTask", on_delete=models.CASCADE, related_name="case_candidates"
+    )
+    medical_case = models.ForeignKey(
+        MedicalCase, on_delete=models.PROTECT, related_name="analysis_candidates"
+    )
+    candidate_type = models.CharField(max_length=12, choices=CandidateType.choices)
+    label = models.CharField(max_length=300)
+    entity = models.ForeignKey(
+        "core.KnowledgeEntity",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="medical_case_candidates",
+    )
+    match_status = models.CharField(max_length=12, choices=MatchStatus.choices)
+    confidence = models.DecimalField(max_digits=5, decimal_places=4)
+    rank = models.PositiveSmallIntegerField()
+    evidence = models.JSONField(default=list)
+    review_status = models.CharField(
+        max_length=12, choices=ReviewStatus.choices, default=ReviewStatus.PENDING
+    )
+    review_note = models.CharField(max_length=1000, blank=True)
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="reviewed_case_candidates",
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["candidate_type", "rank", "id"]
+        indexes = [
+            models.Index(fields=["task", "candidate_type", "rank"], name="case_candidate_task_idx"),
+            models.Index(fields=["medical_case", "review_status"], name="case_candidate_review_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"医案 #{self.medical_case_id} · {self.get_candidate_type_display()} · {self.label}"
+
+
 class MedicalCaseAuditEvent(models.Model):
     class Action(models.TextChoices):
         CREATED = "created", "创建"
         UPDATED = "updated", "修改"
         REVIEWED = "reviewed", "审核"
+        CANDIDATE_REVIEWED = "candidate", "候选确认"
+        ANALYSIS_REQUESTED = "analyzed", "启动分析"
         DELETED = "deleted", "删除"
 
     case = models.ForeignKey(

@@ -4,6 +4,7 @@ from .sources import SourceRelease
 
 class KnowledgeEntity(models.Model):
     class EntityType(models.TextChoices):
+        SYNDROME = "syndrome", "证候"
         HERB = "herb", "中药"
         FORMULA = "formula", "方剂"
         COMPOUND = "compound", "成分"

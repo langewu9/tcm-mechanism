@@ -8,6 +8,7 @@ from .models import (
     KnowledgeEntity,
     MedicalCase,
     MedicalCaseAuditEvent,
+    MedicalCaseCandidate,
     ResearchDataset,
     SourceRelease,
     SyncRun,
@@ -92,6 +93,23 @@ class MedicalCaseAuditEventAdmin(admin.ModelAdmin):
     list_filter = ("action", "created_at")
     search_fields = ("case_title_snapshot", "owner__username", "actor__username")
     readonly_fields = tuple(field.name for field in MedicalCaseAuditEvent._meta.fields)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(MedicalCaseCandidate)
+class MedicalCaseCandidateAdmin(admin.ModelAdmin):
+    list_display = ("medical_case", "task", "candidate_type", "label", "match_status", "confidence", "review_status", "reviewed_by")
+    list_filter = ("candidate_type", "match_status", "review_status")
+    search_fields = ("medical_case__title", "label", "entity__stable_id")
+    readonly_fields = tuple(field.name for field in MedicalCaseCandidate._meta.fields)
 
     def has_add_permission(self, request):
         return False

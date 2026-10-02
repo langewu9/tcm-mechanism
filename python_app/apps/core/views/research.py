@@ -6,7 +6,7 @@ from django.db import transaction
 from django.http import FileResponse, HttpResponse
 from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
@@ -15,8 +15,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from ..exceptions import ResourceConflict, TaskQueueUnavailable
-from ..models import AnalysisTask, MedicalCase, MedicalCaseAuditEvent, ResearchDataset, VisualizationArtifact
-from ..serializers import AnalysisTaskSerializer, MedicalCaseAuditEventSerializer, MedicalCaseSerializer, ResearchDatasetSerializer, VisualizationRequestSerializer
+from ..models import AnalysisTask, MedicalCase, MedicalCaseAuditEvent, MedicalCaseCandidate, ResearchDataset, VisualizationArtifact
+from ..serializers import AnalysisTaskSerializer, CaseAnalysisRequestSerializer, CaseCandidateReviewRequestSerializer, MedicalCaseAuditEventSerializer, MedicalCaseCandidateSerializer, MedicalCaseSerializer, ResearchDatasetSerializer, VisualizationRequestSerializer
 from apps.proteomics.serializers import ProteomicsRunRequestSerializer
 from apps.proteomics.models import ProteomicsRowResult
 from apps.proteomics.serializers_rows import ProteomicsRowResultSerializer
@@ -200,6 +200,161 @@ class MedicalCaseViewSet(viewsets.ModelViewSet):
                 metadata={"decision": "approve"},
             )
         return Response(MedicalCaseSerializer(case).data)
+
+    @action(detail=True, methods=["get", "post"], url_path="analysis")
+    def analysis(self, request, pk=None):
+        case = self.get_object()
+        if request.method == "GET":
+            task = AnalysisTask.objects.filter(
+                medical_case=case,
+                task_type=AnalysisTask.TaskType.CASE_LINK,
+            ).first()
+            from ..services.case_analysis import case_input_sha256, case_model_configuration
+
+            candidates = (
+                MedicalCaseCandidate.objects.filter(task=task)
+                .select_related("entity", "reviewed_by")
+                .order_by("candidate_type", "rank", "pk")
+                if task
+                else MedicalCaseCandidate.objects.none()
+            )
+            return Response({
+                "task": AnalysisTaskSerializer(task).data if task else None,
+                "candidates": MedicalCaseCandidateSerializer(candidates, many=True).data,
+                "stale": bool(task and task.input_parameters.get("caseContentSha256") != case_input_sha256(case)),
+                "modelConfiguration": case_model_configuration(),
+            })
+
+        serializer = CaseAnalysisRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        from ..services.case_analysis import case_input_sha256, case_model_configuration
+        from ..services.case_audit import create_case_audit_event
+
+        if not case_model_configuration()["configured"]:
+            raise ValidationError({"model": "平台尚未配置受信任的本地模型地址、名称和实际版本。"})
+
+        with transaction.atomic():
+            case = MedicalCase.objects.select_for_update().get(pk=case.pk)
+            active_task = AnalysisTask.objects.filter(
+                medical_case=case,
+                task_type=AnalysisTask.TaskType.CASE_LINK,
+                status__in=[AnalysisTask.Status.QUEUED, AnalysisTask.Status.RUNNING],
+            ).first()
+            if active_task:
+                return Response(AnalysisTaskSerializer(active_task).data, status=status.HTTP_202_ACCEPTED)
+            task = AnalysisTask.objects.create(
+                owner=case.owner,
+                created_by=request.user,
+                task_type=AnalysisTask.TaskType.CASE_LINK,
+                status=AnalysisTask.Status.QUEUED,
+                medical_case=case,
+                input_parameters={
+                    "analysisKind": "case_analysis",
+                    "caseContentSha256": case_input_sha256(case),
+                    "localModelConsent": True,
+                    "modelName": settings.CASE_MODEL_NAME,
+                    "modelVersion": settings.CASE_MODEL_VERSION,
+                },
+            )
+            create_case_audit_event(
+                case=case,
+                actor=request.user,
+                action=MedicalCaseAuditEvent.Action.ANALYSIS_REQUESTED,
+                metadata={
+                    "analysisTaskId": task.pk,
+                    "localModelConsent": True,
+                    "modelName": settings.CASE_MODEL_NAME,
+                    "modelVersion": settings.CASE_MODEL_VERSION,
+                },
+            )
+        try:
+            from ..tasks import run_case_analysis_task
+
+            run_case_analysis_task.apply_async(args=[task.pk])
+        except Exception as exc:
+            task.status = AnalysisTask.Status.FAILED
+            task.progress = 100
+            task.error_summary = "医案分析任务队列暂不可用，请稍后重试。"
+            task.finished_at = timezone.now()
+            task.save(update_fields=["status", "progress", "error_summary", "finished_at"])
+            raise TaskQueueUnavailable() from exc
+        return Response(AnalysisTaskSerializer(task).data, status=status.HTTP_202_ACCEPTED)
+
+    @extend_schema(parameters=[OpenApiParameter("candidate_id", OpenApiTypes.INT, OpenApiParameter.PATH)])
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path=r"candidates/(?P<candidate_id>[^/.]+)/review",
+    )
+    def review_candidate(self, request, pk=None, candidate_id=None):
+        case = self.get_object()
+        serializer = CaseCandidateReviewRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            candidate = MedicalCaseCandidate.objects.select_related("task", "entity").get(
+                pk=candidate_id,
+                medical_case=case,
+                task__owner=case.owner,
+                task__medical_case=case,
+            )
+        except MedicalCaseCandidate.DoesNotExist as exc:
+            raise NotFound("没有找到当前医案中的分析候选。") from exc
+        if candidate.task.status != AnalysisTask.Status.SUCCEEDED:
+            raise ValidationError({"candidate": "分析任务尚未完成，不能审核候选。"})
+        decision = serializer.validated_data["decision"]
+        from ..services.case_analysis import case_input_sha256, refresh_case_analysis_result
+        from ..services.case_audit import create_case_audit_event
+
+        with transaction.atomic():
+            # Serialize edits and confirmations against the case row so a concurrent edit
+            # cannot slip between the stale-content check and accepting the candidate.
+            case = MedicalCase.objects.select_for_update().get(pk=case.pk)
+            candidate = MedicalCaseCandidate.objects.select_for_update().get(
+                pk=candidate.pk,
+                medical_case=case,
+            )
+            candidate.task = AnalysisTask.objects.get(pk=candidate.task_id)
+            if candidate.task.medical_case_id != case.pk or candidate.task.owner_id != case.owner_id:
+                raise NotFound("没有找到当前医案中的分析候选。")
+            if candidate.task.status != AnalysisTask.Status.SUCCEEDED:
+                raise ValidationError({"candidate": "分析任务尚未完成，不能审核候选。"})
+            if decision == "accept" and candidate.task.input_parameters.get("caseContentSha256") != case_input_sha256(case):
+                raise ValidationError({"candidate": "分析后医案内容已修改；请重新分析后再确认候选。"})
+            if decision == "accept" and not candidate.entity_id:
+                raise ValidationError({"candidate": "该名称无法唯一关联本地规范实体，不能加入下游证据链。"})
+            before = {
+                f"candidate_{candidate.pk}_review_status": candidate.review_status,
+                f"candidate_{candidate.pk}_reviewed_by_id": candidate.reviewed_by_id,
+            }
+            candidate.review_status = (
+                MedicalCaseCandidate.ReviewStatus.ACCEPTED
+                if decision == "accept"
+                else MedicalCaseCandidate.ReviewStatus.REJECTED
+            )
+            candidate.review_note = serializer.validated_data.get("note", "")
+            candidate.reviewed_by = request.user
+            candidate.reviewed_at = timezone.now()
+            candidate.save(update_fields=["review_status", "review_note", "reviewed_by", "reviewed_at"])
+            create_case_audit_event(
+                case=case,
+                actor=request.user,
+                action=MedicalCaseAuditEvent.Action.CANDIDATE_REVIEWED,
+                before=before,
+                after={
+                    f"candidate_{candidate.pk}_review_status": candidate.review_status,
+                    f"candidate_{candidate.pk}_reviewed_by_id": candidate.reviewed_by_id,
+                },
+                metadata={
+                    "analysisTaskId": candidate.task_id,
+                    "candidateId": candidate.pk,
+                    "candidateType": candidate.candidate_type,
+                    "entityStableId": candidate.entity.stable_id if candidate.entity_id else None,
+                    "decision": decision,
+                },
+            )
+            refresh_case_analysis_result(candidate.task)
+        candidate.refresh_from_db()
+        return Response(MedicalCaseCandidateSerializer(candidate).data)
 
 
 class AnalysisTaskViewSet(viewsets.ReadOnlyModelViewSet):

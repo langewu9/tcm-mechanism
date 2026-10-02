@@ -3,7 +3,7 @@ from django.core.files.storage import default_storage
 from rest_framework import serializers
 
 from ..exceptions import ResourceConflict
-from ..models import AnalysisTask, MedicalCase, MedicalCaseAuditEvent, ResearchDataset
+from ..models import AnalysisTask, MedicalCase, MedicalCaseAuditEvent, MedicalCaseCandidate, ResearchDataset
 
 
 class ResearchDatasetSerializer(serializers.ModelSerializer):
@@ -131,6 +131,35 @@ class MedicalCaseAuditEventSerializer(serializers.ModelSerializer):
             "changed_fields", "content_hashes", "metadata", "created_at",
         ]
         read_only_fields = fields
+
+
+class MedicalCaseCandidateSerializer(serializers.ModelSerializer):
+    entity_stable_id = serializers.CharField(source="entity.stable_id", read_only=True, allow_null=True)
+    entity_label = serializers.CharField(source="entity.label", read_only=True, allow_null=True)
+    reviewed_by_username = serializers.CharField(source="reviewed_by.username", read_only=True, allow_null=True)
+
+    class Meta:
+        model = MedicalCaseCandidate
+        fields = [
+            "id", "task_id", "medical_case_id", "candidate_type", "label", "entity_id",
+            "entity_stable_id", "entity_label", "match_status", "confidence", "rank",
+            "evidence", "review_status", "review_note", "reviewed_by_username", "reviewed_at", "created_at",
+        ]
+        read_only_fields = fields
+
+
+class CaseAnalysisRequestSerializer(serializers.Serializer):
+    confirmLocalModel = serializers.BooleanField()
+
+    def validate_confirmLocalModel(self, value):
+        if not value:
+            raise serializers.ValidationError("请确认医案已脱敏，并同意将本次内容提交给平台配置的本地模型。")
+        return value
+
+
+class CaseCandidateReviewRequestSerializer(serializers.Serializer):
+    decision = serializers.ChoiceField(choices=["accept", "reject"])
+    note = serializers.CharField(required=False, allow_blank=True, max_length=1000)
 
 
 class VisualizationRequestSerializer(serializers.Serializer):

@@ -23,7 +23,7 @@ Django 当前保留一个 `core` 应用标签和现有迁移历史，内部先�
 
 - `apps/core/domain/sources.py`：数据源、版本、同步记录。
 - `apps/core/domain/knowledge.py`：中药/成分/疾病等知识实体和带来源的证据关系。
-- `apps/core/domain/research.py`：数据集、去标识化医案、医案审计事件和分析任务。
+- `apps/core/domain/research.py`：数据集、去标识化医案、医案候选、审计事件和分析任务。
 - `apps/core/views/auth.py`：CSRF token、会话状态、登录和退出。
 - `apps/core/views/catalog.py`：知识目录查询与首页计数。
 - `apps/core/views/research.py`：研究者个人工作区 API。
@@ -38,7 +38,7 @@ API 按模块分组：
 | 蛋白组学 | `/api/v1/research/datasets/{id}/analyze/`、`analysis-tasks/{id}/rows/`、`analysis-tasks/{id}/export/` | 后台分析、行级 QC/映射结果、CSV/XLSX 导出 |
 | 网络药理 | `/api/v1/analysis/network-pharmacology/` | 本地中药—成分—靶点和疾病—靶点证据交集、网络数据及私有任务记录 |
 | R 图表 | `/api/v1/research/analysis-tasks/{id}/visualizations/`、`analysis-artifacts/{id}/download/` | 从已完成任务选取白名单图表数据，异步调用 R 并私有保存 SVG/PDF/PNG/HTML；下载按所有者授权 |
-| 医案审计 | `/api/v1/research/cases/{id}/audit/`、`cases/{id}/review/` | 私有操作日志；管理员审核通过会记录操作者和时间 |
+| 医案分析与审计 | `/api/v1/research/cases/{id}/analysis/`、`cases/{id}/candidates/{candidate_id}/review/`、`cases/{id}/audit/`、`cases/{id}/review/` | 需主动确认的本机模型任务、可逐字核验的结构化观察/候选、研究者逐条审核、版本化证据链和审计记录 |
 | 外部分析 | `/api/v1/analysis/pathway-enrichment/`、`string-network/`；蛋白组学任务的独立同意参数 | 需要显式同意的 Reactome、STRING 物理互作和 g:Profiler GO/KEGG 富集后台任务 |
 | 知识目录 | `/api/v1/catalog/` | 数据源、实体、证据关系 |
 | 管理员数据源同步 | `/api/v1/admin/sources/`、`sync-runs/` | Reactome、UniProt、人工 CID 映射的 PubChem、STRING 人类标识映射与受控旧 SQLite 来源的后台预览、审计历史和人工应用 |
@@ -65,13 +65,13 @@ API 按模块分组：
 
 ## 身份和数据可见性
 
-登录使用 Django 服务端 session，不由前端自报用户 ID。后端在创建数据时填入 `request.user` 作为创建者；研究者查询仅返回本人数据，超级管理员可以查看全部。浏览器的状态变更请求会由统一 API 客户端先获取 CSRF token 并随请求发送。医案记录另外保存可核查的 `source_reference`、创建人、创建和更新时间；创建、更新、删除和审核会记录操作者、变更字段、内容 SHA-256 和时间，日志不复制医案原文。删除医案后仍保留删除审计事件。公开研究者账号、精细角色、不可变审计保护及医案 AI/RAG 候选审核链仍需在后续阶段实现。
+登录使用 Django 服务端 session，不由前端自报用户 ID。后端在创建数据时填入 `request.user` 作为创建者；研究者查询仅返回本人数据，超级管理员可以查看全部。浏览器的状态变更请求会由统一 API 客户端先获取 CSRF token 并随请求发送。医案记录另外保存可核查的 `source_reference`、创建人、创建和更新时间；创建、更新、删除和审核会记录操作者、变更字段、内容 SHA-256 和时间，日志不复制医案原文。删除医案后仍保留删除审计事件。公开研究者账号、精细角色、不可变审计保护、完整 RAG 与下游任务编排仍待后续阶段实现；本机模型候选首版已加入研究者逐条确认和审计。
 
 ## 当前已接通的研究业务
 
 - `/cases` 需要登录；未登录时会转到登录页。
 - 医案页面已接通 `/api/v1/research/cases/`，支持分页查看、创建和删除。
-- 医案详情操作日志通过 `/audit/` 查看；平台管理员可以审核通过并留下审核人/时间。当前还没有接入模型候选生成、证据片段对齐、方剂和下游药理链分析。
+- 医案详情操作日志通过 `/audit/` 查看；平台管理员可以审核通过并留下审核人/时间。研究者可在单条医案卡片中勾选同意，把脱敏正文、舌脉和诊断交给配置的本机/内网模型；标题、患者信息栏、来源和备注不发送。系统拒绝公网模型端点与环境 HTTP 代理，模型候选需附可在原文逐字找到的引文，并按本地规范实体精确匹配；研究者逐项确认后才展开有来源版本的本地知识关系，操作写入审计。真实模型联调、完整 RAG 和下游药理/组学任务编排仍待完成。
 - `/datasets` 需要登录；支持上传 CSV/TSV/XLS/XLSX 原始文件、分页查看、权限内下载和删除。
 - 症状正文保存在去标识化文本字段；患者脱敏描述、舌脉、诊断保存在结构化字段；来源和研究备注分别保存。API 返回只读提交者 ID 与用户名，便于平台管理者追溯数据责任人。
 - 数据集原文件保存在私有存储适配层；开发期使用 `MEDIA_ROOT`，生产期配置私有 S3 兼容 bucket。数据库记录文件键、原文件名、大小、提交者和 SHA-256；生产对象经 Django 权限端点读取，不由 Nginx 直接公开。
@@ -83,7 +83,7 @@ API 按模块分组：
 - `/network-pharmacology` 需要登录；通过本地知识实体与证据关系计算中药成分靶点、疾病靶点严格交集和显式疾病—中药直接关联。每个靶点展示来源、版本、原始记录号和关系类型，结果写入当前用户的 `AnalysisTask` 并锁定所用来源版本；不会在无匹配数据时套用示例规则。本地交集本身不代表显著性富集或 PPI；单独的 Reactome 富集和 STRING 物理互作需研究者主动提交外部分析任务。
 - 完成的网络药理交集任务可以请求 R 柱状图；蛋白组学 GO/KEGG 结果也能请求 R 气泡图，worker 仅发送最多 100 条经过校验的图表摘要，并在图中显示 g:Profiler 版本；HTML 产物附对应数据表。R 可产出 SVG/PDF/PNG/HTML。文件 SHA-256、输入摘要哈希和 renderer 版本均入库，可在权限检查后预览 SVG 或下载。R runtime 和 Docker image 尚未实跑，当前 Python worker 用模拟 R 响应测试私有文件持久化/下载。
 - 该闭环尚未实现 Entrez 等完整稳定 ID 映射、原始矩阵统计分析、可交互网络 R 图和完整 PDF 报告；GO/KEGG 已有 g:Profiler 第一版接口、页面和 R 气泡图，仍需实时服务验收和 main 黄金样例对照。本地知识库为空时会明确显示无本地注释，不会伪称外部富集结果。蛋白组学已有独立同意后调用的 STRING 物理互作；管理员来源页也新增本地人类实体 STRING ID 交叉映射，但这不是 STRING 全量目录下载，尚未对真实项目库或 PostgreSQL 做在线验收。
-- 医案智能分析/候选生成仍未接通；数据集文件上传、解析和当前蛋白组学分析不等同于完整生信引擎。
+- 医案智能分析已接通本机/内网模型的首版 Celery 流程，候选引文逐字核验、手动审核和来源版本证据链均有自动化测试；当前环境没有配置并运行真实模型，完整 RAG、多来源冲突比较和下游药理/组学任务编排仍未完成。数据集文件上传、解析和当前蛋白组学分析也不等同于完整生信引擎。
 
 ## 后续填充顺序
 
