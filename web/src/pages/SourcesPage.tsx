@@ -34,6 +34,14 @@ const emptySQLiteSource = {
   herbColumn: "herb",
   compoundColumn: "component",
   targetColumn: "target",
+  diseaseTargetTable: "disease_target",
+  diseaseColumn: "disease",
+  diseaseTargetColumn: "target",
+  diseaseSourceColumn: "source_file",
+  diseaseHerbTargetTable: "disease_herb_target",
+  diseaseHerbColumn: "disease",
+  diseaseHerbHerbColumn: "herb",
+  diseaseHerbTargetColumn: "target",
 };
 
 export function SourcesPage() {
@@ -46,7 +54,7 @@ export function SourcesPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [sqliteForm, setSQLiteForm] = useState(emptySQLiteSource);
   const [testingSourceId, setTestingSourceId] = useState<number | null>(null);
-  const [testResults, setTestResults] = useState<Record<number, { rowCount: number; checksum: string }>>({});
+  const [testResults, setTestResults] = useState<Record<number, { rowCount: number; checksum: string; tableRowCounts: Record<string, number> }>>({});
 
   const refresh = useCallback(async () => {
     const [sourcePage, runPage] = await Promise.all([getAdminDataSources(), getSyncRuns()]);
@@ -136,8 +144,8 @@ export function SourcesPage() {
     setNotice(null);
     try {
       const result = await testSQLiteDataSource(source.id);
-      setTestResults((current) => ({ ...current, [source.id]: { rowCount: result.rowCount, checksum: result.checksumSha256 } }));
-      setNotice(`连接成功：${result.rowCount.toLocaleString()} 行；SHA-256 ${result.checksumSha256.slice(0, 12)}…`);
+      setTestResults((current) => ({ ...current, [source.id]: { rowCount: result.rowCount, checksum: result.checksumSha256, tableRowCounts: result.tableRowCounts } }));
+      setNotice(`连接成功：${result.rowCount.toLocaleString()} 行，已识别 ${Object.keys(result.tableRowCounts).length} 张数据表；SHA-256 ${result.checksumSha256.slice(0, 12)}…`);
     } catch (cause) { setError(errorMessage(cause)); }
     finally { setTestingSourceId(null); }
   }
@@ -149,7 +157,7 @@ export function SourcesPage() {
         <span><strong>远志 AI Scientist</strong><small>平台管理</small></span>
       </Link>
       <nav className="workspace-module-nav" aria-label="研究模块">
-        <Link to="/cases">医案管理</Link><Link to="/datasets">研究数据集</Link><Link to="/proteomics">蛋白组学</Link><Link to="/admin/sources" aria-current="page">数据源同步</Link>
+        <Link to="/cases">医案管理</Link><Link to="/datasets">研究数据集</Link><Link to="/proteomics">蛋白组学</Link><Link to="/network-pharmacology">网络药理</Link><Link to="/admin/sources" aria-current="page">数据源同步</Link>
       </nav>
       <div className="workspace-nav-actions"><span className="workspace-user">{user.username} · 平台管理员</span>
         <button className="btn btn-secondary" type="button" onClick={() => void signOut()}>退出</button></div>
@@ -198,7 +206,7 @@ export function SourcesPage() {
                     {busy === source.id ? "正在预览…" : "预览导入差异"}
                   </button>
                 </div>
-                {testResults[source.id] && <p className="source-release-line">最近测试 {testResults[source.id].rowCount.toLocaleString()} 行 · SHA-256 {testResults[source.id].checksum.slice(0, 16)}…</p>}
+                {testResults[source.id] && <><p className="source-release-line">最近测试 {testResults[source.id].rowCount.toLocaleString()} 行 · SHA-256 {testResults[source.id].checksum.slice(0, 16)}…</p><ul className="proteomics-pathways source-table-counts">{Object.entries(testResults[source.id].tableRowCounts).map(([table, count]) => <li key={table}><strong>{table}</strong><span>{count.toLocaleString()} 行</span></li>)}</ul></>}
               </> : <p className="section-help">此来源连接器将在后续计划阶段接入。</p>}
             </article>)}
           </div> : <div className="panel empty-state">没有已登记的数据源。</div>}
@@ -213,6 +221,14 @@ export function SourcesPage() {
               <label className="form-label">中药列<input className="field" required value={sqliteForm.herbColumn} onChange={(event) => setSQLiteForm((form) => ({ ...form, herbColumn: event.target.value }))} /></label>
               <label className="form-label">成分列<input className="field" required value={sqliteForm.compoundColumn} onChange={(event) => setSQLiteForm((form) => ({ ...form, compoundColumn: event.target.value }))} /></label>
               <label className="form-label">靶点列<input className="field" required value={sqliteForm.targetColumn} onChange={(event) => setSQLiteForm((form) => ({ ...form, targetColumn: event.target.value }))} /></label>
+              <label className="form-label">疾病—靶点表<input className="field" value={sqliteForm.diseaseTargetTable} onChange={(event) => setSQLiteForm((form) => ({ ...form, diseaseTargetTable: event.target.value }))} /></label>
+              <label className="form-label">疾病列<input className="field" value={sqliteForm.diseaseColumn} onChange={(event) => setSQLiteForm((form) => ({ ...form, diseaseColumn: event.target.value }))} /></label>
+              <label className="form-label">疾病靶点列<input className="field" value={sqliteForm.diseaseTargetColumn} onChange={(event) => setSQLiteForm((form) => ({ ...form, diseaseTargetColumn: event.target.value }))} /></label>
+              <label className="form-label">来源文件列<input className="field" value={sqliteForm.diseaseSourceColumn} onChange={(event) => setSQLiteForm((form) => ({ ...form, diseaseSourceColumn: event.target.value }))} /></label>
+              <label className="form-label">疾病—中药—靶点表<input className="field" value={sqliteForm.diseaseHerbTargetTable} onChange={(event) => setSQLiteForm((form) => ({ ...form, diseaseHerbTargetTable: event.target.value }))} /></label>
+              <label className="form-label">疾病列<input className="field" value={sqliteForm.diseaseHerbColumn} onChange={(event) => setSQLiteForm((form) => ({ ...form, diseaseHerbColumn: event.target.value }))} /></label>
+              <label className="form-label">中药列<input className="field" value={sqliteForm.diseaseHerbHerbColumn} onChange={(event) => setSQLiteForm((form) => ({ ...form, diseaseHerbHerbColumn: event.target.value }))} /></label>
+              <label className="form-label">靶点列<input className="field" value={sqliteForm.diseaseHerbTargetColumn} onChange={(event) => setSQLiteForm((form) => ({ ...form, diseaseHerbTargetColumn: event.target.value }))} /></label>
             </div>
             <div className="case-form-footer"><p>只允许受控目录的相对路径；导入前会核对校验值并保留来源记录。</p>
               <button className="btn btn-primary" type="submit" disabled={busy === -1 || !sqliteForm.name.trim()}>
@@ -244,6 +260,7 @@ export function SourcesPage() {
                       <Metric label="中药实体" value={summary.uniqueHerbs ?? 0} />
                       <Metric label="成分实体" value={summary.uniqueCompounds ?? 0} />
                       <Metric label="靶点实体" value={summary.uniqueTargets ?? 0} />
+                      <Metric label="疾病实体" value={summary.uniqueDiseases ?? 0} />
                       <Metric label="关系记录" value={summary.relationships ?? 0} />
                       <Metric label="将新增实体" value={summary.wouldCreate ?? 0} />
                       <Metric label="将更新实体" value={summary.wouldUpdate ?? 0} />

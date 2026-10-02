@@ -55,11 +55,7 @@ class DataSourceListView(generics.ListCreateAPIView):
             access_mode=DataSource.AccessMode.DOWNLOAD,
             configuration={
                 "connector": SQLITE_CONNECTOR,
-                "databaseFile": data["databaseFile"],
-                "table": data["table"],
-                "herbColumn": data["herbColumn"],
-                "compoundColumn": data["compoundColumn"],
-                "targetColumn": data["targetColumn"],
+                **{key: value for key, value in data.items() if key != "name" and key != "description" and value},
             },
             license_note="管理员登记的本地 SQLite 来源。请确保源数据具有使用授权；目录与文件名相对于服务器 SQLITE_SOURCE_ROOT。",
         )
@@ -174,6 +170,7 @@ class SQLiteSourceTestView(APIView):
             "fileBytes": snapshot.file_size,
             "checksumSha256": snapshot.checksum_sha256,
             "columns": snapshot.columns,
+            "tableRowCounts": snapshot.table_row_counts,
             "mapping": {
                 "table": source.configuration["table"],
                 "herbColumn": source.configuration["herbColumn"],

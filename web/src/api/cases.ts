@@ -11,11 +11,23 @@ export type MedicalCase = {
   research_notes: string;
   review_status: "draft" | "reviewed";
   reviewed_at: string | null;
+  reviewed_by_username: string | null;
   created_at: string;
   updated_at: string;
 };
 
 export type Page<T> = { count: number; next: string | null; previous: string | null; results: T[] };
+export type CaseAuditEvent = {
+  id: number;
+  case_id_snapshot: number;
+  case_title_snapshot: string;
+  actor_username: string | null;
+  action: "created" | "updated" | "reviewed" | "deleted";
+  changed_fields: string[];
+  content_hashes: Record<string, { before: string | null; after: string | null }>;
+  metadata: Record<string, unknown>;
+  created_at: string;
+};
 export type NewMedicalCase = Pick<MedicalCase, "title" | "deidentified_text" | "source_reference" | "research_notes"> & {
   structured_data: Record<string, string>;
 };
@@ -25,3 +37,7 @@ export const createMedicalCase = (data: NewMedicalCase) =>
   apiRequest<MedicalCase>("/api/v1/research/cases/", { method: "POST", body: data });
 export const deleteMedicalCase = (id: number) =>
   apiRequest<void>(`/api/v1/research/cases/${id}/`, { method: "DELETE" });
+export const getMedicalCaseAudit = (id: number) =>
+  apiRequest<Page<CaseAuditEvent>>(`/api/v1/research/cases/${id}/audit/`);
+export const approveMedicalCase = (id: number) =>
+  apiRequest<MedicalCase>(`/api/v1/research/cases/${id}/review/`, { method: "POST", body: { decision: "approve" } });

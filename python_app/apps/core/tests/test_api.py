@@ -10,7 +10,7 @@ from django.urls import reverse
 from django.test import RequestFactory, override_settings
 from rest_framework.test import APITestCase
 
-from apps.core.models import AnalysisTask, MedicalCase, ResearchDataset
+from apps.core.models import AnalysisTask, MedicalCase, MedicalCaseAuditEvent, ResearchDataset
 from config.api_errors import ApiErrorEnvelopeMiddleware
 
 
@@ -201,6 +201,64 @@ class PrivateWorkspaceApiTests(APITestCase):
             self.owner.delete()
 
         self.assertTrue(get_user_model().objects.filter(pk=self.owner.pk).exists())
+
+    def test_medical_case_create_update_and_delete_write_hash_only_audit_events(self):
+        self.client.force_authenticate(self.owner)
+        response = self.client.post(reverse("case-list"), {
+            "title": "Audit case",
+            "deidentified_text": "去标识化症状文本",
+            "structured_data": {"diagnosis": "待审核证候"},
+            "source_reference": "测试文献",
+        }, format="json")
+        self.assertEqual(response.status_code, 201)
+        case_id = response.data["id"]
+        case = MedicalCase.objects.get(pk=case_id)
+        created = MedicalCaseAuditEvent.objects.get(case=case, action=MedicalCaseAuditEvent.Action.CREATED)
+        self.assertIn("deidentified_text", created.changed_fields)
+        self.assertNotIn("去标识化症状文本", json.dumps(created.content_hashes, ensure_ascii=False))
+
+        updated = self.client.patch(reverse("case-detail", args=[case_id]), {"research_notes": "修订说明"}, format="json")
+        self.assertEqual(updated.status_code, 200)
+        update_event = MedicalCaseAuditEvent.objects.get(case=case, action=MedicalCaseAuditEvent.Action.UPDATED)
+        self.assertEqual(update_event.changed_fields, ["research_notes"])
+        self.assertNotIn("修订说明", json.dumps(update_event.content_hashes, ensure_ascii=False))
+
+        deleted = self.client.delete(reverse("case-detail", args=[case_id]))
+        self.assertEqual(deleted.status_code, 204)
+        deletion = MedicalCaseAuditEvent.objects.get(case_id_snapshot=case_id, action=MedicalCaseAuditEvent.Action.DELETED)
+        self.assertIsNone(deletion.case)
+
+    def test_case_audit_is_owner_private_and_superuser_can_review(self):
+        self.client.force_authenticate(self.owner)
+        created = self.client.post(reverse("case-list"), {
+            "title": "Reviewable case", "deidentified_text": "去标识化症状",
+            "structured_data": {"diagnosis": "候选证候"},
+        }, format="json")
+        case_id = created.data["id"]
+        self.assertEqual(created.status_code, 201)
+        self.assertEqual(self.client.get(reverse("case-audit", args=[case_id])).status_code, 200)
+
+        self.client.force_authenticate(self.other_user)
+        self.assertEqual(self.client.get(reverse("case-audit", args=[case_id])).status_code, 404)
+
+        admin = get_user_model().objects.create_superuser(
+            username="case-review-admin", email="case-admin@example.test", password="test-password-123"
+        )
+        self.client.force_authenticate(admin)
+        reviewed = self.client.post(reverse("case-review", args=[case_id]), {"decision": "approve"}, format="json")
+        self.assertEqual(reviewed.status_code, 200)
+        self.assertEqual(reviewed.data["review_status"], MedicalCase.ReviewStatus.REVIEWED)
+        case = MedicalCase.objects.get(pk=case_id)
+        self.assertEqual(case.reviewed_by, admin)
+        event = MedicalCaseAuditEvent.objects.get(case=case, action=MedicalCaseAuditEvent.Action.REVIEWED)
+        self.assertEqual(event.actor, admin)
+
+        self.client.force_authenticate(self.owner)
+        edited = self.client.patch(reverse("case-detail", args=[case_id]), {"research_notes": "审核后补充材料"}, format="json")
+        self.assertEqual(edited.status_code, 200)
+        case.refresh_from_db()
+        self.assertEqual(case.review_status, MedicalCase.ReviewStatus.DRAFT)
+        self.assertIsNone(case.reviewed_by)
 
 
 class ApiErrorContractTests(APITestCase):

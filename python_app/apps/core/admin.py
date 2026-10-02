@@ -6,6 +6,7 @@ from .models import (
     EvidenceRelation,
     KnowledgeEntity,
     MedicalCase,
+    MedicalCaseAuditEvent,
     ResearchDataset,
     SourceRelease,
     SyncRun,
@@ -60,7 +61,30 @@ class MedicalCaseAdmin(admin.ModelAdmin):
     list_display = ("title", "owner", "review_status", "updated_at")
     list_filter = ("review_status",)
     search_fields = ("title", "owner__username", "owner__email")
-    readonly_fields = ("created_at", "updated_at")
+    readonly_fields = tuple(field.name for field in MedicalCase._meta.fields)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(MedicalCaseAuditEvent)
+class MedicalCaseAuditEventAdmin(admin.ModelAdmin):
+    list_display = ("case_id_snapshot", "case_title_snapshot", "owner", "actor", "action", "created_at")
+    list_filter = ("action", "created_at")
+    search_fields = ("case_title_snapshot", "owner__username", "actor__username")
+    readonly_fields = tuple(field.name for field in MedicalCaseAuditEvent._meta.fields)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(AnalysisTask)

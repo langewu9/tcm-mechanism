@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useOutletContext } from "react-router-dom";
 import { ArrowLeft, BookOpen, FileHeart, LogOut, Plus, Trash2 } from "lucide-react";
-import { createMedicalCase, deleteMedicalCase, getMedicalCases, type MedicalCase, type Page } from "../api/cases";
+import { approveMedicalCase, createMedicalCase, deleteMedicalCase, getMedicalCaseAudit, getMedicalCases, type CaseAuditEvent, type MedicalCase, type Page } from "../api/cases";
 import { logout, type Session } from "../api/auth";
 import { ApiError } from "../api/client";
 
@@ -23,6 +23,9 @@ export function CasesPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [auditCaseId, setAuditCaseId] = useState<number | null>(null);
+  const [auditEvents, setAuditEvents] = useState<CaseAuditEvent[]>([]);
+  const [reviewingId, setReviewingId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -88,6 +91,40 @@ export function CasesPage() {
     }
   }
 
+  async function toggleAudit(item: MedicalCase) {
+    if (auditCaseId === item.id) {
+      setAuditCaseId(null);
+      setAuditEvents([]);
+      return;
+    }
+    setAuditCaseId(item.id);
+    setError(null);
+    try {
+      const response = await getMedicalCaseAudit(item.id);
+      setAuditEvents(response.results);
+    } catch (cause) {
+      setAuditCaseId(null);
+      setError(errorMessage(cause));
+    }
+  }
+
+  async function approveCase(item: MedicalCase) {
+    if (!window.confirm(`确认审核通过“${item.title}”？这会记录审核账号和时间。`)) return;
+    setReviewingId(item.id);
+    setError(null);
+    setNotice(null);
+    try {
+      await approveMedicalCase(item.id);
+      setNotice("医案已审核，审核账号和时间已写入审计记录。");
+      setRefresh((value) => value + 1);
+      if (auditCaseId === item.id) setAuditEvents((await getMedicalCaseAudit(item.id)).results);
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setReviewingId(null);
+    }
+  }
+
   async function signOut() {
     setError(null);
     try {
@@ -104,7 +141,7 @@ export function CasesPage() {
         <img src="/images/yuanzhi-mark.png" alt="" width={42} height={42} className="brand-mark" />
         <span><strong>远志 AI Scientist</strong><small>研究者工作区</small></span>
       </Link>
-      <nav className="workspace-module-nav" aria-label="研究模块"><Link to="/cases" aria-current="page">医案管理</Link><Link to="/datasets">研究数据集</Link><Link to="/proteomics">蛋白组学</Link>{user.isSuperuser && <Link to="/admin/sources">数据源同步</Link>}</nav>
+      <nav className="workspace-module-nav" aria-label="研究模块"><Link to="/cases" aria-current="page">医案管理</Link><Link to="/datasets">研究数据集</Link><Link to="/proteomics">蛋白组学</Link><Link to="/network-pharmacology">网络药理</Link>{user.isSuperuser && <Link to="/admin/sources">数据源同步</Link>}</nav>
       <div className="workspace-nav-actions"><span className="workspace-user">{user.username}{user.isSuperuser ? " · 平台管理员" : " · 研究者"}</span>
         <button className="btn btn-secondary" type="button" onClick={signOut}><LogOut size={16} />退出</button>
       </div>
@@ -141,11 +178,17 @@ export function CasesPage() {
             : page?.results.length ? <div className="case-list-items">{page.results.map((item) => <article key={item.id} className="case-record panel">
               <div className="case-record-top"><div><h3>{item.title}</h3><time dateTime={item.updated_at}>更新于 {new Date(item.updated_at).toLocaleString("zh-CN")}</time></div>
                 <button className="icon-button case-delete" type="button" onClick={() => void removeCase(item)} disabled={deletingId === item.id} aria-label={`删除医案：${item.title}`} title="删除医案"><Trash2 size={17} /></button></div>
+              <p><span className={`status-badge ${item.review_status === "reviewed" ? "status-success" : "status-warning"}`}>{item.review_status === "reviewed" ? `已审核 · ${item.reviewed_by_username ?? "平台管理员"}` : "待审核"}</span></p>
               <p className="case-summary">{item.deidentified_text}</p>
               <div className="case-record-meta"><p><span>脱敏信息</span>{valueOf(item.structured_data, "patient_info")}</p><p><span>舌象与脉象</span>{valueOf(item.structured_data, "tongue_pulse")}</p>
                 <p><span>诊断或证候</span>{valueOf(item.structured_data, "diagnosis")}</p><p><span>资料来源</span>{item.source_reference || "未填写"}</p>
                 <p><span>提交研究者</span>{item.owner_username}</p></div>
               {item.research_notes && <details className="case-notes"><summary>研究备注</summary><p>{item.research_notes}</p></details>}
+              <div className="source-record-actions">
+                <button className="btn btn-secondary" type="button" onClick={() => void toggleAudit(item)}>{auditCaseId === item.id ? "收起审计记录" : "查看审计记录"}</button>
+                {user.isSuperuser && item.review_status !== "reviewed" && <button className="btn btn-primary" type="button" onClick={() => void approveCase(item)} disabled={reviewingId === item.id}>{reviewingId === item.id ? "正在审核…" : "审核通过"}</button>}
+              </div>
+              {auditCaseId === item.id && <div className="panel case-audit-history"><h4>操作记录</h4>{auditEvents.length ? <ul className="proteomics-pathways">{auditEvents.map((event) => <li key={event.id}><strong>{event.actor_username ?? "账号已删除"} · {event.action === "created" ? "创建" : event.action === "updated" ? "修改" : event.action === "reviewed" ? "审核" : "删除"}</strong><span>{new Date(event.created_at).toLocaleString("zh-CN")} · {event.changed_fields.join("、") || "无字段变化"}</span></li>)}</ul> : <p className="section-help">尚无操作记录。</p>}</div>}
             </article>)}</div>
             : <div className="panel empty-state"><FileHeart size={27} /><strong>暂无医案</strong><p>可以在左侧录入第一条去标识化医案，并填写可核查的数据来源。</p></div>}
           {page && page.count > 0 && <div className="case-pagination"><button className="btn btn-secondary" type="button" disabled={!page.previous || loading} onClick={() => setPageNumber((value) => Math.max(1, value - 1))}>上一页</button>

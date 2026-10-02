@@ -3,7 +3,7 @@ from django.core.files.storage import default_storage
 from rest_framework import serializers
 
 from ..exceptions import ResourceConflict
-from ..models import AnalysisTask, MedicalCase, ResearchDataset
+from ..models import AnalysisTask, MedicalCase, MedicalCaseAuditEvent, ResearchDataset
 
 
 class ResearchDatasetSerializer(serializers.ModelSerializer):
@@ -99,6 +99,7 @@ class ResearchDatasetSerializer(serializers.ModelSerializer):
 class MedicalCaseSerializer(serializers.ModelSerializer):
     owner_id = serializers.ReadOnlyField()
     owner_username = serializers.CharField(source="owner.username", read_only=True)
+    reviewed_by_username = serializers.CharField(source="reviewed_by.username", read_only=True, allow_null=True)
 
     class Meta:
         model = MedicalCase
@@ -113,10 +114,23 @@ class MedicalCaseSerializer(serializers.ModelSerializer):
             "research_notes",
             "review_status",
             "reviewed_at",
+            "reviewed_by_username",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "owner_id", "owner_username", "review_status", "reviewed_at", "created_at", "updated_at"]
+        read_only_fields = ["id", "owner_id", "owner_username", "review_status", "reviewed_at", "reviewed_by_username", "created_at", "updated_at"]
+
+
+class MedicalCaseAuditEventSerializer(serializers.ModelSerializer):
+    actor_username = serializers.CharField(source="actor.username", read_only=True, allow_null=True)
+
+    class Meta:
+        model = MedicalCaseAuditEvent
+        fields = [
+            "id", "case_id_snapshot", "case_title_snapshot", "actor_username", "action",
+            "changed_fields", "content_hashes", "metadata", "created_at",
+        ]
+        read_only_fields = fields
 
 
 class AnalysisTaskSerializer(serializers.ModelSerializer):
@@ -149,3 +163,60 @@ class AnalysisTaskSerializer(serializers.ModelSerializer):
             "finished_at",
         ]
         read_only_fields = fields
+
+
+class NetworkPharmacologyRequestSerializer(serializers.Serializer):
+    herb = serializers.CharField(max_length=1200)
+    disease = serializers.CharField(max_length=300)
+    limit = serializers.IntegerField(required=False, default=12000, min_value=500, max_value=30000)
+
+    def validate_herb(self, value):
+        from apps.core.services.network_pharmacology import parse_herb_names
+
+        names = parse_herb_names(value)
+        if not names:
+            raise serializers.ValidationError("请输入至少一味中药。")
+        if len(names) > 12:
+            raise serializers.ValidationError("一次最多分析 12 味中药。")
+        return value
+
+    def validate_disease(self, value):
+        if not value.strip():
+            raise serializers.ValidationError("请输入疾病名称。")
+        return value.strip()
+
+
+class NetworkPharmacologyResponseSerializer(serializers.Serializer):
+    taskId = serializers.IntegerField()
+    summary = serializers.JSONField()
+    targets = serializers.ListField(child=serializers.JSONField())
+    network = serializers.JSONField()
+    charts = serializers.JSONField()
+    limits = serializers.JSONField()
+
+
+class ExternalGeneListRequestSerializer(serializers.Serializer):
+    targets = serializers.ListField(
+        child=serializers.CharField(max_length=120), min_length=2, max_length=500
+    )
+    consent = serializers.BooleanField()
+
+    def validate_consent(self, value):
+        if not value:
+            raise serializers.ValidationError("请明确同意将基因标识发送至所选外部数据库。")
+        return value
+
+    def validate_targets(self, values):
+        unique = list(dict.fromkeys(value.strip() for value in values if value.strip()))
+        if len(unique) < 2:
+            raise serializers.ValidationError("至少需要 2 个非空基因/蛋白标识。")
+        return unique
+
+
+class ReactomeEnrichmentResponseSerializer(serializers.Serializer):
+    taskId = serializers.IntegerField()
+    result = serializers.JSONField()
+
+
+class StringNetworkRequestSerializer(ExternalGeneListRequestSerializer):
+    required_score = serializers.IntegerField(required=False, default=700, min_value=0, max_value=1000)

@@ -30,6 +30,14 @@ class SQLiteSourceCreateSerializer(serializers.Serializer):
     herbColumn = serializers.CharField(max_length=80)
     compoundColumn = serializers.CharField(max_length=80)
     targetColumn = serializers.CharField(max_length=80)
+    diseaseTargetTable = serializers.CharField(max_length=80, required=False, allow_blank=True)
+    diseaseColumn = serializers.CharField(max_length=80, required=False, allow_blank=True)
+    diseaseTargetColumn = serializers.CharField(max_length=80, required=False, allow_blank=True)
+    diseaseSourceColumn = serializers.CharField(max_length=80, required=False, allow_blank=True)
+    diseaseHerbTargetTable = serializers.CharField(max_length=80, required=False, allow_blank=True)
+    diseaseHerbColumn = serializers.CharField(max_length=80, required=False, allow_blank=True)
+    diseaseHerbHerbColumn = serializers.CharField(max_length=80, required=False, allow_blank=True)
+    diseaseHerbTargetColumn = serializers.CharField(max_length=80, required=False, allow_blank=True)
 
     def validate(self, attrs):
         try:
@@ -46,6 +54,7 @@ class SQLiteSourceTestResponseSerializer(serializers.Serializer):
     checksumSha256 = serializers.CharField()
     columns = serializers.ListField(child=serializers.CharField())
     mapping = serializers.JSONField()
+    tableRowCounts = serializers.JSONField()
 
 
 class SyncRunSerializer(serializers.ModelSerializer):

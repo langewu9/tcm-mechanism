@@ -296,6 +296,20 @@ class SQLiteSourceSyncTests(APITestCase):
                     ("黄芩", "黄芩素", "IL6"),
                 ],
             )
+            connection.execute(
+                "CREATE TABLE disease_target (disease TEXT, target TEXT, source_file TEXT)"
+            )
+            connection.execute(
+                "INSERT INTO disease_target VALUES (?, ?, ?)",
+                ("肺纤维化", "TP53;IL6", "synthetic-disease-source.xlsx"),
+            )
+            connection.execute(
+                "CREATE TABLE disease_herb_target (disease TEXT, herb TEXT, target TEXT)"
+            )
+            connection.execute(
+                "INSERT INTO disease_herb_target VALUES (?, ?, ?)",
+                ("肺纤维化", "黄芩", "TP53;IL6"),
+            )
         return path
 
     def source_payload(self):
@@ -307,6 +321,14 @@ class SQLiteSourceSyncTests(APITestCase):
             "herbColumn": "herb",
             "compoundColumn": "component",
             "targetColumn": "target",
+            "diseaseTargetTable": "disease_target",
+            "diseaseColumn": "disease",
+            "diseaseTargetColumn": "target",
+            "diseaseSourceColumn": "source_file",
+            "diseaseHerbTargetTable": "disease_herb_target",
+            "diseaseHerbColumn": "disease",
+            "diseaseHerbHerbColumn": "herb",
+            "diseaseHerbTargetColumn": "target",
         }
 
     def test_create_test_preview_and_apply_sqlite_source_without_exposing_server_path(self):
@@ -320,8 +342,10 @@ class SQLiteSourceSyncTests(APITestCase):
 
             test_response = self.client.post(reverse("sync-source-test", args=[source_id]), {}, format="json")
             self.assertEqual(test_response.status_code, 200)
-            self.assertEqual(test_response.data["rowCount"], 2)
+            self.assertEqual(test_response.data["rowCount"], 4)
             self.assertEqual(test_response.data["mapping"]["table"], "herb_component_target")
+            self.assertEqual(test_response.data["tableRowCounts"]["disease_target"], 1)
+            self.assertEqual(test_response.data["tableRowCounts"]["disease_herb_target"], 1)
             self.assertNotIn(str(path.parent), str(test_response.data))
 
             with patch("apps.sources.tasks.sync_source_run.delay"):
@@ -336,7 +360,8 @@ class SQLiteSourceSyncTests(APITestCase):
             self.assertEqual(preview.preview_summary["uniqueHerbs"], 1)
             self.assertEqual(preview.preview_summary["uniqueCompounds"], 2)
             self.assertEqual(preview.preview_summary["uniqueTargets"], 2)
-            self.assertEqual(preview.preview_summary["relationships"], 5)
+            self.assertEqual(preview.preview_summary["relationships"], 12)
+            self.assertEqual(preview.preview_summary["uniqueDiseases"], 1)
             self.assertEqual(KnowledgeEntity.objects.count(), 0)
 
             with patch("apps.sources.tasks.sync_source_run.delay"):
@@ -347,10 +372,12 @@ class SQLiteSourceSyncTests(APITestCase):
             apply_run = SyncRun.objects.get(pk=apply_id)
 
             self.assertEqual(apply_run.status, SyncRun.Status.SUCCEEDED)
-            self.assertEqual(apply_run.records_created, 5)
-            self.assertEqual(apply_run.preview_summary["relationshipsCreated"], 5)
-            self.assertEqual(KnowledgeEntity.objects.filter(is_active=True).count(), 5)
-            self.assertEqual(EvidenceRelation.objects.filter(is_active=True).count(), 5)
+            self.assertEqual(apply_run.records_created, 6)
+            self.assertEqual(apply_run.preview_summary["relationshipsCreated"], 12)
+            self.assertEqual(KnowledgeEntity.objects.filter(is_active=True).count(), 6)
+            self.assertEqual(EvidenceRelation.objects.filter(is_active=True).count(), 12)
+            self.assertEqual(EvidenceRelation.objects.filter(relation_type="disease_target", is_active=True).count(), 2)
+            self.assertEqual(EvidenceRelation.objects.filter(relation_type="herb_disease_target", is_active=True).count(), 2)
             self.assertEqual(
                 KnowledgeEntity.objects.get(entity_type=KnowledgeEntity.EntityType.PROTEIN, label="TP53")
                 .metadata["symbol"],
@@ -374,9 +401,9 @@ class SQLiteSourceSyncTests(APITestCase):
             self.assertEqual(repeat_preview.preview_summary["wouldUpdate"], 0)
             self.assertEqual(repeat_apply.records_created, 0)
             self.assertEqual(repeat_apply.records_updated, 0)
-            self.assertEqual(repeat_apply.preview_summary["entitiesUnchanged"], 5)
-            self.assertEqual(KnowledgeEntity.objects.filter(is_active=True).count(), 5)
-            self.assertEqual(EvidenceRelation.objects.filter(is_active=True).count(), 5)
+            self.assertEqual(repeat_apply.preview_summary["entitiesUnchanged"], 6)
+            self.assertEqual(KnowledgeEntity.objects.filter(is_active=True).count(), 6)
+            self.assertEqual(EvidenceRelation.objects.filter(is_active=True).count(), 12)
 
     def test_database_path_and_sql_identifiers_are_confined_and_validated(self):
         payload = self.source_payload()
@@ -446,7 +473,13 @@ class SQLiteSourceSyncTests(APITestCase):
             with sqlite3.connect(path) as connection:
                 connection.execute("CREATE TABLE herb_component_target (herb TEXT, component TEXT, target TEXT)")
                 connection.execute("INSERT INTO herb_component_target VALUES ('', '', '')")
-            create_response = self.client.post(reverse("sync-source-list"), self.source_payload(), format="json")
+            payload = self.source_payload()
+            for key in (
+                "diseaseTargetTable", "diseaseColumn", "diseaseTargetColumn", "diseaseSourceColumn",
+                "diseaseHerbTargetTable", "diseaseHerbColumn", "diseaseHerbHerbColumn", "diseaseHerbTargetColumn",
+            ):
+                payload.pop(key)
+            create_response = self.client.post(reverse("sync-source-list"), payload, format="json")
             source = DataSource.objects.get(pk=create_response.data["id"])
             release = SourceRelease.objects.create(source=source, version="prior")
             existing = KnowledgeEntity.objects.create(

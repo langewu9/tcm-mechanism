@@ -28,6 +28,7 @@ class SQLiteSourceSnapshot:
     file_size: int
     row_count: int
     columns: tuple[str, ...]
+    table_row_counts: dict[str, int]
 
 def validate_sqlite_source_config(config: dict) -> dict[str, str]:
     expected = {
@@ -36,6 +37,10 @@ def validate_sqlite_source_config(config: dict) -> dict[str, str]:
         "herbColumn": "herb column",
         "compoundColumn": "compound column",
         "targetColumn": "target column",
+    }
+    optional_mappings = {
+        "diseaseTargetTable": ("diseaseColumn", "diseaseTargetColumn", "diseaseSourceColumn"),
+        "diseaseHerbTargetTable": ("diseaseHerbColumn", "diseaseHerbHerbColumn", "diseaseHerbTargetColumn"),
     }
     parsed = {}
     for key, label in expected.items():
@@ -46,7 +51,21 @@ def validate_sqlite_source_config(config: dict) -> dict[str, str]:
     file_name = Path(parsed["databaseFile"])
     if file_name.is_absolute() or ".." in file_name.parts or "\x00" in parsed["databaseFile"]:
         raise SQLiteSourceError("数据库文件必须是受控目录内的相对路径。")
-    for key in ("table", "herbColumn", "compoundColumn", "targetColumn"):
+    for table_key, mapping_keys in optional_mappings.items():
+        table_name = str(config.get(table_key, "") or "").strip()
+        populated = [str(config.get(key, "") or "").strip() for key in mapping_keys]
+        if table_name or any(populated):
+            if not table_name or not all(populated):
+                raise SQLiteSourceError(f"{table_key} 对应的数据表和全部字段映射必须一起填写。")
+            parsed[table_key] = table_name
+            parsed.update({key: value for key, value in zip(mapping_keys, populated)})
+    for key in (
+        "table", "herbColumn", "compoundColumn", "targetColumn",
+        "diseaseTargetTable", "diseaseColumn", "diseaseTargetColumn", "diseaseSourceColumn",
+        "diseaseHerbTargetTable", "diseaseHerbColumn", "diseaseHerbHerbColumn", "diseaseHerbTargetColumn",
+    ):
+        if key not in parsed:
+            continue
         if not _IDENTIFIER.fullmatch(parsed[key]):
             raise SQLiteSourceError(f"数据表字段映射 {key} 只允许字母、数字和下划线。")
     return parsed
@@ -121,26 +140,37 @@ def inspect_sqlite_source(configuration: dict) -> SQLiteSourceSnapshot:
     checksum = _hash_database(path)
     connection = _connect(path)
     try:
-        columns = tuple(
-            str(column[1]) for column in connection.execute(f"PRAGMA table_info({_quoted(config['table'])})")
-        )
-        if not columns:
-            raise SQLiteSourceError("指定的数据表不存在或没有可读取字段。")
-        required = {config["herbColumn"], config["compoundColumn"], config["targetColumn"]}
-        missing = required - set(columns)
-        if missing:
-            raise SQLiteSourceError(f"数据表缺少所需字段：{', '.join(sorted(missing))}。")
-        connection.execute(f"SELECT rowid FROM {_quoted(config['table'])} LIMIT 0")
-        row_count = int(connection.execute(f"SELECT COUNT(*) FROM {_quoted(config['table'])}").fetchone()[0])
+        mappings = [("herb", "table", ("herbColumn", "compoundColumn", "targetColumn"))]
+        if config.get("diseaseTargetTable"):
+            mappings.append(("diseaseTarget", "diseaseTargetTable", ("diseaseColumn", "diseaseTargetColumn", "diseaseSourceColumn")))
+        if config.get("diseaseHerbTargetTable"):
+            mappings.append(("diseaseHerbTarget", "diseaseHerbTargetTable", ("diseaseHerbColumn", "diseaseHerbHerbColumn", "diseaseHerbTargetColumn")))
+        columns = []
+        table_row_counts = {}
+        for _, table_key, column_keys in mappings:
+            table = config[table_key]
+            table_columns = tuple(
+                str(column[1]) for column in connection.execute(f"PRAGMA table_info({_quoted(table)})")
+            )
+            if not table_columns:
+                raise SQLiteSourceError(f"指定的数据表“{table}”不存在或没有可读取字段。")
+            required = {config[key] for key in column_keys}
+            missing = required - set(table_columns)
+            if missing:
+                raise SQLiteSourceError(f"数据表“{table}”缺少所需字段：{', '.join(sorted(missing))}。")
+            connection.execute(f"SELECT rowid FROM {_quoted(table)} LIMIT 0")
+            columns.extend(f"{table}.{column}" for column in table_columns)
+            table_row_counts[table] = int(connection.execute(f"SELECT COUNT(*) FROM {_quoted(table)}").fetchone()[0])
     except sqlite3.Error as exc:
         raise SQLiteSourceError("无法检查 SQLite 数据表，请核对表名和字段映射。") from exc
     finally:
         connection.close()
+    row_count = sum(table_row_counts.values())
     if row_count > settings.SQLITE_SOURCE_MAX_ROWS:
         raise SQLiteSourceError("SQLite 数据表超过配置的最大导入行数。")
     if _hash_database(path) != checksum:
         raise SQLiteSourceError("SQLite 文件在连接检查期间发生变化，请暂停写入后重试。")
-    return SQLiteSourceSnapshot(checksum, path.stat().st_size, row_count, columns)
+    return SQLiteSourceSnapshot(checksum, path.stat().st_size, row_count, tuple(columns), table_row_counts)
 
 
 def iter_source_rows(configuration: dict) -> Iterator[tuple[int, object, object, object]]:
@@ -166,6 +196,40 @@ def iter_source_rows(configuration: dict) -> Iterator[tuple[int, object, object,
                 yield row_id, row[1], row[2], row[3]
     finally:
         connection.close()
+
+
+def iter_configured_rows(configuration: dict) -> Iterator[tuple[str, int, object, object, object]]:
+    """Yield rows from the three-table schema produced by main's cache_builder.py."""
+    _, config = _source_path(configuration)
+    yield from (("herb", *row) for row in iter_source_rows(configuration))
+    table_specs = (
+        ("diseaseTarget", "diseaseTargetTable", "diseaseColumn", "diseaseTargetColumn", "diseaseSourceColumn"),
+        ("diseaseHerbTarget", "diseaseHerbTargetTable", "diseaseHerbColumn", "diseaseHerbHerbColumn", "diseaseHerbTargetColumn"),
+    )
+    for kind, table_key, first_column, second_column, third_column in table_specs:
+        if not config.get(table_key):
+            continue
+        path, _ = _source_path(configuration)
+        connection = _connect(path)
+        table = _quoted(config[table_key])
+        first = _quoted(config[first_column])
+        second = _quoted(config[second_column])
+        third = _quoted(config[third_column])
+        query = f"SELECT rowid, {first}, {second}, {third} FROM {table} WHERE rowid > ? ORDER BY rowid LIMIT ?"
+        cursor = -(2**63)
+        try:
+            while True:
+                try:
+                    rows = connection.execute(query, (cursor, BATCH_SIZE)).fetchall()
+                except sqlite3.Error as exc:
+                    raise SQLiteSourceError("无法读取来源数据表；请确认数据表支持 SQLite rowid。") from exc
+                if not rows:
+                    break
+                for row in rows:
+                    cursor = int(row[0])
+                    yield kind, cursor, row[1], row[2], row[3]
+        finally:
+            connection.close()
 
 
 def clean_cell(value: object) -> str:

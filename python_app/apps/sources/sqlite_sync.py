@@ -18,7 +18,7 @@ from apps.sources.connectors.sqlite_tcm import (
     SQLiteSourceError,
     clean_cell,
     inspect_sqlite_source,
-    iter_source_rows,
+    iter_configured_rows,
     split_targets,
 )
 
@@ -53,7 +53,7 @@ def _sqlite_snapshot(source: DataSource):
 
 def _source_rows(source: DataSource):
     try:
-        yield from iter_source_rows(source.configuration)
+        yield from iter_configured_rows(source.configuration)
     except SQLiteSourceError as exc:
         raise ValidationError(str(exc)) from exc
 
@@ -65,13 +65,18 @@ def _ensure_snapshot_unchanged(source: DataSource, expected_checksum: str) -> No
 
 
 def _row_entities_and_relations(source: DataSource, row):
-    row_id, raw_herb, raw_compound, raw_targets = row
-    herb, compound = clean_cell(raw_herb), clean_cell(raw_compound)
+    kind, row_id, first_value, second_value, third_value = row
+    herb = clean_cell(first_value) if kind == "herb" else ""
+    compound = clean_cell(second_value) if kind == "herb" else ""
+    disease = clean_cell(first_value) if kind in {"diseaseTarget", "diseaseHerbTarget"} else ""
+    disease_herb = clean_cell(second_value) if kind == "diseaseHerbTarget" else ""
+    raw_targets = third_value if kind in {"herb", "diseaseHerbTarget"} else second_value
+    source_file = clean_cell(third_value) if kind == "diseaseTarget" else ""
     targets = list(dict.fromkeys(split_targets(raw_targets)))
     if len(targets) > MAX_TARGETS_PER_ROW:
         raise ValidationError(f"源文件中单行拆分出的靶点超过 {MAX_TARGETS_PER_ROW} 个，请检查分隔符和数据内容。")
     entities: dict[tuple[str, str], dict] = {}
-    relation_specs: list[tuple[str, str, str, str]] = []
+    relation_specs: list[tuple[str, str, str, str, int, dict]] = []
 
     def add_entity(kind: str, entity_type: str, label: str) -> str:
         if len(label) > 300:
@@ -91,16 +96,33 @@ def _row_entities_and_relations(source: DataSource, row):
 
     herb_id = add_entity("herb", KnowledgeEntity.EntityType.HERB, herb) if herb else ""
     compound_id = add_entity("compound", KnowledgeEntity.EntityType.COMPOUND, compound) if compound else ""
+    disease_id = add_entity("disease", KnowledgeEntity.EntityType.DISEASE, disease) if disease else ""
     target_ids = [
         add_entity("target", KnowledgeEntity.EntityType.PROTEIN, target)
         for target in targets
         if target
     ]
     if herb_id and compound_id:
-        relation_specs.append(("contains", herb_id, compound_id, f"{row_id}:herb-compound"))
+        relation_specs.append(("contains", herb_id, compound_id, f"herb:{row_id}:herb-compound", row_id, {}))
     if compound_id:
         relation_specs.extend(
-            ("targets", compound_id, target_id, f"{row_id}:compound-target:{target_id.rsplit(':', 1)[-1]}")
+            ("targets", compound_id, target_id, f"herb:{row_id}:compound-target:{target_id.rsplit(':', 1)[-1]}", row_id, {})
+            for target_id in target_ids
+        )
+    if disease_id and kind == "diseaseTarget":
+        relation_specs.extend(
+            ("disease_target", disease_id, target_id, f"diseaseTarget:{row_id}:{target_id.rsplit(':', 1)[-1]}", row_id, {"sourceFile": source_file})
+            for target_id in target_ids
+        )
+    if disease_id and kind == "diseaseHerbTarget" and disease_herb:
+        disease_herb_id = add_entity("herb", KnowledgeEntity.EntityType.HERB, disease_herb)
+        relation_specs.append(("disease_herb", disease_id, disease_herb_id, f"diseaseHerbTarget:{row_id}:herb", row_id, {}))
+        relation_specs.extend(
+            ("disease_herb_target", disease_id, target_id, f"diseaseHerbTarget:{row_id}:disease-target:{target_id.rsplit(':', 1)[-1]}", row_id, {"herbStableId": disease_herb_id, "herbLabel": disease_herb})
+            for target_id in target_ids
+        )
+        relation_specs.extend(
+            ("herb_disease_target", disease_herb_id, target_id, f"diseaseHerbTarget:{row_id}:herb-target:{target_id.rsplit(':', 1)[-1]}", row_id, {"diseaseStableId": disease_id, "diseaseLabel": disease})
             for target_id in target_ids
         )
     return list(entities.values()), relation_specs
@@ -149,13 +171,20 @@ def preview_sqlite_sync(run: SyncRun) -> None:
                 "connector": SQLITE_CONNECTOR,
                 "databaseFile": source.configuration["databaseFile"],
                 "table": source.configuration["table"],
+                "diseaseTargetTable": source.configuration.get("diseaseTargetTable") or None,
+                "diseaseHerbTargetTable": source.configuration.get("diseaseHerbTargetTable") or None,
                 "configurationSha256": configuration_sha256,
                 "columnMapping": {
                     "herb": source.configuration["herbColumn"],
                     "compound": source.configuration["compoundColumn"],
                     "target": source.configuration["targetColumn"],
+                    "disease": source.configuration.get("diseaseColumn"),
+                    "diseaseTarget": source.configuration.get("diseaseTargetColumn"),
+                    "diseaseHerb": source.configuration.get("diseaseHerbHerbColumn"),
+                    "diseaseHerbTarget": source.configuration.get("diseaseHerbTargetColumn"),
                 },
                 "recordCount": snapshot.row_count,
+                "tableRowCounts": snapshot.table_row_counts,
                 "fileBytes": snapshot.file_size,
                 "retrievedAt": timezone.now().isoformat(),
             },
@@ -195,11 +224,14 @@ def preview_sqlite_sync(run: SyncRun) -> None:
         "releaseVersion": release_version,
         "databaseFile": source.configuration["databaseFile"],
         "table": source.configuration["table"],
+        "tableRowCounts": snapshot.table_row_counts,
         "fileBytes": snapshot.file_size,
         "totalRows": rows_seen,
         "uniqueHerbs": len(seen.get(KnowledgeEntity.EntityType.HERB, {})),
         "uniqueCompounds": len(seen.get(KnowledgeEntity.EntityType.COMPOUND, {})),
         "uniqueTargets": len(seen.get(KnowledgeEntity.EntityType.PROTEIN, {})),
+        "uniqueDiseases": len(seen.get(KnowledgeEntity.EntityType.DISEASE, {})),
+        "uniqueDiseases": len(seen.get(KnowledgeEntity.EntityType.DISEASE, {})),
         "relationships": relation_count,
         "wouldCreate": would_create,
         "wouldUpdate": would_update,
@@ -210,7 +242,7 @@ def preview_sqlite_sync(run: SyncRun) -> None:
 
 def _apply_sqlite_batch(source: DataSource, release: SourceRelease, rows: list, seen_ids: set[str], counters: dict):
     entity_payloads: dict[tuple[str, str], dict] = {}
-    relation_payloads: list[tuple[str, str, str, str]] = []
+    relation_payloads: list[tuple[str, str, str, str, int, dict]] = []
     for row in rows:
         entities, relations = _row_entities_and_relations(source, row)
         entity_payloads.update({(entity["entity_type"], entity["stable_id"]): entity for entity in entities})
@@ -286,13 +318,12 @@ def _apply_sqlite_batch(source: DataSource, release: SourceRelease, rows: list, 
             object_id=ids_by_stable[object_stable_id],
             relation_type=relation_type,
             evidence_type=EVIDENCE_TYPE,
-            evidence_text=f"Imported from SQLite rowid {row_id}",
-            is_active=True,
-            metadata={"sourceRowId": row_id, "source": source.slug},
+        evidence_text=f"Imported from SQLite rowid {row_id}",
+        is_active=True,
+        metadata={"sourceRowId": row_id, "source": source.slug, **relation_metadata},
         )
-        for relation_type, subject_stable_id, object_stable_id, record_id in relation_payloads
-        for row_id in [record_id.split(":", 1)[0]]
-    ]
+            for relation_type, subject_stable_id, object_stable_id, record_id, row_id, relation_metadata in relation_payloads
+        ]
     if relation_objects:
         EvidenceRelation.objects.bulk_create(
             relation_objects,
@@ -337,6 +368,7 @@ def apply_sqlite_sync(run: SyncRun) -> None:
                 KnowledgeEntity.EntityType.HERB,
                 KnowledgeEntity.EntityType.COMPOUND,
                 KnowledgeEntity.EntityType.PROTEIN,
+                KnowledgeEntity.EntityType.DISEASE,
             ],
             is_active=True,
         ).exclude(source_release=run.release).update(is_active=False, updated_at=timezone.now())

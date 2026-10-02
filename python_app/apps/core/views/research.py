@@ -1,16 +1,18 @@
 """Researcher-owned datasets, cases, and analysis task records."""
 
 from django.core.files.storage import default_storage
+from django.db import transaction
 from django.http import FileResponse, HttpResponse
+from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from ..exceptions import ResourceConflict, TaskQueueUnavailable
-from ..models import AnalysisTask, MedicalCase, ResearchDataset
-from ..serializers import AnalysisTaskSerializer, MedicalCaseSerializer, ResearchDatasetSerializer
+from ..models import AnalysisTask, MedicalCase, MedicalCaseAuditEvent, ResearchDataset
+from ..serializers import AnalysisTaskSerializer, MedicalCaseAuditEventSerializer, MedicalCaseSerializer, ResearchDatasetSerializer
 from apps.proteomics.serializers import ProteomicsRunRequestSerializer
 from apps.proteomics.models import ProteomicsRowResult
 from apps.proteomics.serializers_rows import ProteomicsRowResultSerializer
@@ -105,11 +107,91 @@ class MedicalCaseViewSet(viewsets.ModelViewSet):
         return queryset
 
     def perform_create(self, serializer):
-        serializer.save(owner=self.request.user)
+        from ..services.case_audit import case_field_values, create_case_audit_event
+
+        with transaction.atomic():
+            case = serializer.save(owner=self.request.user)
+            create_case_audit_event(
+                case=case,
+                actor=self.request.user,
+                action=MedicalCaseAuditEvent.Action.CREATED,
+                after=case_field_values(case),
+            )
+
+    def perform_update(self, serializer):
+        from ..services.case_audit import case_field_values, create_case_audit_event
+
+        case = serializer.instance
+        fields = set(serializer.validated_data)
+        audited_fields = fields | {"review_status", "reviewed_by_id", "reviewed_at"}
+        before = case_field_values(case, audited_fields)
+        with transaction.atomic():
+            case = serializer.save()
+            content_fields = fields - {"review_status", "reviewed_by_id", "reviewed_at"}
+            content_changed = any(before[field] != getattr(case, field) for field in content_fields)
+            if content_changed and case.review_status == MedicalCase.ReviewStatus.REVIEWED:
+                case.review_status = MedicalCase.ReviewStatus.DRAFT
+                case.reviewed_by = None
+                case.reviewed_at = None
+                case.save(update_fields=["review_status", "reviewed_by", "reviewed_at", "updated_at"])
+            after = case_field_values(case, audited_fields)
+            changed = {field for field in audited_fields if before[field] != after[field]}
+            if changed:
+                create_case_audit_event(
+                    case=case,
+                    actor=self.request.user,
+                    action=MedicalCaseAuditEvent.Action.UPDATED,
+                    before={field: before[field] for field in changed},
+                    after={field: after[field] for field in changed},
+                )
 
     def perform_destroy(self, instance):
         if instance.analysis_tasks.exists():
             raise ResourceConflict("医案已有分析任务，为保留结果溯源不能删除。")
+        from ..services.case_audit import case_field_values, create_case_audit_event
+
+        with transaction.atomic():
+            create_case_audit_event(
+                case=instance,
+                actor=self.request.user,
+                action=MedicalCaseAuditEvent.Action.DELETED,
+                before=case_field_values(instance),
+            )
+            super().perform_destroy(instance)
+
+    @action(detail=True, methods=["get"], url_path="audit")
+    def audit(self, request, pk=None):
+        case = self.get_object()
+        events = MedicalCaseAuditEvent.objects.filter(case_id_snapshot=case.pk).select_related("actor")
+        page = self.paginate_queryset(events)
+        if page is not None:
+            return self.get_paginated_response(MedicalCaseAuditEventSerializer(page, many=True).data)
+        return Response(MedicalCaseAuditEventSerializer(events, many=True).data)
+
+    @action(detail=True, methods=["post"], url_path="review")
+    def review(self, request, pk=None):
+        if not request.user.is_superuser:
+            raise PermissionDenied("只有平台管理员可以审核医案。")
+        if request.data.get("decision") != "approve":
+            raise ValidationError({"decision": "审核操作必须明确提交 approve。"})
+        case = self.get_object()
+        from ..services.case_audit import create_case_audit_event
+
+        before = {"review_status": case.review_status, "reviewed_by_id": case.reviewed_by_id}
+        with transaction.atomic():
+            case.review_status = MedicalCase.ReviewStatus.REVIEWED
+            case.reviewed_at = timezone.now()
+            case.reviewed_by = request.user
+            case.save(update_fields=["review_status", "reviewed_at", "reviewed_by", "updated_at"])
+            create_case_audit_event(
+                case=case,
+                actor=request.user,
+                action=MedicalCaseAuditEvent.Action.REVIEWED,
+                before=before,
+                after={"review_status": case.review_status, "reviewed_by_id": case.reviewed_by_id},
+                metadata={"decision": "approve"},
+            )
+        return Response(MedicalCaseSerializer(case).data)
 
 
 class AnalysisTaskViewSet(viewsets.ReadOnlyModelViewSet):

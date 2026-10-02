@@ -44,6 +44,13 @@ class MedicalCase(models.Model):
         max_length=16, choices=ReviewStatus.choices, default=ReviewStatus.DRAFT
     )
     reviewed_at = models.DateTimeField(null=True, blank=True)
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="reviewed_medical_cases",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -53,6 +60,51 @@ class MedicalCase(models.Model):
 
     def __str__(self) -> str:
         return self.title
+
+
+class MedicalCaseAuditEvent(models.Model):
+    class Action(models.TextChoices):
+        CREATED = "created", "创建"
+        UPDATED = "updated", "修改"
+        REVIEWED = "reviewed", "审核"
+        DELETED = "deleted", "删除"
+
+    case = models.ForeignKey(
+        MedicalCase,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="audit_events",
+    )
+    case_id_snapshot = models.PositiveBigIntegerField()
+    case_title_snapshot = models.CharField(max_length=200)
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="medical_case_audit_events",
+    )
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="medical_case_actions",
+    )
+    action = models.CharField(max_length=16, choices=Action.choices)
+    changed_fields = models.JSONField(default=list, blank=True)
+    content_hashes = models.JSONField(default=dict, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(fields=["owner", "created_at"], name="case_audit_owner_created_idx"),
+            models.Index(fields=["case_id_snapshot", "created_at"], name="case_audit_case_created_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"医案 #{self.case_id_snapshot} · {self.get_action_display()}"
 
 
 class AnalysisTask(models.Model):

@@ -46,11 +46,13 @@ export type SyncRun = {
     uniqueHerbs?: number;
     uniqueCompounds?: number;
     uniqueTargets?: number;
+    uniqueDiseases?: number;
     relationships?: number;
     relationshipsCreated?: number;
     relationshipsUpdated?: number;
     databaseFile?: string;
     table?: string;
+    tableRowCounts?: Record<string, number>;
     fileBytes?: number;
   };
   requested_by: number | null;
@@ -76,6 +78,14 @@ export const createSQLiteDataSource = (input: {
   herbColumn: string;
   compoundColumn: string;
   targetColumn: string;
+  diseaseTargetTable?: string;
+  diseaseColumn?: string;
+  diseaseTargetColumn?: string;
+  diseaseSourceColumn?: string;
+  diseaseHerbTargetTable?: string;
+  diseaseHerbColumn?: string;
+  diseaseHerbHerbColumn?: string;
+  diseaseHerbTargetColumn?: string;
 }) => apiRequest<AdminDataSource>("/api/v1/admin/sources/", { method: "POST", body: input });
 export const testSQLiteDataSource = (sourceId: number) => apiRequest<{
   ok: true;
@@ -84,4 +94,5 @@ export const testSQLiteDataSource = (sourceId: number) => apiRequest<{
   checksumSha256: string;
   columns: string[];
   mapping: Record<string, string>;
+  tableRowCounts: Record<string, number>;
 }>(`/api/v1/admin/sources/${sourceId}/test/`, { method: "POST", body: {} });

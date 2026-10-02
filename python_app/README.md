@@ -54,13 +54,15 @@ celery -A config worker --loglevel=INFO
 - `GET /api/v1/home-stats/`：公开首页显示的知识目录计数。
 - `/api/v1/auth/csrf/`、`/api/v1/auth/session/`：Django 会话登录、状态查询和退出。
 - `/api/v1/research/datasets/`、`cases/`、`analysis-tasks/`：研究者工作区记录。研究者只访问自己的数据，超级管理员可看全部。
+- 医案支持私有审计查询 `GET /api/v1/research/cases/{id}/audit/`；平台管理员可显式 `POST /api/v1/research/cases/{id}/review/`（`{"decision":"approve"}`）标记审核。审计日志保留操作人、时间、变更字段与内容哈希，不重复存储医案正文。
 - `POST /api/v1/research/datasets/{id}/analyze/`：将已保存的数据集排入 Celery，创建有归属和原文件 SHA-256 的分析任务。
 - `GET /api/v1/research/analysis-tasks/{id}/rows/`：分页读取蛋白组学行级筛选、映射和排除原因；支持 `?selected=true` / `?selected=false`。
 - `GET /api/v1/research/analysis-tasks/{id}/export/?file_format=csv|xlsx`：按任务所有者权限导出所有行级结果；CSV/XLSX 会转义公式型用户输入。
 - 蛋白组学请求可传 `externalReactome: true`；只有用户明确启用时才调用 MyGene.info 和 Reactome，外部标识最多 500 个，且只包含通过筛选的基因/蛋白标签。默认 `false`；当前外部流程仅支持人类标识。
 - `/api/v1/catalog/sources/`、`entities/`、`evidence/`：外部数据源、规范实体和来源证据目录。
+- 用户显式同意后，`POST /api/v1/analysis/pathway-enrichment/` 将最多 500 个标识发送至 Reactome，`POST /api/v1/analysis/string-network/` 将最多 200 个标识提交至 STRING 查询物理互作；两者均异步记录到私有分析任务。当前 STRING `sourceVersion` 只有管理员通过 `STRING_DB_VERSION` 明确配置时才标记为已知。
 - `/api/v1/admin/sources/`、`/api/v1/admin/sync-runs/`：超级管理员可用的数据源清单与同步审计；`POST /api/v1/admin/sources/{id}/test/` 测试受控 SQLite 来源；`POST /api/v1/admin/sources/{id}/sync/` 创建 Reactome 或 SQLite 预览，`POST /api/v1/admin/sync-runs/{preview_id}/apply/` 再人工确认应用。
-- 同一管理页也支持登记旧版 SQLite 中药—成分—靶点表。Compose 将仓库外的 `var/source-databases/` 只读挂载到 worker；先把获准使用的数据库文件放在那里，再在 `/admin/sources` 登记相对文件名、表名和三列映射，测试连接后预览并确认导入。API 不接受绝对路径，配置和主机目录不会发回浏览器；在主机上运行 Django 时，把 `SQLITE_SOURCE_ROOT` 指向受控目录。
+- 同一管理页也支持登记 main `backend/cache_builder.py` 生成的 SQLite 缓存。默认映射对应 `herb_component_target`、`disease_target`、`disease_herb_target` 三张表；实际结构不同可调整表名和列名。Compose 将仓库外的 `var/source-databases/` 只读挂载到 worker；先把获准使用的数据库文件放在那里，再在 `/admin/sources` 登记相对文件名和字段映射，测试连接后预览并确认导入。API 不接受绝对路径，配置和主机目录不会发回浏览器；在主机上运行 Django 时，把 `SQLITE_SOURCE_ROOT` 指向受控目录。
 - `/api/schema/`、`/api/docs/`：OpenAPI schema 与交互式文档。
 
 API 错误统一使用 `{ "error": { "code", "message", "details", "requestId" } }`。Django 服务端会话使用 HttpOnly Cookie，改变数据的请求需要 CSRF token；客户端提交的 `owner` 字段不会被信任。数据集、医案和任务记录保留创建者外键，账号有关联记录时不能直接硬删除。
@@ -81,4 +83,4 @@ DJANGO_DEBUG=true DATABASE_URL=sqlite:///:memory: python manage.py test
 
 ## 尚未实现
 
-研究数据集支持上传、私有下载和删除，默认保存于 `MEDIA_ROOT`，单个文件上限由 `DATASET_UPLOAD_MAX_BYTES` 控制（默认 100 MiB）；部署时不得通过静态 Web 服务器直接公开该目录。蛋白组学已支持 CSV/TSV/XLS/XLSX 解析、常见列名识别、基础阈值/QC、本地实体映射、来源关联通路网络、候选靶点交集、Celery 后台任务和 CSV/XLSX/JSON 结果导出；用户主动启用时还可调用 MyGene.info 和 Reactome（最多 500 个通过筛选的人类标识，默认关闭）。Reactome 目录和旧版 SQLite 中药—成分—靶点表均由超级管理员在 `/admin/sources` 预览差异后确认应用，保存版本、SHA-256、操作者和运行状态；SQLite 文件受控目录只读挂载、校验路径与字段名，不会从浏览器传入绝对路径。两种来源分别通过真实 Reactome 当前目录（2,883 条，临时 SQLite）和合成旧版表完成端到端 preview/apply 测试；不代表旧研究数据库已实际交付，也不代表 PostgreSQL 生产验收。当前仍不做 GO/KEGG 富集、STRING PPI 或原始矩阵统计分析。对象存储适配、自助注册、UniProt/PubChem/STRING 来源同步、医案候选流程、R 绘图、本地模型接入、公网安全加固和生产反向代理仍在后续阶段。SQLite 测试不代替 PostgreSQL 环境验证。
+研究数据集支持上传、私有下载和删除，默认保存于 `MEDIA_ROOT`，单个文件上限由 `DATASET_UPLOAD_MAX_BYTES` 控制（默认 100 MiB）；部署时不得通过静态 Web 服务器直接公开该目录。蛋白组学已支持 CSV/TSV/XLS/XLSX 解析、常见列名识别、基础阈值/QC、本地实体映射、来源关联通路网络、候选靶点交集、Celery 后台任务和 CSV/XLSX/JSON 结果导出；用户主动启用时还可调用 MyGene.info 和 Reactome（最多 500 个通过筛选的人类标识，默认关闭）。网络药理交集页另有用户主动同意后的 Reactome 富集（最多 500 标识）和 STRING 物理互作查询（最多 200 标识）；STRING 数据库版本需人工配置，查询接口不是版本化目录同步。Reactome 目录和旧版 SQLite 中药—成分—靶点表均由超级管理员在 `/admin/sources` 预览差异后确认应用，保存版本、SHA-256、操作者和运行状态；SQLite 文件受控目录只读挂载、校验路径与字段名，不会从浏览器传入绝对路径。两种来源分别通过真实 Reactome 当前目录（2,883 条，临时 SQLite）和合成旧版三表完成端到端 preview/apply 测试；不代表旧研究数据库已实际交付，也不代表 PostgreSQL 生产验收。当前仍不做 GO/KEGG、蛋白组学工作流内 PPI 或原始矩阵统计分析。对象存储适配、自助注册、UniProt/PubChem/STRING 目录同步、模型生成的医案证候/方剂候选、R 绘图、本地模型接入、公网安全加固和生产反向代理仍在后续阶段。SQLite 测试不代替 PostgreSQL 环境验证。
