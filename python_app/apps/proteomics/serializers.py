@@ -16,17 +16,27 @@ class ProteomicsMappingSerializer(serializers.Serializer):
     directionColumn = serializers.CharField(max_length=160, allow_blank=True, default="")
 
 
+class ProteomicsSamplePairSerializer(serializers.Serializer):
+    pairId = serializers.CharField(max_length=160, trim_whitespace=True)
+    controlSample = serializers.CharField(max_length=160, trim_whitespace=True)
+    treatmentSample = serializers.CharField(max_length=160, trim_whitespace=True)
+
+
 class ProteomicsMatrixDesignSerializer(serializers.Serializer):
     identifierColumn = serializers.CharField(max_length=160, trim_whitespace=True)
     sampleColumns = serializers.ListField(
         child=serializers.CharField(max_length=160, trim_whitespace=True), min_length=4, max_length=100
     )
+    designType = serializers.ChoiceField(choices=["unpaired", "paired"], default="unpaired")
     controlSamples = serializers.ListField(
-        child=serializers.CharField(max_length=160, trim_whitespace=True), min_length=2, max_length=100
+        child=serializers.CharField(max_length=160, trim_whitespace=True), required=False,
+        min_length=2, max_length=100,
     )
     treatmentSamples = serializers.ListField(
-        child=serializers.CharField(max_length=160, trim_whitespace=True), min_length=2, max_length=100
+        child=serializers.CharField(max_length=160, trim_whitespace=True), required=False,
+        min_length=2, max_length=100,
     )
+    samplePairs = ProteomicsSamplePairSerializer(many=True, required=False, min_length=2, max_length=50)
     valuesAreLog2 = serializers.BooleanField()
     normalization = serializers.ChoiceField(choices=["none", "median_center"])
     missingPolicy = serializers.ChoiceField(choices=["complete_rows", "available_replicates"])
@@ -34,12 +44,33 @@ class ProteomicsMatrixDesignSerializer(serializers.Serializer):
     def validate(self, attrs):
         identifier = attrs["identifierColumn"]
         samples = attrs["sampleColumns"]
-        control = attrs["controlSamples"]
-        treatment = attrs["treatmentSamples"]
+        control = attrs.get("controlSamples", [])
+        treatment = attrs.get("treatmentSamples", [])
+        pairs = attrs.get("samplePairs", [])
         if any(not value for value in [identifier, *samples, *control, *treatment]):
             raise serializers.ValidationError("标识列和样本列名称不能为空。")
         if len(set(samples)) != len(samples):
             raise serializers.ValidationError({"sampleColumns": "样本列不能重复。"})
+        if attrs["designType"] == "paired":
+            pair_ids = [pair["pairId"] for pair in pairs]
+            paired_controls = [pair["controlSample"] for pair in pairs]
+            paired_treatments = [pair["treatmentSample"] for pair in pairs]
+            if any(not value for pair in pairs for value in pair.values()):
+                raise serializers.ValidationError("配对编号和两组样本列不能为空。")
+            if len(set(pair_ids)) != len(pair_ids):
+                raise serializers.ValidationError({"samplePairs": "配对编号不能重复。"})
+            if len(set(paired_controls + paired_treatments)) != len(paired_controls + paired_treatments):
+                raise serializers.ValidationError({"samplePairs": "一个样本列只能属于一个配对。"})
+            if len(pairs) < 2:
+                raise serializers.ValidationError({"samplePairs": "配对设计至少需要 2 对样本。"})
+            if (control and control != paired_controls) or (treatment and treatment != paired_treatments):
+                raise serializers.ValidationError("配对设计的分组列必须与配对关系一致。")
+            attrs["controlSamples"] = paired_controls
+            attrs["treatmentSamples"] = paired_treatments
+            control = paired_controls
+            treatment = paired_treatments
+        elif pairs:
+            raise serializers.ValidationError({"samplePairs": "非配对设计不能提交配对样本。"})
         if len(set(control)) != len(control) or len(set(treatment)) != len(treatment):
             raise serializers.ValidationError("对照组和实验组内的样本列不能重复。")
         if set(control) & set(treatment):

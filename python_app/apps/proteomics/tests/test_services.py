@@ -200,7 +200,7 @@ class ProteomicsServiceTests(TestCase):
         self.assertIn("incomplete_samples", incomplete.exclusion_reasons)
         invalid = next(row for row in stored_rows if row.original_label == "BAD")
         self.assertIn("invalid_sample_values", invalid.exclusion_reasons)
-        self.assertTrue(any("配对设计不适用" in warning for warning in result["warnings"]))
+        self.assertTrue(any("非配对 Welch" in warning for warning in result["warnings"]))
         self.assertIn(self.release.pk, release_ids)
 
     def test_raw_matrix_available_replicates_policy_is_explicit_and_does_not_impute(self):
@@ -247,6 +247,56 @@ class ProteomicsServiceTests(TestCase):
         self.assertEqual(exclusions, {0: ["test_not_estimable"]})
         self.assertEqual(synthetic[0]["__pvalue"], "")
         self.assertEqual(details["qc"]["rowsTested"], 0)
+
+    def test_raw_matrix_paired_test_uses_explicit_sample_pairs(self):
+        content = (
+            "Gene,C1,T1,C2,T2,C3,T3\n"
+            "TP53,8,16,8,32,8,64\n"
+            "IL6,8,16,8,16,8,16\n"
+            "PARTIAL,8,16,8,,8,64\n"
+        ).encode()
+        dataset = self.make_dataset("paired-matrix.csv", content)
+        sample_pairs = [
+            {"pairId": "subject-1", "controlSample": "C1", "treatmentSample": "T1"},
+            {"pairId": "subject-2", "controlSample": "C2", "treatmentSample": "T2"},
+            {"pairId": "subject-3", "controlSample": "C3", "treatmentSample": "T3"},
+        ]
+        task = AnalysisTask.objects.create(
+            owner=self.owner,
+            task_type=AnalysisTask.TaskType.PROTEOMICS,
+            dataset=dataset,
+            input_parameters={
+                "analysisMode": "raw_matrix",
+                "matrixDesign": {
+                    "identifierColumn": "Gene",
+                    "sampleColumns": ["C1", "T1", "C2", "T2", "C3", "T3"],
+                    "designType": "paired",
+                    "controlSamples": ["C1", "C2", "C3"],
+                    "treatmentSamples": ["T1", "T2", "T3"],
+                    "samplePairs": sample_pairs,
+                    "valuesAreLog2": False,
+                    "normalization": "none",
+                    "missingPolicy": "complete_rows",
+                },
+                "thresholds": {"log2FcMin": 0, "fdrMax": 1, "pValueMax": 1},
+                "referenceTargets": [],
+            },
+        )
+
+        result, stored_rows, _release_ids = run_proteomics_analysis(task)
+
+        self.assertEqual(result["differentialAnalysis"]["designType"], "paired")
+        self.assertEqual(result["differentialAnalysis"]["test"], "paired two-sample t-test")
+        self.assertEqual(result["differentialAnalysis"]["samplePairs"], sample_pairs)
+        self.assertEqual(result["qc"]["rawMatrix"]["pairCount"], 3)
+        tp53 = next(row for row in stored_rows if row.original_label == "TP53")
+        self.assertAlmostEqual(tp53.log2_fold_change, 2.0, places=6)
+        self.assertIsNotNone(tp53.p_value)
+        self.assertTrue(tp53.selected)
+        il6 = next(row for row in stored_rows if row.original_label == "IL6")
+        self.assertIn("test_not_estimable", il6.exclusion_reasons)
+        partial = next(row for row in stored_rows if row.original_label == "PARTIAL")
+        self.assertIn("incomplete_samples", partial.exclusion_reasons)
 
     def test_analysis_succeeds_with_zero_significant_rows_and_preserves_qc(self):
         content = (

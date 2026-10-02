@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from statistics import mean, median, variance
 
-from scipy.stats import ttest_ind
+from scipy.stats import ttest_ind, ttest_rel
 
 from .exceptions import ProteomicsInputError
 
@@ -54,9 +54,43 @@ def analyze_raw_matrix(rows: list[dict[str, str]], design: dict) -> tuple[list[d
     missing_policy = design["missingPolicy"]
     normalization = design["normalization"]
     values_are_log2 = design["valuesAreLog2"]
+    design_type = design.get("designType", "unpaired")
+    sample_pairs = design.get("samplePairs", [])
 
+    if design_type not in {"unpaired", "paired"}:
+        raise ProteomicsInputError("原始矩阵实验设计类型无效。")
+    if normalization not in {"none", "median_center"}:
+        raise ProteomicsInputError("原始矩阵归一化方法无效。")
+    if missing_policy not in {"complete_rows", "available_replicates"}:
+        raise ProteomicsInputError("原始矩阵缺失值策略无效。")
     if len(sample_columns) > MAX_SAMPLE_COLUMNS:
         raise ProteomicsInputError(f"原始矩阵最多可选择 {MAX_SAMPLE_COLUMNS} 个样本列。")
+    if len(set(sample_columns)) != len(sample_columns) or identifier_column in sample_columns:
+        raise ProteomicsInputError("标识列不能作为样本列，样本列也不能重复。")
+    if design_type == "paired":
+        pair_ids = [pair.get("pairId", "") for pair in sample_pairs]
+        pair_columns = [
+            column for pair in sample_pairs for column in (pair.get("controlSample", ""), pair.get("treatmentSample", ""))
+        ]
+        if len(sample_pairs) < 2:
+            raise ProteomicsInputError("配对设计至少需要 2 对样本。")
+        if any(not value for value in [*pair_ids, *pair_columns]):
+            raise ProteomicsInputError("配对编号和两组样本列名称不能为空。")
+        if len(set(pair_ids)) != len(pair_ids) or len(set(pair_columns)) != len(pair_columns):
+            raise ProteomicsInputError("配对编号不能重复，样本列也只能出现在一个配对中。")
+        if set(pair_columns) != set(sample_columns):
+            raise ProteomicsInputError("配对关系中的样本列必须全部且仅包含在所选样本列中。")
+        if control_columns != [pair["controlSample"] for pair in sample_pairs] or treatment_columns != [pair["treatmentSample"] for pair in sample_pairs]:
+            raise ProteomicsInputError("分组样本列必须与配对关系一致。")
+    elif sample_pairs:
+        raise ProteomicsInputError("非配对设计不能包含配对关系。")
+    elif (
+        len(control_columns) < 2
+        or len(treatment_columns) < 2
+        or set(control_columns) & set(treatment_columns)
+        or set(control_columns) | set(treatment_columns) != set(sample_columns)
+    ):
+        raise ProteomicsInputError("非配对设计需要至少 2 个样本/组，且全部样本列需唯一归属一个组。")
     available_columns = set(rows[0]) if rows else set()
     missing_columns = [column for column in [identifier_column, *sample_columns] if column not in available_columns]
     if missing_columns:
@@ -89,6 +123,10 @@ def analyze_raw_matrix(rows: list[dict[str, str]], design: dict) -> tuple[list[d
     column_index = {column: index for index, column in enumerate(sample_columns)}
     control_indices = [column_index[column] for column in control_columns]
     treatment_indices = [column_index[column] for column in treatment_columns]
+    pair_indices = [
+        (pair["pairId"], column_index[pair["controlSample"]], column_index[pair["treatmentSample"]])
+        for pair in sample_pairs
+    ]
     row_reasons: dict[int, list[str]] = {}
     row_warnings: dict[int, list[str]] = {}
     missing_cell_count = 0
@@ -121,23 +159,40 @@ def analyze_raw_matrix(rows: list[dict[str, str]], design: dict) -> tuple[list[d
             row_reasons[row_index] = ["invalid_sample_values" if errors else "incomplete_samples"]
             continue
 
-        control = [values[index] for index in control_indices if values[index] is not None]
-        treatment = [values[index] for index in treatment_indices if values[index] is not None]
-        if len(control) < 2 or len(treatment) < 2:
-            row_reasons[row_index] = ["insufficient_valid_replicates"]
-            continue
-
-        control_mean = mean(control)
-        treatment_mean = mean(treatment)
-        effect = treatment_mean - control_mean
-        standard_error_squared = variance(control) / len(control) + variance(treatment) / len(treatment)
+        if design_type == "paired":
+            valid_pairs = [
+                (values[control_index], values[treatment_index])
+                for _pair_id, control_index, treatment_index in pair_indices
+                if values[control_index] is not None and values[treatment_index] is not None
+            ]
+            if len(valid_pairs) < 2:
+                row_reasons[row_index] = ["insufficient_valid_pairs"]
+                continue
+            control = [pair[0] for pair in valid_pairs]
+            treatment = [pair[1] for pair in valid_pairs]
+            differences = [treated - control_value for control_value, treated in valid_pairs]
+            effect = mean(differences)
+            standard_error_squared = variance(differences) / len(differences)
+        else:
+            control = [values[index] for index in control_indices if values[index] is not None]
+            treatment = [values[index] for index in treatment_indices if values[index] is not None]
+            if len(control) < 2 or len(treatment) < 2:
+                row_reasons[row_index] = ["insufficient_valid_replicates"]
+                continue
+            effect = mean(treatment) - mean(control)
+            standard_error_squared = variance(control) / len(control) + variance(treatment) / len(treatment)
         if standard_error_squared == 0:
             if effect != 0:
                 row_reasons[row_index] = ["test_not_estimable"]
                 continue
             p_value = 1.0
         else:
-            p_value = float(ttest_ind(treatment, control, equal_var=False).pvalue)
+            test_result = (
+                ttest_rel(treatment, control)
+                if design_type == "paired"
+                else ttest_ind(treatment, control, equal_var=False)
+            )
+            p_value = float(test_result.pvalue)
         if not math.isfinite(p_value):
             row_reasons[row_index] = ["test_not_estimable"]
             continue
@@ -162,7 +217,11 @@ def analyze_raw_matrix(rows: list[dict[str, str]], design: dict) -> tuple[list[d
         })
 
     warnings = [
-        "原始矩阵使用非配对 Welch 双样本 t 检验；效应量为实验组减对照组的平均 log2 强度。配对设计不适用，请先用配对统计软件生成差异结果表。",
+        (
+            "原始矩阵使用配对双样本 t 检验；效应量为每对样本实验组减对照组的 log2 差值均值。"
+            if design_type == "paired"
+            else "原始矩阵使用非配对 Welch 双样本 t 检验；效应量为实验组减对照组的平均 log2 强度。"
+        ),
         "P 值使用 Benjamini–Hochberg 方法校正为 FDR；没有对缺失值进行插补。",
     ]
     if not values_are_log2:
@@ -172,7 +231,11 @@ def analyze_raw_matrix(rows: list[dict[str, str]], design: dict) -> tuple[list[d
     else:
         warnings.append("未执行样本归一化；请确认输入强度已适当归一化。")
     if missing_policy == "available_replicates":
-        warnings.append("按每个蛋白可用重复值计算，但每组至少需要 2 个有效重复；未执行数值填补。")
+        warnings.append(
+            "按可用的完整配对样本计算，每个蛋白至少需要 2 对有效样本；未执行数值填补。"
+            if design_type == "paired"
+            else "按每个蛋白可用重复值计算，但每组至少需要 2 个有效重复；未执行数值填补。"
+        )
     else:
         warnings.append("仅完整样本行参与检验，含缺失或非法样本值的整行已排除。")
 
@@ -180,6 +243,7 @@ def analyze_raw_matrix(rows: list[dict[str, str]], design: dict) -> tuple[list[d
         "sampleCount": len(sample_columns),
         "controlReplicateCount": len(control_columns),
         "treatmentReplicateCount": len(treatment_columns),
+        "pairCount": len(pair_indices),
         "rowsTested": len(tested_indices),
         "rowsWithInvalidSampleValues": invalid_row_count,
         "invalidSampleValueCount": invalid_cell_count,
@@ -187,8 +251,13 @@ def analyze_raw_matrix(rows: list[dict[str, str]], design: dict) -> tuple[list[d
         "rowsExcludedByMatrixDesign": len(row_reasons),
     }
     method = {
-        "test": "Welch two-sample t-test (unpaired)",
-        "effect": "mean(treatment log2 intensity) - mean(control log2 intensity)",
+        "designType": design_type,
+        "test": "paired two-sample t-test" if design_type == "paired" else "Welch two-sample t-test (unpaired)",
+        "effect": (
+            "mean(paired treatment log2 intensity - paired control log2 intensity)"
+            if design_type == "paired"
+            else "mean(treatment log2 intensity) - mean(control log2 intensity)"
+        ),
         "pValueAdjustment": "Benjamini-Hochberg FDR",
         "normalization": normalization,
         "missingPolicy": missing_policy,
@@ -197,5 +266,6 @@ def analyze_raw_matrix(rows: list[dict[str, str]], design: dict) -> tuple[list[d
         "controlSamples": control_columns,
         "treatmentSamples": treatment_columns,
         "sampleColumns": sample_columns,
+        "samplePairs": sample_pairs,
     }
     return synthetic_rows, row_reasons, {"qc": matrix_qc, "method": method, "rowWarnings": row_warnings}, warnings

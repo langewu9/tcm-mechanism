@@ -40,6 +40,7 @@ export type ProteomicsResult = {
       sampleCount: number;
       controlReplicateCount: number;
       treatmentReplicateCount: number;
+      pairCount: number;
       rowsTested: number;
       rowsWithInvalidSampleValues: number;
       invalidSampleValueCount: number;
@@ -49,6 +50,7 @@ export type ProteomicsResult = {
   };
   differentialAnalysis?: {
     analysisMode: "raw_matrix";
+    designType: "unpaired" | "paired";
     test: string;
     effect: string;
     pValueAdjustment: string;
@@ -59,6 +61,7 @@ export type ProteomicsResult = {
     controlSamples: string[];
     treatmentSamples: string[];
     sampleColumns: string[];
+    samplePairs: { pairId: string; controlSample: string; treatmentSample: string }[];
   };
   warnings: string[];
   summary: {
@@ -230,8 +233,10 @@ export type ProteomicsRunRequest = {
   matrixDesign?: {
     identifierColumn: string;
     sampleColumns: string[];
+    designType: "unpaired" | "paired";
     controlSamples: string[];
     treatmentSamples: string[];
+    samplePairs?: { pairId: string; controlSample: string; treatmentSample: string }[];
     valuesAreLog2: boolean;
     normalization: "none" | "median_center";
     missingPolicy: "complete_rows" | "available_replicates";

@@ -82,6 +82,7 @@ class ProteomicsApiTests(APITestCase):
         design = {
             "identifierColumn": "Gene",
             "sampleColumns": ["Control_1", "Control_2", "Treatment_1", "Treatment_2"],
+            "designType": "unpaired",
             "controlSamples": ["Control_1", "Control_2"],
             "treatmentSamples": ["Treatment_1", "Treatment_2"],
             "valuesAreLog2": False,
@@ -103,6 +104,36 @@ class ProteomicsApiTests(APITestCase):
         task = AnalysisTask.objects.get()
         self.assertEqual(task.input_parameters["analysisMode"], "raw_matrix")
         self.assertEqual(task.input_parameters["matrixDesign"], design)
+
+    def test_raw_matrix_accepts_explicit_paired_sample_mapping(self):
+        self.client.force_authenticate(self.owner)
+        url = reverse("dataset-analyze", args=[self.dataset.pk])
+        pairs = [
+            {"pairId": "subject-1", "controlSample": "Control_1", "treatmentSample": "Treatment_1"},
+            {"pairId": "subject-2", "controlSample": "Control_2", "treatmentSample": "Treatment_2"},
+        ]
+        design = {
+            "identifierColumn": "Gene",
+            "sampleColumns": ["Control_1", "Control_2", "Treatment_1", "Treatment_2"],
+            "designType": "paired",
+            "controlSamples": ["Control_1", "Control_2"],
+            "treatmentSamples": ["Treatment_1", "Treatment_2"],
+            "samplePairs": pairs,
+            "valuesAreLog2": False,
+            "normalization": "none",
+            "missingPolicy": "available_replicates",
+        }
+        invalid = {**design, "samplePairs": [pairs[0], {**pairs[1], "controlSample": "Control_1"}]}
+        response = self.client.post(url, {"analysisMode": "raw_matrix", "matrixDesign": invalid}, format="json")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(AnalysisTask.objects.count(), 0)
+
+        with patch("apps.proteomics.tasks.run_proteomics_task.apply_async"):
+            response = self.client.post(
+                url, {"analysisMode": "raw_matrix", "matrixDesign": design}, format="json"
+            )
+        self.assertEqual(response.status_code, 202, response.data)
+        self.assertEqual(AnalysisTask.objects.get().input_parameters["matrixDesign"]["samplePairs"], pairs)
 
     def test_external_mapping_and_reactome_are_only_enabled_by_explicit_opt_in(self):
         self.client.force_authenticate(self.owner)

@@ -30,6 +30,21 @@ function splitColumnNames(value: string) {
   return [...new Set(value.split(/[,，、;；|\n\r]+/).map((item) => item.trim()).filter(Boolean))];
 }
 
+function parseSamplePairs(value: string) {
+  const lines = value.split(/[\n\r]+/).map((line) => line.trim()).filter(Boolean);
+  const samplePairs: { pairId: string; controlSample: string; treatmentSample: string }[] = [];
+  let invalidLineCount = 0;
+  lines.forEach((line) => {
+    const columns = line.split(/[,，\t;；]+/).map((item) => item.trim());
+    if (columns.length !== 3 || columns.some((item) => !item)) {
+      invalidLineCount += 1;
+      return;
+    }
+    samplePairs.push({ pairId: columns[0], controlSample: columns[1], treatmentSample: columns[2] });
+  });
+  return { samplePairs, invalidLineCount };
+}
+
 function errorMessage(error: unknown) {
   return error instanceof ApiError ? error.message : "请求未完成，请稍后重试。";
 }
@@ -60,6 +75,7 @@ function qualityReasonLabel(reason: string) {
     missing_sample_values: "样本值缺失",
     incomplete_samples: "部分样本缺失，整行未检验",
     insufficient_valid_replicates: "有效重复数不足",
+    insufficient_valid_pairs: "有效配对数不足",
     test_not_estimable: "当前重复值无法估计统计检验",
     invalid_log2fc: "log2FC 数值非法",
     missing_log2fc: "缺少 log2FC",
@@ -98,10 +114,12 @@ export function ProteomicsPage() {
   const [task, setTask] = useState<AnalysisTask | null>(null);
   const [visualizationTask, setVisualizationTask] = useState<AnalysisTask | null>(null);
   const [analysisMode, setAnalysisMode] = useState<"differential_table" | "raw_matrix">("differential_table");
+  const [matrixDesignType, setMatrixDesignType] = useState<"unpaired" | "paired">("unpaired");
   const [mapping, setMapping] = useState(initialMapping);
   const [matrixIdentifierColumn, setMatrixIdentifierColumn] = useState("");
   const [controlSampleColumns, setControlSampleColumns] = useState("");
   const [treatmentSampleColumns, setTreatmentSampleColumns] = useState("");
+  const [pairedSampleColumns, setPairedSampleColumns] = useState("");
   const [matrixValueScale, setMatrixValueScale] = useState("");
   const [matrixNormalization, setMatrixNormalization] = useState("");
   const [matrixMissingPolicy, setMatrixMissingPolicy] = useState("");
@@ -191,16 +209,32 @@ export function ProteomicsPage() {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedDataset) return;
-    const controlColumns = splitColumnNames(controlSampleColumns);
-    const treatmentColumns = splitColumnNames(treatmentSampleColumns);
+    const parsedPairs = parseSamplePairs(pairedSampleColumns);
+    const controlColumns = matrixDesignType === "paired"
+      ? parsedPairs.samplePairs.map((pair) => pair.controlSample)
+      : splitColumnNames(controlSampleColumns);
+    const treatmentColumns = matrixDesignType === "paired"
+      ? parsedPairs.samplePairs.map((pair) => pair.treatmentSample)
+      : splitColumnNames(treatmentSampleColumns);
+    const allSampleColumns = [...controlColumns, ...treatmentColumns];
     if (analysisMode === "raw_matrix" && (
-      !matrixIdentifierColumn.trim() || controlColumns.length < 2 || treatmentColumns.length < 2
+      !matrixIdentifierColumn.trim()
+      || (matrixDesignType === "unpaired" && (controlColumns.length < 2 || treatmentColumns.length < 2))
+      || (matrixDesignType === "paired" && (parsedPairs.invalidLineCount > 0 || parsedPairs.samplePairs.length < 2))
       || !matrixValueScale || !matrixNormalization || !matrixMissingPolicy
     )) {
-      setError("原始矩阵分析需要填写标识列、每组至少 2 个样本，并明确选择数值尺度、归一化和缺失值策略。");
+      setError("请填写有效的原始矩阵设计：每组至少 2 个独立样本，或至少 2 行配对关系；并明确数值尺度、归一化和缺失值策略。");
       return;
     }
-    if (analysisMode === "raw_matrix" && new Set([...controlColumns, ...treatmentColumns]).size > 100) {
+    if (analysisMode === "raw_matrix" && matrixDesignType === "paired" && new Set(parsedPairs.samplePairs.map((pair) => pair.pairId)).size !== parsedPairs.samplePairs.length) {
+      setError("每一对样本必须使用唯一的配对编号。");
+      return;
+    }
+    if (analysisMode === "raw_matrix" && matrixDesignType === "paired" && new Set(allSampleColumns).size !== allSampleColumns.length) {
+      setError("一个样本列只能出现在一个配对中，并且不能同时作为对照和实验样本。");
+      return;
+    }
+    if (analysisMode === "raw_matrix" && new Set(allSampleColumns).size > 100) {
       setError("原始矩阵每次最多选择 100 个样本列。");
       return;
     }
@@ -216,9 +250,11 @@ export function ProteomicsPage() {
         ...(analysisMode === "raw_matrix" ? {
           matrixDesign: {
             identifierColumn: matrixIdentifierColumn.trim(),
-            sampleColumns: [...new Set([...controlColumns, ...treatmentColumns])],
+            sampleColumns: [...new Set(allSampleColumns)],
+            designType: matrixDesignType,
             controlSamples: controlColumns,
             treatmentSamples: treatmentColumns,
+            ...(matrixDesignType === "paired" ? { samplePairs: parsedPairs.samplePairs } : {}),
             valuesAreLog2: matrixValueScale === "log2",
             normalization: matrixNormalization as "none" | "median_center",
             missingPolicy: matrixMissingPolicy as "complete_rows" | "available_replicates",
@@ -306,7 +342,7 @@ export function ProteomicsPage() {
               </select></label> : <div className="empty-state"><strong>还没有可分析的数据集</strong><p>先上传差异蛋白 CSV、TSV 或 Excel 文件。</p><Link className="btn btn-secondary" to="/datasets">上传数据集</Link></div>}
 
             {datasets.length > 0 && <>
-              <label className="form-label" htmlFor="proteomics-analysis-mode">输入数据类型<select className="field" id="proteomics-analysis-mode" value={analysisMode} onChange={(event) => setAnalysisMode(event.target.value as "differential_table" | "raw_matrix")}><option value="differential_table">已计算的差异蛋白表</option><option value="raw_matrix">原始定量矩阵（非配对设计）</option></select></label>
+              <label className="form-label" htmlFor="proteomics-analysis-mode">输入数据类型<select className="field" id="proteomics-analysis-mode" value={analysisMode} onChange={(event) => setAnalysisMode(event.target.value as "differential_table" | "raw_matrix")}><option value="differential_table">已计算的差异蛋白表</option><option value="raw_matrix">原始定量矩阵</option></select></label>
               {analysisMode === "differential_table" ? <>
                 <p className="section-help">常见表头会自动识别。若使用了特殊表头，请填写文件中的确切列名；基因列和蛋白列至少能识别一个。</p>
                 <div className="proteomics-column-grid">
@@ -322,10 +358,13 @@ export function ProteomicsPage() {
                 </label>)}
                 </div>
               </> : <section className="raw-matrix-design">
-                <p className="section-help">请根据实验记录手动指定列。此首版只支持独立样本的非配对 Welch 检验；配对实验请上传已完成的差异结果表。不会从列名猜测实验组别。</p>
+                <label className="form-label">实验设计<select className="field" value={matrixDesignType} onChange={(event) => setMatrixDesignType(event.target.value as "unpaired" | "paired")}><option value="unpaired">独立样本（非配对）</option><option value="paired">配对样本</option></select></label>
+                <p className="section-help">请根据实验记录手动指定样本列和配对关系。系统不会根据列名、顺序或数值猜测配对。</p>
                 <label className="form-label">蛋白/基因标识列<input className="field" value={matrixIdentifierColumn} onChange={(event) => setMatrixIdentifierColumn(event.target.value)} placeholder="例如：Gene Symbol、UniProt" required /></label>
-                <label className="form-label">对照组样本列<textarea className="field case-textarea case-textarea-short" value={controlSampleColumns} onChange={(event) => setControlSampleColumns(event.target.value)} placeholder="例如：Control_1, Control_2, Control_3" required /></label>
-                <label className="form-label">实验组样本列<textarea className="field case-textarea case-textarea-short" value={treatmentSampleColumns} onChange={(event) => setTreatmentSampleColumns(event.target.value)} placeholder="例如：Treatment_1, Treatment_2, Treatment_3" required /></label>
+                {matrixDesignType === "unpaired" ? <>
+                  <label className="form-label">对照组样本列<textarea className="field case-textarea case-textarea-short" value={controlSampleColumns} onChange={(event) => setControlSampleColumns(event.target.value)} placeholder="例如：Control_1, Control_2, Control_3" required /></label>
+                  <label className="form-label">实验组样本列<textarea className="field case-textarea case-textarea-short" value={treatmentSampleColumns} onChange={(event) => setTreatmentSampleColumns(event.target.value)} placeholder="例如：Treatment_1, Treatment_2, Treatment_3" required /></label>
+                </> : <label className="form-label">配对样本关系<textarea className="field case-textarea" value={pairedSampleColumns} onChange={(event) => setPairedSampleColumns(event.target.value)} placeholder={"每行填写：配对编号，对照列，实验列\n受试者 1, Control_1, Treatment_1\n受试者 2, Control_2, Treatment_2"} required /><span className="field-help">至少填写 2 对。每行用逗号或制表符分隔，配对编号要唯一，样本列不能重复。</span></label>}
                 <div className="proteomics-column-grid">
                   <label className="form-label">样本数值尺度<select className="field" value={matrixValueScale} onChange={(event) => setMatrixValueScale(event.target.value)} required><option value="">请选择</option><option value="linear">原始正值强度（执行 log2 转换）</option><option value="log2">文件中已经是 log2 值</option></select></label>
                   <label className="form-label">样本归一化<select className="field" value={matrixNormalization} onChange={(event) => setMatrixNormalization(event.target.value)} required><option value="">请选择</option><option value="median_center">按样本中位数中心化</option><option value="none">不再归一化（数据已处理）</option></select></label>
@@ -422,8 +461,8 @@ function ProteomicsResultView({
 
     {result.differentialAnalysis && <section className="panel raw-matrix-method">
       <h3 className="section-title-sm">原始矩阵统计设计</h3>
-      <dl className="dataset-provenance"><div><dt>统计检验</dt><dd>{result.differentialAnalysis.test}</dd></div><div><dt>效应量</dt><dd>{result.differentialAnalysis.effect}</dd></div><div><dt>多重校正</dt><dd>{result.differentialAnalysis.pValueAdjustment}</dd></div><div><dt>变换 / 归一化</dt><dd>{result.differentialAnalysis.inputScaleTransform === "log2" ? "log2 转换" : "不转换"} / {{ none: "不再归一化", median_center: "样本中位数中心化" }[result.differentialAnalysis.normalization] ?? result.differentialAnalysis.normalization}</dd></div><div><dt>缺失策略</dt><dd>{{ complete_rows: "仅完整样本行", available_replicates: "使用可用重复值" }[result.differentialAnalysis.missingPolicy] ?? result.differentialAnalysis.missingPolicy}</dd></div><div><dt>对照组样本</dt><dd>{result.differentialAnalysis.controlSamples.join("、")}</dd></div><div><dt>实验组样本</dt><dd>{result.differentialAnalysis.treatmentSamples.join("、")}</dd></div></dl>
-      <p className="notice-warning">本首版为非配对 Welch 检验，不进行数值插补，也不适用于配对设计；统计结果应按实验设计和领域规范复核。</p>
+      <dl className="dataset-provenance"><div><dt>统计检验</dt><dd>{result.differentialAnalysis.designType === "paired" ? "配对 t 检验" : "非配对 Welch t 检验"}</dd></div><div><dt>效应量</dt><dd>{result.differentialAnalysis.designType === "paired" ? "每对样本实验组减对照组的 log2 差值均值" : "实验组减对照组的平均 log2 强度"}</dd></div><div><dt>多重校正</dt><dd>{result.differentialAnalysis.pValueAdjustment}</dd></div><div><dt>变换 / 归一化</dt><dd>{result.differentialAnalysis.inputScaleTransform === "log2" ? "log2 转换" : "不转换"} / {{ none: "不再归一化", median_center: "样本中位数中心化" }[result.differentialAnalysis.normalization] ?? result.differentialAnalysis.normalization}</dd></div><div><dt>缺失策略</dt><dd>{{ complete_rows: "仅完整样本行", available_replicates: "使用可用重复值" }[result.differentialAnalysis.missingPolicy] ?? result.differentialAnalysis.missingPolicy}</dd></div>{result.differentialAnalysis.designType === "paired" ? <div><dt>配对样本</dt><dd>{result.differentialAnalysis.samplePairs.map((pair) => `${pair.pairId}：${pair.controlSample} ↔ ${pair.treatmentSample}`).join("；")}</dd></div> : <><div><dt>对照组样本</dt><dd>{result.differentialAnalysis.controlSamples.join("、")}</dd></div><div><dt>实验组样本</dt><dd>{result.differentialAnalysis.treatmentSamples.join("、")}</dd></div></>}</dl>
+      <p className="notice-warning">统计模型只适用于所选实验设计；未做数值插补，统计结果应按实验设计和领域规范复核。配对检验只使用编号明确匹配的样本对。</p>
     </section>}
 
     <section className="proteomics-qc panel">
