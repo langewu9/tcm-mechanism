@@ -1,6 +1,6 @@
 # Django API 后端
 
-`python_app/` 提供认证、权限、研究数据 API、管理后台和蛋白组学分析任务。React 前端位于仓库根目录的 `web/`；本地开发时 Vite 在 `5173` 端口，将 `/api/` 代理到 Django `8020` 端口。当前 Compose 仅用于本地开发，生产反向代理和部署加固仍待完成。
+`python_app/` 提供认证、权限、研究数据 API、管理后台和蛋白组学分析任务。React 前端位于仓库根目录的 `web/`；本地开发时 Vite 在 `5173` 端口，将 `/api/` 代理到 Django `8020` 端口。`deploy/compose.python.yml` 用于本地开发；`deploy/compose.production.yml` 提供 Gunicorn、HTTPS Nginx、私有对象存储和分层网络的生产部署起点，尚未在实际服务器上运行验收。
 
 ## Linux 本地启动
 
@@ -82,6 +82,10 @@ python manage.py test
 DJANGO_DEBUG=true DATABASE_URL=sqlite:///:memory: python manage.py test
 ```
 
+## 生产部署与数据保护
+
+生产环境变量、证书准备、启动、日志和备份/恢复流程见仓库根目录的 [`deploy/README-production.md`](../deploy/README-production.md)。生产上传文件通过 S3 兼容私有 bucket 保存；本地开发和测试仍使用受控 `MEDIA_ROOT`。备份 PostgreSQL 不会备份对象文件，需要在对象存储提供方另行配置版本管理或副本。
+
 ## 尚未实现
 
-研究数据集支持上传、私有下载和删除，默认保存于 `MEDIA_ROOT`，单个文件上限由 `DATASET_UPLOAD_MAX_BYTES` 控制（默认 100 MiB）；部署时不得通过静态 Web 服务器直接公开该目录。蛋白组学已支持 CSV/TSV/XLS/XLSX 解析、常见列名识别、基础阈值/QC、本地实体映射、来源关联通路网络、候选靶点交集、Celery 后台任务和 CSV/XLSX/JSON 结果导出；用户主动启用时还可调用 MyGene.info 和 Reactome（最多 500 个通过筛选的人类标识，默认关闭）。网络药理交集页另有用户主动同意后的 Reactome 富集（最多 500 标识）和 STRING 物理互作查询（最多 200 标识）；STRING 数据库版本需人工配置，查询接口不是版本化目录同步。网络交集和蛋白组学汇总可请求受控 R 静态柱图；Plumber 服务仅接收服务端白名单摘要数据，工件保存在私有媒体目录并受 Django 用户权限保护。开发 Compose 内 R 服务仅接在 worker 专用隔离网络，未公开宿主端口。R 容器目前未能实际构建或运行；前端预览、后端权限和工件写入只通过模拟响应验收。Reactome 目录和旧版 SQLite 三表由管理员预览差异后确认应用，保存版本、SHA-256、操作者和状态；SQLite 文件受控目录只读挂载，API 不接受绝对路径。Reactome 当前目录（2,883 条）在临时 SQLite 和合成旧版三表分别通过 preview/apply 测试；不代表旧研究数据库已交付，也不代表 PostgreSQL 生产验收。当前仍不做 GO/KEGG、蛋白组学工作流内 PPI、原始矩阵统计分析或交互式 R 网络图。对象存储适配、自助注册、UniProt/PubChem/STRING 目录同步、模型生成的医案证候/方剂候选、本地模型接入、公网安全加固和生产反向代理仍在后续阶段。SQLite 测试不代替 PostgreSQL 环境验证。
+研究数据集支持上传、私有下载和删除，开发和测试时默认保存于 `MEDIA_ROOT`，单个文件上限由 `DATASET_UPLOAD_MAX_BYTES` 控制（默认 100 MiB）；生产环境使用私有 S3 兼容对象存储并通过 Django 授权端点传输。蛋白组学已支持 CSV/TSV/XLS/XLSX 解析、常见列名识别、基础阈值/QC、本地实体映射、来源关联通路网络、候选靶点交集、Celery 后台任务和 CSV/XLSX/JSON 结果导出；用户主动启用时还可调用 MyGene.info 和 Reactome（最多 500 个通过筛选的人类标识，默认关闭）。网络药理交集页另有用户主动同意后的 Reactome 富集（最多 500 标识）和 STRING 物理互作查询（最多 200 标识）；STRING 数据库版本需人工配置，查询接口不是版本化目录同步。网络交集和蛋白组学汇总可请求受控 R 静态柱图；Plumber 服务仅接收服务端白名单摘要数据，工件保存在私有存储并受 Django 用户权限保护。开发 Compose 内 R 服务仅接在 worker 专用隔离网络，未公开宿主端口。R 容器目前未能实际构建或运行；前端预览、后端权限和工件写入只通过模拟响应验收。Reactome 目录和旧版 SQLite 三表由管理员预览差异后确认应用，保存版本、SHA-256、操作者和状态；SQLite 文件受控目录只读挂载，API 不接受绝对路径。Reactome 当前目录（2,883 条）在临时 SQLite 和合成旧版三表分别通过 preview/apply 测试；不代表旧研究数据库已交付，也不代表 PostgreSQL 生产验收。当前仍不做 GO/KEGG、蛋白组学工作流内 PPI、原始矩阵统计分析或交互式 R 网络图。UniProt/PubChem/STRING 目录同步、模型生成的医案证候/方剂候选和本地模型接入仍未实现；生产部署所需的网络拓扑、TLS 代理、私有对象存储适配和 PostgreSQL 备份/恢复脚本已有配置，但 Docker/PostgreSQL、TLS、S3 读写和备份恢复尚未实机验证。SQLite 测试不代替 PostgreSQL 环境验证。

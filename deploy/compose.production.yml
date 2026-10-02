@@ -1,0 +1,152 @@
+x-python-build: &python-build
+  context: ..
+  dockerfile: deploy/python/Dockerfile.production
+
+x-django-environment: &django-environment
+  DJANGO_DEBUG: "false"
+  DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Set DJANGO_SECRET_KEY in .env.production}
+  DJANGO_ALLOWED_HOSTS: ${PUBLIC_DOMAIN:?Set PUBLIC_DOMAIN in .env.production}
+  CSRF_TRUSTED_ORIGINS: https://${PUBLIC_DOMAIN:?Set PUBLIC_DOMAIN in .env.production}
+  DJANGO_SECURE_SSL_REDIRECT: "true"
+  DJANGO_SESSION_COOKIE_SECURE: "true"
+  DJANGO_CSRF_COOKIE_SECURE: "true"
+  DJANGO_USE_X_FORWARDED_PROTO: "true"
+  DJANGO_SECURE_HSTS_SECONDS: "31536000"
+  DATABASE_URL: postgres://tcm_platform:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.production}@postgres:5432/tcm_platform
+  CELERY_BROKER_URL: redis://:${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env.production}@redis:6379/0
+  S3_STORAGE_ENABLED: "true"
+  S3_BUCKET_NAME: ${S3_BUCKET_NAME:?Set S3_BUCKET_NAME in .env.production}
+  S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:?Set S3_ENDPOINT_URL in .env.production}
+  S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:?Set S3_ACCESS_KEY_ID in .env.production}
+  S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?Set S3_SECRET_ACCESS_KEY in .env.production}
+  S3_REGION: ${S3_REGION:-us-east-1}
+  S3_ADDRESSING_STYLE: ${S3_ADDRESSING_STYLE:-path}
+  R_VIZ_BASE_URL: http://r-viz:8001
+  R_VIZ_API_TOKEN: ${R_VIZ_API_TOKEN:?Set R_VIZ_API_TOKEN in .env.production}
+  DATASET_UPLOAD_MAX_BYTES: ${DATASET_UPLOAD_MAX_BYTES:-104857600}
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: tcm_platform
+      POSTGRES_USER: tcm_platform
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.production}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tcm_platform -d tcm_platform"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    networks: [data]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env.production}
+    command: ["sh", "-c", "exec redis-server --appendonly yes --requirepass \"$$REDIS_PASSWORD\""]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=$$REDIS_PASSWORD redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks: [data]
+
+  r-viz:
+    build:
+      context: ../r_viz
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      R_VIZ_API_TOKEN: ${R_VIZ_API_TOKEN:?Set R_VIZ_API_TOKEN in .env.production}
+      PORT: "8001"
+    expose: ["8001"]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8001/health"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    networks: [visualization]
+
+  api:
+    build: *python-build
+    restart: unless-stopped
+    command: ["sh", "-c", "python manage.py migrate --noinput && python manage.py collectstatic --noinput && exec gunicorn config.wsgi:application --bind 0.0.0.0:8020 --workers 3 --timeout 120 --access-logfile - --error-logfile -"]
+    environment:
+      <<: *django-environment
+      MEDIA_ROOT: /app/var/media
+    volumes:
+      - django_static:/app/staticfiles
+    expose: ["8020"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,urllib.request; request=urllib.request.Request('http://127.0.0.1:8020/api/v1/health/',headers={'Host':os.environ['DJANGO_ALLOWED_HOSTS'],'X-Forwarded-Proto':'https'}); urllib.request.urlopen(request,timeout=3)"]
+      interval: 20s
+      timeout: 5s
+      retries: 6
+      start_period: 45s
+    networks: [edge, data, egress]
+
+  worker:
+    build: *python-build
+    restart: unless-stopped
+    command: ["celery", "-A", "config", "worker", "--loglevel=INFO", "--concurrency=2"]
+    environment:
+      <<: *django-environment
+      MEDIA_ROOT: /app/var/media
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      r-viz:
+        condition: service_healthy
+    networks: [data, egress, visualization]
+
+  nginx:
+    build:
+      context: ..
+      dockerfile: deploy/nginx/Dockerfile
+    restart: unless-stopped
+    environment:
+      PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:?Set PUBLIC_DOMAIN in .env.production}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - django_static:/srv/django-static:ro
+      - ./certs/fullchain.pem:/etc/nginx/certs/fullchain.pem:ro
+      - ./certs/privkey.pem:/etc/nginx/certs/privkey.pem:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/healthz"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+    networks: [edge]
+
+volumes:
+  postgres_data:
+  redis_data:
+  django_static:
+
+networks:
+  edge:
+  data:
+    internal: true
+  egress:
+  visualization:
+    internal: true

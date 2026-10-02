@@ -89,6 +89,30 @@ STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 MEDIA_ROOT = (BASE_DIR / env("MEDIA_ROOT", default="var/media")).resolve()
 MEDIA_URL = "media/"
+S3_STORAGE_ENABLED = env.bool("S3_STORAGE_ENABLED", default=False)
+STORAGES = {
+    "default": {
+        "BACKEND": "storages.backends.s3.S3Storage" if S3_STORAGE_ENABLED else "django.core.files.storage.FileSystemStorage",
+        "OPTIONS": (
+            {
+                "bucket_name": env("S3_BUCKET_NAME"),
+                "endpoint_url": env("S3_ENDPOINT_URL", default=None) or None,
+                "access_key": env("S3_ACCESS_KEY_ID"),
+                "secret_key": env("S3_SECRET_ACCESS_KEY"),
+                "region_name": env("S3_REGION", default="us-east-1"),
+                "addressing_style": env("S3_ADDRESSING_STYLE", default="path"),
+                "default_acl": None,
+                "querystring_auth": True,
+                "file_overwrite": False,
+            }
+            if S3_STORAGE_ENABLED
+            else {"location": str(MEDIA_ROOT), "base_url": MEDIA_URL}
+        ),
+    },
+    "staticfiles": {
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+    },
+}
 DATASET_UPLOAD_MAX_BYTES = env.int("DATASET_UPLOAD_MAX_BYTES", default=100 * 1024 * 1024)
 PROTEOMICS_MAX_ROWS = env.int("PROTEOMICS_MAX_ROWS", default=25_000)
 PROTEOMICS_MAX_COLUMNS = env.int("PROTEOMICS_MAX_COLUMNS", default=250)
@@ -100,6 +124,20 @@ STRING_DB_VERSION = env("STRING_DB_VERSION", default="")
 R_VIZ_BASE_URL = env("R_VIZ_BASE_URL", default="")
 R_VIZ_API_TOKEN = env("R_VIZ_API_TOKEN", default="")
 R_VIZ_MAX_RESPONSE_BYTES = env.int("R_VIZ_MAX_RESPONSE_BYTES", default=20 * 1024 * 1024)
+
+SECURE_SSL_REDIRECT = env.bool("DJANGO_SECURE_SSL_REDIRECT", default=not DEBUG)
+SESSION_COOKIE_SECURE = env.bool("DJANGO_SESSION_COOKIE_SECURE", default=not DEBUG)
+CSRF_COOKIE_SECURE = env.bool("DJANGO_CSRF_COOKIE_SECURE", default=not DEBUG)
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = "Lax"
+CSRF_COOKIE_SAMESITE = "Lax"
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_REFERRER_POLICY = "same-origin"
+SECURE_HSTS_SECONDS = env.int("DJANGO_SECURE_HSTS_SECONDS", default=0)
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env.bool("DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS", default=False)
+SECURE_HSTS_PRELOAD = env.bool("DJANGO_SECURE_HSTS_PRELOAD", default=False)
+if env.bool("DJANGO_USE_X_FORWARDED_PROTO", default=False):
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 CSRF_FAILURE_VIEW = "config.api_errors.csrf_failure"

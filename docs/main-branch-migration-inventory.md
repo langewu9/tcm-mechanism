@@ -81,3 +81,7 @@
 - 获取旧代码依赖的 Excel/SQLite 原始文件，并核实持有人、许可、版本、敏感字段及导入权限。
 
 SQLite 适配器已通过合成表测试，但以上真实数据、许可和字段确认事项未完成前，不能宣称旧数据库已导入或旧业务链路已完整迁移到生产 PostgreSQL。
+
+## 生产部署差异补充
+
+计划中的 Django、Celery、PostgreSQL、Redis、R、React/Vite 已有本地开发 Compose。公网运行另新增 `deploy/compose.production.yml`：Nginx 统一提供 HTTPS 和 React 静态页面并代理 Django；API 使用 Gunicorn 和非 root 镜像；PostgreSQL/Redis 无宿主机端口，R 只位于 worker 专用内网；上传和图表工件使用私有 S3 兼容对象存储适配。`deploy/backup-postgres.sh` 输出带 SHA-256 的 PostgreSQL dump，`deploy/restore-postgres.sh` 校验文件并要求 `--confirm` 与人工输入 `RESTORE`。S3 文件备份由对象存储提供方单独负责。Compose 配置和脚本语法已静态检查，但本机 Docker daemon 权限不可用，尚未构建或启动容器，也未实测 TLS、对象存储、PostgreSQL 迁移及恢复，因此这些属于待部署环境验收，不计作生产验收通过。

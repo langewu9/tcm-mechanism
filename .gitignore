@@ -3,6 +3,9 @@ node_modules/
 .npm-cache/
 .deps/
 .env
+.env.production
+.env.production.*
+!.env.production.example
 prisma/dev.db
 prisma/dev.db-journal
 runtime/*.db
@@ -18,6 +21,9 @@ yarn-error.log*
 data_cache.db
 *.log
 manual_render/
+backups/
+deploy/certs/*
+!deploy/certs/.gitkeep
 tmp/
 .cache/
 __pycache__/
