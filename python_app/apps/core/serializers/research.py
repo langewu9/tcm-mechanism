@@ -143,7 +143,7 @@ class MedicalCaseCandidateSerializer(serializers.ModelSerializer):
         fields = [
             "id", "task_id", "medical_case_id", "candidate_type", "label", "entity_id",
             "entity_stable_id", "entity_label", "match_status", "confidence", "rank",
-            "evidence", "review_status", "review_note", "reviewed_by_username", "reviewed_at", "created_at",
+            "evidence", "knowledge_evidence", "review_status", "review_note", "reviewed_by_username", "reviewed_at", "created_at",
         ]
         read_only_fields = fields
 

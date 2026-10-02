@@ -66,6 +66,8 @@
 .case-candidate-list { display: grid; gap: 0.65rem; }
 .case-candidate { min-width: 0; border: 1px solid var(--color-border); background: rgba(255, 253, 248, 0.68); padding: 0.8rem; }
 .case-candidate .proteomics-pathways { margin-top: 0.45rem; }
+.case-candidate-knowledge { margin-top: 0.7rem; border-top: 1px solid var(--color-border); padding-top: 0.65rem; color: var(--color-cinnabar); font-size: 0.72rem; }
+.case-candidate-knowledge .proteomics-pathways { color: var(--color-ink-soft); }
 .case-analysis-panel .notice-warning, .case-analysis-panel .notice-error { margin: 0; }
 .case-notes { margin-top: 0.75rem; border-top: 1px solid var(--color-border); padding-top: 0.65rem; }
 .case-notes summary { cursor: pointer; color: var(--color-cinnabar); font-size: 0.73rem; font-weight: 800; }

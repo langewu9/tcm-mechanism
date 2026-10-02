@@ -96,6 +96,7 @@ class MedicalCaseCandidate(models.Model):
     confidence = models.DecimalField(max_digits=5, decimal_places=4)
     rank = models.PositiveSmallIntegerField()
     evidence = models.JSONField(default=list)
+    knowledge_evidence = models.JSONField(default=list, blank=True)
     review_status = models.CharField(
         max_length=12, choices=ReviewStatus.choices, default=ReviewStatus.PENDING
     )

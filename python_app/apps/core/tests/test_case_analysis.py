@@ -19,6 +19,7 @@ from apps.core.models import (
 from apps.core.services.case_analysis import (
     CaseAnalysisError,
     CaseModelUnavailable,
+    _fit_knowledge_context,
     _local_model_response,
     case_input_sha256,
     run_case_analysis,
@@ -55,6 +56,30 @@ class LocalCaseModelBoundaryTests(SimpleTestCase):
     def test_local_model_input_has_a_configured_character_limit(self):
         with self.assertRaisesRegex(CaseAnalysisError, "超过 3 个字符"):
             _local_model_response({"deidentifiedText": "超过限制"})
+
+    @override_settings(CASE_ANALYSIS_MAX_INPUT_CHARS=600)
+    def test_rag_context_is_trimmed_to_the_configured_model_input_limit(self):
+        entity = {"refId": "entity:1", "kind": "entity", "label": "肺纤维化", "sourceReleaseId": 1}
+        relation = {
+            "refId": "relation:1", "kind": "relation", "evidenceText": "证据" * 1000,
+            "sourceReleaseId": 1,
+        }
+        context, references, releases = _fit_knowledge_context(
+            {"deidentifiedText": "患者咳嗽"},
+            {
+                "entities": [entity],
+                "relations": [relation],
+                "sources": [{"id": 1, "source": "测试", "sourceSlug": "test", "version": "v1"}],
+                "truncated": False,
+            },
+            {"entity:1": entity, "relation:1": relation},
+        )
+        user_payload = {"deidentifiedCase": {"deidentifiedText": "患者咳嗽"}, "retrievedKnowledge": context}
+        self.assertLessEqual(len(json.dumps(user_payload, ensure_ascii=False)), 600)
+        self.assertTrue(context["truncated"])
+        self.assertEqual(context["relations"], [])
+        self.assertNotIn("relation:1", references)
+        self.assertEqual(releases, [1])
 
 
 class MedicalCaseAnalysisWorkflowTests(APITestCase):
@@ -172,10 +197,98 @@ class MedicalCaseAnalysisWorkflowTests(APITestCase):
             "deidentifiedText": self.case.deidentified_text,
             "tonguePulse": "舌淡，脉弱",
             "existingDiagnosis": "慢性肺病",
-        })
+        }, {"entities": [], "relations": [], "sources": [], "truncated": False})
         self.assertNotIn("患者姓名绝不发送", json.dumps(model_response.call_args.args[0], ensure_ascii=False))
         self.assertNotIn("来源题名绝不发送", json.dumps(model_response.call_args.args[0], ensure_ascii=False))
         self.assertNotIn("研究备注绝不发送", json.dumps(model_response.call_args.args[0], ensure_ascii=False))
+
+    @override_settings(CASE_MODEL_NAME="fixture-local-model", CASE_MODEL_VERSION="fixture-v1")
+    @patch("apps.core.services.case_analysis._local_model_response")
+    def test_rag_uses_enabled_source_releases_and_accepts_only_returned_citation_ids(self, model_response):
+        self.case.deidentified_text += "肺纤维化。"
+        self.case.save(update_fields=["deidentified_text", "updated_at"])
+        source = DataSource.objects.create(
+            slug="case-rag-source", name="病例 RAG 来源", access_mode=DataSource.AccessMode.MANUAL
+        )
+        release = SourceRelease.objects.create(source=source, version="2026.1")
+        disease = KnowledgeEntity.objects.create(
+            entity_type=KnowledgeEntity.EntityType.DISEASE,
+            stable_id="disease:pulmonary-fibrosis",
+            label="肺纤维化",
+            source_release=release,
+        )
+        formula = KnowledgeEntity.objects.create(
+            entity_type=KnowledgeEntity.EntityType.FORMULA,
+            stable_id="formula:maimendong-tang",
+            label="麦门冬汤",
+        )
+        relation = EvidenceRelation.objects.create(
+            source_release=release,
+            source_record_id="rag-record-1",
+            subject=disease,
+            object=formula,
+            relation_type="disease_formula_association",
+            evidence_type="curated",
+            evidence_text="版本化来源记录",
+        )
+        alternate_source = DataSource.objects.create(
+            slug="case-rag-alternate", name="病例 RAG 备选来源", access_mode=DataSource.AccessMode.MANUAL
+        )
+        alternate_release = SourceRelease.objects.create(source=alternate_source, version="2026.2")
+        alternative_formula = KnowledgeEntity.objects.create(
+            entity_type=KnowledgeEntity.EntityType.FORMULA,
+            stable_id="formula:alternative",
+            label="其他方剂",
+        )
+        alternate_relation = EvidenceRelation.objects.create(
+            source_release=alternate_release,
+            source_record_id="rag-record-2",
+            subject=disease,
+            object=alternative_formula,
+            relation_type="disease_formula_association",
+            evidence_type="curated",
+            evidence_text="另一来源的独立关联",
+        )
+        disabled_source = DataSource.objects.create(
+            slug="case-rag-disabled", name="停用来源", access_mode=DataSource.AccessMode.MANUAL, enabled=False
+        )
+        disabled_release = SourceRelease.objects.create(source=disabled_source, version="old")
+        KnowledgeEntity.objects.create(
+            entity_type=KnowledgeEntity.EntityType.DISEASE,
+            stable_id="disease:disabled-duplicate",
+            label="肺纤维化",
+            source_release=disabled_release,
+        )
+        model_response.return_value = {
+            "observations": [],
+            "syndromeCandidates": [],
+            "formulaCandidates": [{
+                "name": "麦门冬汤",
+                "confidence": 0.72,
+                "evidence": [{"field": "deidentified_text", "quote": "肺纤维化"}],
+                "knowledgeEvidenceIds": [f"relation:{relation.pk}", "relation:999999", f"relation:{relation.pk}"],
+            }],
+        }
+        task = self.make_task()
+
+        outcome = run_case_analysis_task.run(task.pk)
+
+        task.refresh_from_db()
+        self.assertEqual(outcome["status"], AnalysisTask.Status.SUCCEEDED)
+        sent_context = model_response.call_args.args[1]
+        self.assertEqual({source_record["version"] for source_record in sent_context["sources"]}, {release.version, alternate_release.version})
+        self.assertEqual(
+            {item["sourceRecordId"] for item in sent_context["relations"]},
+            {relation.source_record_id, alternate_relation.source_record_id},
+        )
+        self.assertNotIn(disabled_release.version, {source_record["version"] for source_record in sent_context["sources"]})
+        self.assertEqual(len(sent_context["entities"]), 1)
+        relation_texts = {item["evidenceText"] for item in task.result["retrievalContext"]["relations"]}
+        self.assertEqual(relation_texts, {"版本化来源记录", "另一来源的独立关联"})
+        candidate = MedicalCaseCandidate.objects.get(task=task)
+        self.assertEqual(len(candidate.knowledge_evidence), 1)
+        self.assertEqual(candidate.knowledge_evidence[0]["refId"], f"relation:{relation.pk}")
+        self.assertEqual(set(task.source_releases.all()), {release, alternate_release})
 
     @patch("apps.core.services.case_analysis._local_model_response")
     def test_queued_analysis_is_rejected_if_medical_case_content_changed(self, model_response):

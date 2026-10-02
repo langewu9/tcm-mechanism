@@ -30,6 +30,22 @@ export type CaseAuditEvent = {
   created_at: string;
 };
 export type CaseEvidence = { field: string; quote: string };
+export type CaseKnowledgeEvidence = {
+  refId: string;
+  kind: "entity" | "relation";
+  label?: string;
+  entityType?: string;
+  stableId?: string;
+  subject?: string;
+  predicate?: string;
+  object?: string;
+  evidenceType?: string;
+  score?: number | null;
+  sourceName: string;
+  sourceVersion: string;
+  sourceRecordId?: string;
+  evidenceText?: string;
+};
 export type MedicalCaseCandidate = {
   id: number;
   task_id: number;
@@ -43,6 +59,7 @@ export type MedicalCaseCandidate = {
   confidence: string;
   rank: number;
   evidence: CaseEvidence[];
+  knowledge_evidence: CaseKnowledgeEvidence[];
   review_status: "pending" | "accepted" | "rejected";
   review_note: string;
   reviewed_by_username: string | null;

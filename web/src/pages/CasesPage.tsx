@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate, useOutletContext } from "react-router-dom";
 import { ArrowLeft, BookOpen, FileHeart, LogOut, Plus, Sparkles, Trash2 } from "lucide-react";
-import { approveMedicalCase, createMedicalCase, deleteMedicalCase, getMedicalCaseAnalysis, getMedicalCaseAudit, getMedicalCases, reviewMedicalCaseCandidate, startMedicalCaseAnalysis, type CaseAuditEvent, type CaseEvidence, type MedicalCase, type MedicalCaseCandidate, type MedicalCaseAnalysis, type Page } from "../api/cases";
+import { approveMedicalCase, createMedicalCase, deleteMedicalCase, getMedicalCaseAnalysis, getMedicalCaseAudit, getMedicalCases, reviewMedicalCaseCandidate, startMedicalCaseAnalysis, type CaseAuditEvent, type CaseEvidence, type CaseKnowledgeEvidence, type MedicalCase, type MedicalCaseCandidate, type MedicalCaseAnalysis, type Page } from "../api/cases";
 import { getAnalysisTask, type AnalysisTask } from "../api/datasets";
 import { logout, type Session } from "../api/auth";
 import { ApiError } from "../api/client";
@@ -19,6 +19,12 @@ type CaseAnalysisResult = {
   model?: { name?: string; version?: string };
   observations?: Array<{ type: string; value: string; evidence: CaseEvidence[] }>;
   warnings?: string[];
+  retrievalContext?: {
+    entities: CaseKnowledgeEvidence[];
+    relations: CaseKnowledgeEvidence[];
+    sources: Array<{ id: number; source: string; sourceSlug: string; version: string }>;
+    truncated?: boolean;
+  };
   evidenceChain?: {
     nodes: Array<{ id: number; label: string; entityType: string; stableId: string }>;
     links: Array<{ id: number; source: number; target: number; relationType: string; evidenceType: string; sourceName: string; sourceVersion: string; sourceRecordId: string; evidenceText: string }>;
@@ -421,8 +427,16 @@ function CaseAnalysisPanel({
           <div className="case-analysis-heading"><div><strong>{candidate.candidate_type === "syndrome" ? "证候" : "方剂"}：{candidate.label}</strong><p className="section-help">{candidateMatchLabels[candidate.match_status]}{candidate.entity_label ? ` · ${candidate.entity_label}` : ""}</p></div><span className={`status-badge ${candidate.review_status === "accepted" ? "status-success" : candidate.review_status === "pending" ? "status-warning" : ""}`}>{candidateReviewLabels[candidate.review_status]}</span></div>
           <p className="section-help">模型自评置信度 {Math.round(Number(candidate.confidence) * 100)}%（未经校准，不代表真实概率） · 排序 {candidate.rank}</p>
           <ul className="proteomics-pathways">{candidate.evidence.map((evidence, index) => <li key={`${evidence.field}-${index}`}><strong>{evidenceFieldLabels[evidence.field] ?? evidence.field}</strong><span>“{evidence.quote}”</span></li>)}</ul>
+          {candidate.knowledge_evidence.length > 0 && <div className="case-candidate-knowledge"><strong>已核验的本地知识库引用</strong><ul className="proteomics-pathways">{candidate.knowledge_evidence.map((reference) => <li key={reference.refId}><strong>{reference.kind === "entity" ? `${reference.label} · ${reference.stableId}` : `${reference.subject} → ${reference.object} · ${reference.predicate}`}</strong><span>{reference.sourceName} {reference.sourceVersion}{reference.sourceRecordId ? ` / ${reference.sourceRecordId}` : ""}{reference.evidenceType ? ` · ${reference.evidenceType}` : ""}{reference.evidenceText ? ` · ${reference.evidenceText}` : ""}</span></li>)}</ul></div>}
           <div className="source-record-actions"><button className="btn btn-primary" type="button" disabled={stale || !candidate.entity_id || reviewingCandidateId === candidate.id} onClick={() => onDecision(candidate, "accept")}>{reviewingCandidateId === candidate.id ? "正在记录…" : candidate.review_status === "accepted" ? "再次确认" : "确认候选"}</button><button className="btn btn-secondary" type="button" disabled={reviewingCandidateId === candidate.id} onClick={() => onDecision(candidate, "reject")}>{candidate.review_status === "rejected" ? "再次驳回" : "驳回候选"}</button></div>
         </article>)}</div> : <p className="section-help">模型未返回有逐字原文证据的证候或方剂候选。系统不会自动补选其他实体。</p>}
+      </div>}
+      {task?.status === "succeeded" && <div className="case-analysis-section"><h5>本地知识库检索上下文</h5>
+        {result.retrievalContext && (result.retrievalContext.entities.length > 0 || result.retrievalContext.relations.length > 0) ? <>
+          <p className="section-help">按医案中出现的规范实体检索，并保留各条来源记录及版本；不同来源的关联并列展示，不自动合并或裁决。候选只会显示模型引用且由系统核验过的记录。</p>
+          <ul className="proteomics-pathways">{result.retrievalContext.entities.map((entity) => <li key={entity.refId}><strong>{entity.label} · {entity.stableId}</strong><span>{entity.sourceName} {entity.sourceVersion}</span></li>)}{result.retrievalContext.relations.map((relation) => <li key={relation.refId}><strong>{relation.subject} → {relation.object} · {relation.predicate}</strong><span>{relation.sourceName} {relation.sourceVersion} / {relation.sourceRecordId}{relation.evidenceType ? ` · ${relation.evidenceType}` : ""}{relation.evidenceText ? ` · ${relation.evidenceText}` : ""}</span></li>)}</ul>
+          {result.retrievalContext.truncated && <p className="section-help">本地检索上下文达到显示上限，未全部提交给模型。</p>}
+        </> : <p className="section-help">本地知识库中没有匹配到带启用来源版本的记录；此次候选只依据医案原文生成。</p>}
       </div>}
       {task?.status === "succeeded" && <div className="case-analysis-section"><h5>已确认的知识库证据链</h5>
         {result.evidenceChain?.links.length ? <><ul className="proteomics-pathways">{result.evidenceChain.links.map((link) => <li key={link.id}><strong>{nodeNames.get(link.source) ?? `实体 #${link.source}`} → {nodeNames.get(link.target) ?? `实体 #${link.target}`} · {link.relationType}</strong><span>{link.sourceName} {link.sourceVersion} / {link.sourceRecordId} · {link.evidenceType}{link.evidenceText ? ` · ${link.evidenceText}` : ""}</span></li>)}</ul>
