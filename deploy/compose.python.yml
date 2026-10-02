@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: tcm_platform
+      POSTGRES_USER: tcm_platform
+      POSTGRES_PASSWORD: tcm_platform_dev_only
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - tcm_platform_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tcm_platform -d tcm_platform"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+volumes:
+  tcm_platform_pgdata:

@@ -11,6 +11,12 @@
 - 上传：CSV、XLS、XLSX
 - 导出：分析结果 CSV、PDF
 
+## Python 主站迁移（进行中）
+
+按新的技术路线，仓库新增 `python_app/` 作为 Django 5.2 + Django REST Framework + PostgreSQL 的独立应用，当前已包含登录/管理入口、用户隔离的医案与数据集 API、分析任务记录、数据源/版本/证据模型及 OpenAPI 文档。它与现有 Next.js、FastAPI 服务并行运行，尚未替换旧页面，也未迁移历史数据库。
+
+第一阶段启动方式、接口边界和未完成功能见 [`python_app/README.md`](python_app/README.md)；总体路线见 [`docs/技术栈与阶段实施计划.md`](docs/技术栈与阶段实施计划.md)，Python–R 图表接口草案见 [`docs/r-visualization-contract.md`](docs/r-visualization-contract.md)。目前外部数据 connector、Celery 分析 worker、文件上传、蛋白组学全链路、医案候选分析和 R 图表服务仍是后续阶段，不应把模型骨架视为已经动态更新或生产就绪。
+
 ## 目录
 
 - `src/`: Next.js 全栈网站、页面、API Routes、组件和业务库
