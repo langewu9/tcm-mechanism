@@ -61,6 +61,7 @@ class ProteomicsApiTests(APITestCase):
         self.assertEqual(task.status, AnalysisTask.Status.QUEUED)
         self.assertFalse(task.input_parameters["externalReactome"])
         self.assertFalse(task.input_parameters["externalString"])
+        self.assertFalse(task.input_parameters["externalGProfiler"])
         self.assertEqual(task.input_parameters["stringRequiredScore"], 700)
         self.assertEqual(task.input_parameters["datasetSha256"], "test-digest")
         self.assertEqual(task.input_parameters["referenceTargets"], ["TP53", "IL6"])
@@ -104,6 +105,18 @@ class ProteomicsApiTests(APITestCase):
         )
         self.assertEqual(invalid.status_code, 400)
         self.assertEqual(AnalysisTask.objects.count(), 1)
+
+    def test_go_kegg_enrichment_requires_a_separate_explicit_opt_in(self):
+        self.client.force_authenticate(self.owner)
+        with patch("apps.proteomics.tasks.run_proteomics_task.apply_async"):
+            response = self.client.post(
+                reverse("dataset-analyze", args=[self.dataset.pk]),
+                {"externalGProfiler": True},
+                format="json",
+            )
+        self.assertEqual(response.status_code, 202)
+        task = AnalysisTask.objects.get(pk=response.data["id"])
+        self.assertTrue(task.input_parameters["externalGProfiler"])
 
     def test_queue_failure_returns_standard_503_and_keeps_failed_audit_task(self):
         self.client.force_authenticate(self.owner)

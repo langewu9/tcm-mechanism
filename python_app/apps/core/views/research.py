@@ -78,6 +78,7 @@ class ResearchDatasetViewSet(viewsets.ModelViewSet):
                 "algorithmVersion": ALGORITHM_VERSION,
                 "externalReactome": data["externalReactome"],
                 "externalString": data["externalString"],
+                "externalGProfiler": data["externalGProfiler"],
                 "stringRequiredScore": data["stringRequiredScore"],
                 "mapping": data["mapping"],
                 "thresholds": data["thresholds"],

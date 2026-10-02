@@ -17,7 +17,12 @@ from apps.core.models import (
     SourceRelease,
 )
 from apps.proteomics.models import ProteomicsRowResult
-from apps.proteomics.integrations import run_opt_in_reactome, run_opt_in_string
+from apps.proteomics.integrations import (
+    run_opt_in_gprofiler,
+    run_opt_in_reactome,
+    run_opt_in_string,
+)
+from apps.proteomics.external_gprofiler import GProfilerError
 from apps.proteomics.services import (
     ProteomicsInputError,
     parse_dataset_table,
@@ -152,10 +157,13 @@ class ProteomicsServiceTests(TestCase):
     def test_celery_task_persists_results_and_is_idempotent(self):
         with patch("apps.proteomics.tasks.run_opt_in_reactome") as external_analysis, patch(
             "apps.proteomics.tasks.run_opt_in_string"
-        ) as string_analysis:
+        ) as string_analysis, patch(
+            "apps.proteomics.tasks.run_opt_in_gprofiler"
+        ) as gprofiler_analysis:
             outcome = run_proteomics_task.run(self.task.pk)
         external_analysis.assert_not_called()
         string_analysis.assert_not_called()
+        gprofiler_analysis.assert_not_called()
 
         self.task.refresh_from_db()
         self.assertEqual(outcome["status"], AnalysisTask.Status.SUCCEEDED)
@@ -208,6 +216,72 @@ class ProteomicsServiceTests(TestCase):
         self.assertEqual(len(release_ids), 2)
         self.assertEqual(list(SourceRelease.objects.filter(pk__in=release_ids).values_list("source__slug", flat=True)), ["mygene-info", "reactome"])
         self.assertEqual(warnings, [])
+
+    def test_opt_in_gprofiler_uses_significant_query_and_all_identified_rows_as_background(self):
+        result, row_results, _release_ids = run_proteomics_analysis(self.task)
+        response = {
+            "sourceVersion": "e114_eg62_p19_test:versions",
+            "terms": [{
+                "termId": "GO:0001234",
+                "name": "Example process",
+                "source": "GO:BP",
+                "pValue": None,
+                "adjustedPValue": 0.01,
+                "correctionMethod": "FDR",
+                "intersectionSize": 2,
+                "querySize": 3,
+                "termSize": 9,
+                "effectiveDomainSize": 1000,
+                "precision": 2 / 3,
+                "recall": 2 / 9,
+                "matchedIdentifiers": ["ENSG000001", "ENSG000002"],
+            }],
+            "queryCount": 3,
+            "queryTruncatedCount": 0,
+            "backgroundCount": 4,
+            "backgroundType": "measured_identifiers_custom",
+            "organism": "Homo sapiens",
+            "sources": ["GO:BP", "GO:CC", "GO:MF", "KEGG"],
+            "threshold": 0.05,
+            "correctionMethod": "FDR",
+            "rawPValuesReturned": False,
+            "providerMetadata": {},
+            "dataVersions": {"gprofiler_version": "e114_eg62_p19_test"},
+        }
+        with patch("apps.proteomics.integrations.analyze_human_go_kegg", return_value=response) as analyze:
+            release_ids, warnings = run_opt_in_gprofiler(self.task, result, row_results)
+
+        query, background = analyze.call_args.args
+        self.assertIn("TP53", query)
+        self.assertIn("IL6", background)
+        self.assertTrue(set(query).issubset(set(background)))
+        self.assertEqual(result["externalGProfiler"]["status"], "succeeded")
+        self.assertEqual(result["summary"]["goKeggTermCount"], 1)
+        release = SourceRelease.objects.get(pk=release_ids[0])
+        self.assertEqual(release.source.slug, "gprofiler")
+        self.assertEqual(release.version, "e114_eg62_p19_test:versions")
+        self.assertEqual(warnings, [])
+
+    def test_opt_in_gprofiler_provider_failure_keeps_local_result_and_admin_can_disable(self):
+        result, row_results, _release_ids = run_proteomics_analysis(self.task)
+        with patch(
+            "apps.proteomics.integrations.analyze_human_go_kegg",
+            side_effect=GProfilerError("safe provider error"),
+        ):
+            release_ids, warnings = run_opt_in_gprofiler(self.task, result, row_results)
+        self.assertEqual(result["externalGProfiler"]["status"], "unavailable")
+        self.assertEqual(release_ids, [])
+        self.assertTrue(warnings)
+
+        source = DataSource.objects.get(slug="gprofiler")
+        source.enabled = False
+        source.save(update_fields=["enabled"])
+        with patch("apps.proteomics.integrations.analyze_human_go_kegg") as analyze:
+            release_ids, warnings = run_opt_in_gprofiler(self.task, result, row_results)
+        analyze.assert_not_called()
+        self.assertEqual(result["externalGProfiler"]["status"], "disabled")
+        self.assertEqual(release_ids, [])
+        self.assertTrue(warnings)
 
     def test_opt_in_string_queries_only_selected_symbols_and_records_version(self):
         result, row_results, _release_ids = run_proteomics_analysis(self.task)

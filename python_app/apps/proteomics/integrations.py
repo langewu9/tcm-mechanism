@@ -15,6 +15,10 @@ from .external_reactome import (
     analyze_reactome_human_pathways,
     resolve_human_identifiers,
 )
+from .external_gprofiler import (
+    GProfilerError,
+    analyze_human_go_kegg,
+)
 from .models import ProteomicsRowResult
 
 
@@ -354,4 +358,112 @@ def run_opt_in_string(task, result, row_results, required_score=700):
     if rejected_count:
         warnings.append(f"有 {rejected_count} 个过长或无效标识没有发送到 STRING。")
     result["externalString"] = output
+    return releases, warnings
+
+
+def run_opt_in_gprofiler(task, result, row_results):
+    """Run opt-in GO/KEGG ORA using significant rows and measured rows as background."""
+    output = {
+        "status": "unavailable",
+        "organism": "Homo sapiens",
+        "source": "g:Profiler",
+        "sourceVersion": None,
+        "dataVersions": {},
+        "sources": ["GO:BP", "GO:CC", "GO:MF", "KEGG"],
+        "queryCount": 0,
+        "queryTruncatedCount": 0,
+        "backgroundCount": 0,
+        "backgroundType": "measured_identifiers_custom",
+        "threshold": 0.05,
+        "correctionMethod": "FDR",
+        "rawPValuesReturned": False,
+        "terms": [],
+        "consentRecorded": True,
+    }
+    warnings = []
+    releases = []
+
+    data_source, _ = DataSource.objects.get_or_create(
+        slug="gprofiler",
+        defaults={
+            "name": "g:Profiler",
+            "description": "用户明确同意后，用于人类基因 GO/KEGG 富集分析。",
+            "access_mode": DataSource.AccessMode.API,
+            "documentation_url": "https://biit.cs.ut.ee/gprofiler/page/apis",
+            "license_note": "发布服务前须审查 g:Profiler 与 KEGG 的引用和使用条款。",
+            "enabled": True,
+        },
+    )
+    if not data_source.enabled:
+        output["status"] = "disabled"
+        result["externalGProfiler"] = output
+        warnings.append("管理员已停用 g:Profiler GO/KEGG 富集服务；本地分析结果仍可查看。")
+        return releases, warnings
+
+    query_symbols = list(dict.fromkeys(
+        row.normalized_symbol
+        for row in row_results
+        if row.selected and row.normalized_symbol
+    ))
+    background_symbols = list(dict.fromkeys(
+        row.normalized_symbol
+        for row in row_results
+        if row.original_label and row.normalized_symbol
+    ))
+    output["queryCount"] = min(len(query_symbols), 500)
+    output["queryTruncatedCount"] = max(0, len(query_symbols) - 500)
+    output["backgroundCount"] = len(background_symbols)
+
+    if len(query_symbols) < 2:
+        output["status"] = "insufficient_identifiers"
+        result["externalGProfiler"] = output
+        warnings.append("少于 2 个已规范化的显著蛋白，无法执行 GO/KEGG 富集。")
+        return releases, warnings
+    if output["queryTruncatedCount"]:
+        warnings.append(
+            f"g:Profiler 单次最多提交 500 个查询标识，另有 {output['queryTruncatedCount']} 个未发送。"
+        )
+
+    try:
+        enrichment = analyze_human_go_kegg(query_symbols, background_symbols)
+    except ValueError as exc:
+        output["status"] = "input_limit_exceeded"
+        output["failureStage"] = "input_validation"
+        result["externalGProfiler"] = output
+        warnings.append(str(exc))
+        return releases, warnings
+    except GProfilerError:
+        output["status"] = "unavailable"
+        output["failureStage"] = "gprofiler_enrichment"
+        result["externalGProfiler"] = output
+        warnings.append("g:Profiler GO/KEGG 服务暂不可用；已保留本地分析结果。")
+        return releases, warnings
+
+    version = enrichment["sourceVersion"]
+    release, _ = SourceRelease.objects.get_or_create(
+        source=data_source,
+        version=version,
+        defaults={
+            "metadata": {
+                "endpoint": "https://biit.cs.ut.ee/gprofiler/api/gost/profile/",
+                "organism": "hsapiens",
+                "sources": enrichment["sources"],
+                "dataVersions": enrichment["dataVersions"],
+                "retrievedAt": timezone.now().isoformat(),
+            }
+        },
+    )
+    releases.append(release.pk)
+    output.update(enrichment)
+    output["source"] = "g:Profiler"
+    output["sourceRelease"] = release.pk
+    output["status"] = "succeeded" if enrichment["terms"] else "no_significant_terms"
+    result["externalGProfiler"] = output
+    result.setdefault("summary", {})["goKeggTermCount"] = len(enrichment["terms"])
+    current_mode = result.setdefault("summary", {}).get("enrichmentMode", "LOCAL")
+    result["summary"]["enrichmentMode"] = (
+        "LOCAL+REACTOME+GO_KEGG" if "REACTOME" in current_mode else "LOCAL+GO_KEGG"
+    )
+    if not enrichment["terms"]:
+        warnings.append("g:Profiler 未返回 GO/KEGG 中 FDR ≤ 0.05 的显著条目。")
     return releases, warnings

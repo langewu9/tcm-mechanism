@@ -78,6 +78,7 @@ export function ProteomicsPage() {
   const [referenceTargets, setReferenceTargets] = useState("");
   const [externalReactome, setExternalReactome] = useState(false);
   const [externalString, setExternalString] = useState(false);
+  const [externalGProfiler, setExternalGProfiler] = useState(false);
   const [stringRequiredScore, setStringRequiredScore] = useState("700");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -156,6 +157,7 @@ export function ProteomicsPage() {
         referenceTargets: referenceTargets.split(/[\s,，、;；|/]+/).filter(Boolean),
         externalReactome,
         externalString,
+        externalGProfiler,
         stringRequiredScore: Number(stringRequiredScore),
       });
       setTask(taskResponse);
@@ -240,6 +242,10 @@ export function ProteomicsPage() {
               <label className="proteomics-consent">
                 <input type="checkbox" checked={externalReactome} onChange={(event) => setExternalReactome(event.target.checked)} />
                 <span><strong>启用 MyGene.info 标识映射与 Reactome 富集</strong><small>仅发送通过筛选的基因/蛋白标识（最多 500 个），不会发送完整文件、未通过行、账号或医案。当前外部分析仅支持人类标识；不勾选时所有分析留在本地。</small></span>
+              </label>
+              <label className="proteomics-consent">
+                <input type="checkbox" checked={externalGProfiler} onChange={(event) => setExternalGProfiler(event.target.checked)} />
+                <span><strong>单独同意提交 g:Profiler 进行 GO/KEGG 富集</strong><small>将发送最多 500 个通过筛选的规范化符号作为查询集，并发送最多 25,000 个所有输入行中可识别的规范化符号作为自定义背景；只发送这些基因标识，不发送原始文件、账号或医案。服务按人类数据分析；使用 FDR 校正，默认关闭。</small></span>
               </label>
               <label className="proteomics-consent">
                 <input type="checkbox" checked={externalString} onChange={(event) => setExternalString(event.target.checked)} />
@@ -331,6 +337,19 @@ function ProteomicsResultView({
         {result.externalReactome.pathways.map((pathway) => <tr key={pathway.stableId}><td>{pathway.name}</td><td>{pathway.stableId}</td><td>{pathway.matchedEntities}/{pathway.totalEntities ?? "—"}</td><td>{pathway.coverage == null ? "—" : formatNumber(pathway.coverage)}</td><td>{formatNumber(pathway.pValue)}</td><td>{formatNumber(pathway.fdr)}</td></tr>)}
       </tbody></table></div> : <p className="section-help">本次没有可展示的显著 Reactome 通路，或外部服务不可用。</p>}
       {result.externalReactome.ambiguousIdentifiers.length > 0 && <details className="case-notes"><summary>存在歧义的标识</summary><p>{result.externalReactome.ambiguousIdentifiers.join("、")}</p></details>}
+    </section>}
+
+    {result.externalGProfiler && <section className="proteomics-result-section">
+      <div className="case-list-heading"><div><h3 className="section-title-sm">GO / KEGG 功能富集</h3><p className="section-help">{result.externalGProfiler.organism} · {result.externalGProfiler.source}{result.externalGProfiler.sourceVersion ? ` ${result.externalGProfiler.sourceVersion}` : " · 版本未返回"} · FDR ≤ {result.externalGProfiler.threshold}</p></div>
+        <span className={`status-badge ${result.externalGProfiler.status === "succeeded" ? "status-success" : result.externalGProfiler.status === "unavailable" || result.externalGProfiler.status === "disabled" ? "status-warning" : ""}`}>{{ succeeded: "有显著条目", no_significant_terms: "无显著条目", insufficient_identifiers: "可用标识不足", input_limit_exceeded: "超出分析限制", unavailable: "服务不可用", disabled: "服务已停用" }[result.externalGProfiler.status] ?? result.externalGProfiler.status}</span>
+      </div>
+      <p className="section-help">查询集 {result.externalGProfiler.queryCount} 个{result.externalGProfiler.queryTruncatedCount > 0 ? `（另有 ${result.externalGProfiler.queryTruncatedCount} 个未发送）` : ""} · 自定义背景 {result.externalGProfiler.backgroundCount} 个规范化标识 · 数据库：{result.externalGProfiler.sources.join("、")}</p>
+      <p className="section-help">服务返回的是多重检验校正后的 p 值（FDR），未单独返回未校正 p 值；命中标识来自 g:Profiler 输出。</p>
+      <details className="case-notes"><summary>查看数据源版本</summary><pre>{JSON.stringify(result.externalGProfiler.dataVersions, null, 2)}</pre></details>
+      {result.externalGProfiler.terms.length > 0 ? <div className="table-scroll"><table className="data-table"><thead><tr><th>类别</th><th>功能条目</th><th>条目 ID</th><th>命中数</th><th>查询数</th><th>GeneRatio</th><th>条目基因数</th><th>有效背景数</th><th>FDR</th></tr></thead><tbody>
+        {result.externalGProfiler.terms.map((term) => <tr key={`${term.source}:${term.termId}`}><td>{term.source}</td><td>{term.name}</td><td>{term.termId}</td><td>{term.intersectionSize ?? "—"}</td><td>{term.querySize ?? "—"}</td><td>{formatNumber(term.geneRatio)}</td><td>{term.termSize ?? "—"}</td><td>{term.effectiveDomainSize ?? "—"}</td><td>{formatNumber(term.adjustedPValue)}</td></tr>)}
+      </tbody></table></div> : <p className="section-help">本次没有可展示的 GO/KEGG 显著条目。</p>}
+      {result.externalGProfiler.terms.some((term) => term.matchedIdentifiers.length > 0) && <details className="case-notes"><summary>查看命中标识</summary>{result.externalGProfiler.terms.filter((term) => term.matchedIdentifiers.length > 0).slice(0, 30).map((term) => <p key={`${term.source}:${term.termId}`}><strong>{term.name}</strong>：{term.matchedIdentifiers.join("、")}</p>)}</details>}
     </section>}
 
     {result.externalString && <section className="proteomics-result-section">

@@ -99,6 +99,40 @@ export type ProteomicsResult = {
     consentRecorded: boolean;
     failureStage?: string;
   };
+  externalGProfiler?: {
+    status: string;
+    organism: string;
+    source: string;
+    sourceVersion: string | null;
+    sourceRelease?: number;
+    dataVersions: Record<string, unknown>;
+    sources: string[];
+    queryCount: number;
+    queryTruncatedCount: number;
+    backgroundCount: number;
+    backgroundType: string;
+    threshold: number;
+    correctionMethod: string;
+    rawPValuesReturned: boolean;
+    terms: Array<{
+      termId: string;
+      name: string;
+      source: string;
+      pValue: number | null;
+      adjustedPValue: number;
+      correctionMethod: string;
+      intersectionSize: number | null;
+      querySize: number | null;
+      geneRatio: number | null;
+      termSize: number | null;
+      effectiveDomainSize: number | null;
+      precision: number | null;
+      recall: number | null;
+      matchedIdentifiers: string[];
+    }>;
+    consentRecorded: boolean;
+    failureStage?: string;
+  };
   rows: Array<{
     index: number;
     originalLabel: string;
@@ -168,6 +202,7 @@ export type ProteomicsRunRequest = {
   name?: string;
   externalReactome?: boolean;
   externalString?: boolean;
+  externalGProfiler?: boolean;
   stringRequiredScore?: number;
   mapping?: {
     geneColumn?: string;
