@@ -82,3 +82,64 @@ class PrivateWorkspaceApiTests(APITestCase):
             self.owner.delete()
 
         self.assertTrue(get_user_model().objects.filter(pk=self.owner.pk).exists())
+
+
+class ApiErrorContractTests(APITestCase):
+    def test_unknown_api_route_uses_standard_json_error(self):
+        response = self.client.get("/api/v1/route-that-does-not-exist/")
+
+        self.assertEqual(response.status_code, 404)
+        payload = response.json()
+        self.assertEqual(payload["error"]["code"], "NOT_FOUND")
+        self.assertIn("message", payload["error"])
+        self.assertIn("requestId", payload["error"])
+
+    def test_validation_failure_uses_standard_json_error(self):
+        user = get_user_model().objects.create_user(username="researcher", password="test-password-123")
+        self.client.force_authenticate(user)
+
+        response = self.client.post(reverse("dataset-list"), {"description": "missing name"}, format="json")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data["error"]["code"], "VALIDATION_ERROR")
+        self.assertIn("name", response.data["error"]["details"])
+
+
+    def test_login_endpoint_rejects_requests_without_csrf_token(self):
+        from django.test import Client
+
+        client = Client(enforce_csrf_checks=True)
+        response = client.post(
+            "/api/v1/auth/session/",
+            {"username": "researcher", "password": "wrong"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["error"]["code"], "CSRF_FAILED")
+
+
+    def test_react_session_login_uses_csrf_and_creates_server_session(self):
+        from django.test import Client
+
+        user = get_user_model().objects.create_user(username="researcher", password="test-password-123")
+        client = Client(enforce_csrf_checks=True)
+        csrf_response = client.get("/api/v1/auth/csrf/")
+
+        response = client.post(
+            "/api/v1/auth/session/",
+            {"username": "researcher", "password": "test-password-123"},
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=csrf_response.json()["csrfToken"],
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["user"]["id"], user.pk)
+        self.assertTrue(client.get("/api/v1/auth/session/").json()["authenticated"])
+
+
+    def test_unauthenticated_api_request_uses_authentication_error(self):
+        response = self.client.get(reverse("dataset-list"))
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.data["error"]["code"], "AUTHENTICATION_REQUIRED")

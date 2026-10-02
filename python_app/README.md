@@ -1,16 +1,16 @@
-# Django 主站（迁移第一阶段）
+# Django API 后端
 
-`python_app/` 是平台的目标主应用，负责网页、登录、权限和 API。仓库中的 Next.js、FastAPI、Prisma 和桌面程序只作为迁移时提取业务逻辑的参考，不是本应用的运行依赖。后续按 [`../docs/技术栈与阶段实施计划.md`](../docs/技术栈与阶段实施计划.md) 逐项重写并验证原有业务。
+`python_app/` 提供认证、权限、研究数据 API 和管理后台。React 前端位于仓库根目录的 `web/`；本地开发时 Vite 在 `5173` 端口，将 `/api/` 代理到此服务的 `8020` 端口。生产反向代理和容器编排仍待完成。
 
 ## Linux 本地启动
 
-要求 Python 3.12+ 和 Docker Compose。先在仓库根目录启动本地 PostgreSQL：
+要求 Python 3.12+ 和 Docker Compose。仓库根目录启动本地 PostgreSQL：
 
 ```bash
 docker compose -f deploy/compose.python.yml up -d postgres
 ```
 
-然后在 `python_app/` 目录执行：
+在 `python_app/` 目录：
 
 ```bash
 python3.12 -m venv .venv
@@ -22,7 +22,18 @@ python manage.py createsuperuser
 python manage.py runserver 127.0.0.1:8020
 ```
 
-访问 `http://127.0.0.1:8020/`、`/admin/`、`/api/v1/` 和 `/api/docs/`。开发数据库密码不可用于公网部署；生产环境必须配置独立数据库凭据、`DJANGO_SECRET_KEY`、允许的主机名和 CSRF 来源。
+后端独立运行时根路径跳转到 `/api/docs/`；研究者前端由 `web/` 提供。
+
+## API 模块
+
+- `GET /api/v1/health/`：应用与数据库健康状态。
+- `GET /api/v1/home-stats/`：公开首页显示的知识目录计数。
+- `/api/v1/auth/csrf/`、`/api/v1/auth/session/`：Django 会话登录、状态查询和退出。
+- `/api/v1/research/datasets/`、`cases/`、`analysis-tasks/`：研究者工作区记录。研究者只访问自己的数据，超级管理员可看全部。
+- `/api/v1/catalog/sources/`、`entities/`、`evidence/`：外部数据源、规范实体和来源证据目录。
+- `/api/schema/`、`/api/docs/`：OpenAPI schema 与交互式文档。
+
+API 错误统一使用 `{ "error": { "code", "message", "details", "requestId" } }`。Django 服务端会话使用 HttpOnly Cookie，改变数据的请求需要 CSRF token；客户端提交的 `owner` 字段不会被信任。数据集、医案和任务记录保留创建者外键，账号有关联记录时不能直接硬删除。
 
 ## 检查与测试
 
@@ -32,34 +43,12 @@ python manage.py makemigrations --check --dry-run
 python manage.py test
 ```
 
-不连接 PostgreSQL时，可在 Linux/macOS 下用 SQLite 执行自动化测试：
+没有 PostgreSQL 时可用 SQLite 测逻辑：
 
 ```bash
 DJANGO_DEBUG=true DATABASE_URL=sqlite:///:memory: python manage.py test
 ```
 
-SQLite 测试只能验证 Django 逻辑，不能替代 PostgreSQL 部署验证。
-
-## 第一阶段接口
-
-- `GET /api/v1/health/`：检查应用和数据库连通状态。
-- `GET /api/schema/`、`/api/docs/`：OpenAPI schema 与接口文档。
-- `/api/v1/datasets/`：数据集元信息 CRUD；当前用户只访问自己的记录，超级管理员可以查看全部。
-- `/api/v1/cases/`：去标识化医案 CRUD；当前用户只访问自己的记录，超级管理员可以查看全部。
-- `/api/v1/analysis-tasks/`：分析任务只读记录；结果仅对任务所属用户和超级管理员可见。
-- `/api/v1/sources/`、`/entities/`、`/evidence/`：已启用数据源、规范实体和来源证据只读查询。
-
-用户身份由 Django 登录会话在服务端确认，不信任客户端提交的 `owner` 字段。数据集、医案和任务记录关联创建者；只要账号仍有关联记录，硬删除账号会被数据库拒绝，以免丢失研究数据及来源追溯关系。后续应提供停用账号或经审批的匿名化流程，而不是级联清除数据。
-
-数据源证据使用 `SourceRelease` 和 `source_record_id` 记录版本及来源记录标识。医案字段只接受去标识化文本；系统暂未实现自动去标识化。
-
 ## 尚未实现
 
-- 实际文件上传、对象存储及上传格式校验。
-- Celery/Redis 任务执行、取消、重试和完整错误追踪。
-- 外部数据 connector、定时同步和管理员同步控制台。
-- 蛋白组学导入/QC/富集/PPI，医案候选生成及其结果持久化。
-- R Plumber 绘图服务及生产部署。
-- 审计日志、账户停用/匿名化、备份恢复和公网安全加固。
-
-旧版数据缓存不会自动进入 PostgreSQL。导入历史数据前，需要确认来源、授权、字段映射、去重策略、备份与回滚方式。
+文件上传、对象存储、自助注册、异步分析执行、外部数据同步、蛋白组学与医案候选流程、R 绘图、本地模型接入、审计日志、公网安全加固和生产反向代理仍在后续阶段。SQLite 测试不代替 PostgreSQL 环境验证。

@@ -1,34 +1,33 @@
 # 岐黄中医药理智能平台
 
-本仓库正在按《技术栈与阶段实施计划》迁移为面向公网研究者使用的 Django 平台。目标是保留并逐步重写已有业务能力，由 Django 统一承担网页、登录、权限和 API；PostgreSQL 保存研究数据与溯源信息，本地模型及分析服务按计划逐项接入。
+本仓库正在把已确认的研究平台能力迁移到 **React/Vite 前端 + Django REST Framework 后端**。研究业务和账号由 Django 统一处理，研究数据计划使用 PostgreSQL；本地模型和分析服务在后续阶段按计划接入。
 
 ## 当前架构
 
-- 主站与 API：`python_app/`，Django 5.2、Django REST Framework。
-- 数据库：PostgreSQL；本地自动化测试可使用 SQLite。
-- 登录：Django 服务端会话与 CSRF 防护。
-- 研究者创建的数据集、医案和分析任务按所属用户隔离；平台超级管理员可通过管理后台及 API 查看全部记录。
-- 数据集、医案和任务保留创建者外键；存在这些记录时，数据库会阻止直接删除用户，以免丢失数据和溯源关系。
+- `web/`：独立的 React + TypeScript + Vite 前端。首页复用了现有 Next 页面结构和样式，新增了 Django 会话登录入口。
+- `python_app/`：Django 5.2 + Django REST Framework API、服务端会话认证、权限和管理后台。代码按认证、知识目录和研究工作区分模块。
+- `deploy/compose.python.yml`：本地 PostgreSQL 开发服务。
+- 研究数据集、医案和分析任务按所属用户隔离；平台超级管理员可查看所有人的记录。每条记录保留创建者外键，避免删除用户时失去溯源关系。
 
-旧的 Next.js、FastAPI、Prisma 和桌面程序代码仍在仓库中，但只作为提取和重写业务功能时的参考材料，不属于目标运行架构。不要按照旧目录中的说明启动或部署旧服务。迁移应把确认需要的功能逐项实现到 Django，并逐项验证。
+旧的 Next.js、FastAPI、Prisma 和桌面程序代码暂留在仓库作为提取业务规则的参考。它们尚未逐页接入新的 React 应用，也不是新 Django 平台的运行依赖。页面外观沿用旧首页 CSS；旧研究模块要在逐项迁移后才会成为可用页面。
 
-## 已有与待完成
+## 当前已有与待补齐
 
-当前 Django 骨架包含登录页面、Django 管理后台、数据源/版本/证据模型、实体关系查询，以及按用户隔离的数据集、医案和分析任务 API。分析任务目前只能查看记录，尚没有实际任务执行器。
+当前已有公开首页、登录 API、健康检查、知识库规模统计、知识实体/来源证据查询、按用户隔离的数据集与医案 API、分析任务记录和 Django 管理后台。API 错误统一返回 `error.code`、`error.message`、`error.details` 和 `error.requestId`。目前分析任务只是记录，不能实际运行算法。
 
-文件上传和对象存储、Celery/Redis、外部数据库同步、蛋白组学分析、医案候选生成、R Plumber 绘图、本地模型接入、审计日志和生产部署仍未完成。当前版本是迁移中的基础骨架，不可视作已经上线的完整研究平台。历史 SQLite、Excel 和其他文件不会被自动导入；迁移前需做数据清单、字段映射和备份。
+自助注册、文件上传、对象存储、Celery/Redis、外部数据同步、蛋白组学分析、医案候选生成、R 绘图、本地模型接入、审计日志和公网部署还没有完成。现有数据文件也不会自动导入 PostgreSQL。
 
-总体实施路线见 [`docs/技术栈与阶段实施计划.md`](docs/技术栈与阶段实施计划.md)，Python 到 R 的图表数据约定见 [`docs/r-visualization-contract.md`](docs/r-visualization-contract.md)。
+架构边界、接口分组和下一步迁移入口见 [`docs/architecture-current.md`](docs/architecture-current.md)。
 
 ## Linux 本地开发
 
-需要 Python 3.12+ 和 Docker Compose。先在仓库根目录启动开发用 PostgreSQL：
+需要 Python 3.12+、Node.js 和 Docker Compose。先在仓库根目录启动 PostgreSQL：
 
 ```bash
 docker compose -f deploy/compose.python.yml up -d postgres
 ```
 
-再在 `python_app/` 目录执行：
+在终端一启动 Django（`python_app/` 目录）：
 
 ```bash
 python3.12 -m venv .venv
@@ -40,18 +39,29 @@ python manage.py createsuperuser
 python manage.py runserver 127.0.0.1:8020
 ```
 
-打开 `http://127.0.0.1:8020/`、`/admin/`、`/api/v1/` 或 `/api/docs/`。`.env.example` 里的数据库密码只用于本地开发；不要把 `.env` 或真实密钥提交到 Git。
-
-运行检查与测试：
+在终端二启动 React（仓库根目录）：
 
 ```bash
+cd web
+pnpm install
+pnpm dev
+```
+
+打开 Vite 地址（通常为 `http://127.0.0.1:5173/`）。开发服务器会把 `/api/`、`/admin/` 和 `/accounts/` 代理给 Django 的 `8020` 端口。前后端尚未配置公网反向代理，不能据此直接部署。
+
+检查 Django：
+
+```bash
+cd python_app
 python manage.py check
 python manage.py makemigrations --check --dry-run
 python manage.py test
 ```
 
-## 目录
+不连接 PostgreSQL 时，可用 SQLite 跑 Django 逻辑测试：
 
-- `python_app/`：当前 Django 主应用。
-- `docs/`：技术路线和服务接口约定。
-- `src/`、`backend/`、`prisma/`、`frontend/`：迁移时按需查阅的旧实现；不会作为 Django 平台的运行依赖。
+```bash
+DJANGO_DEBUG=true DATABASE_URL=sqlite:///:memory: python manage.py test
+```
+
+`.env.example` 中的密码仅供本地开发；不要把 `.env` 或真实密钥提交到 Git。

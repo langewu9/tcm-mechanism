@@ -26,3 +26,7 @@ __pycache__/
 
 # Local model files and weights are provisioned outside source control.
 models/
+
+# React/Vite frontend output
+web/node_modules/
+web/dist/
