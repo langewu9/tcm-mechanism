@@ -1,7 +1,7 @@
 """Serializer exports grouped by business capability."""
 
 from .catalog import DataSourceSerializer, EvidenceRelationSerializer, KnowledgeEntitySerializer
-from .research import AnalysisTaskSerializer, MedicalCaseAuditEventSerializer, MedicalCaseSerializer, ResearchDatasetSerializer
+from .research import AnalysisTaskSerializer, MedicalCaseAuditEventSerializer, MedicalCaseSerializer, ResearchDatasetSerializer, VisualizationRequestSerializer
 
 __all__ = [
     "AnalysisTaskSerializer",
@@ -11,4 +11,5 @@ __all__ = [
     "MedicalCaseSerializer",
     "MedicalCaseAuditEventSerializer",
     "ResearchDatasetSerializer",
+    "VisualizationRequestSerializer",
 ]

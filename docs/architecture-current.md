@@ -9,10 +9,11 @@
             └─ Django REST Framework（python_app/；开发端口 8020）
                  ├─ PostgreSQL（研究数据与溯源）
                  ├─ Redis 队列 → Celery worker（蛋白组学、数据源同步后台任务）
-                 └─ 私有媒体存储（研究者上传文件）
+                 ├─ 私有媒体存储（研究者上传文件和分析工件）
+                 └─ 内部隔离网络 → R Plumber（只收图表摘要 JSON）
 ```
 
-开发代理已经配置；公网需要 Nginx 或等效反向代理，把 `/` 指向 React 静态构建，把 `/api/`、`/admin/` 和 `/accounts/` 指向 Django。生产代理、部署容器和 TLS 还没有实现。
+开发代理已经配置；Compose 加入了 R Plumber 私有网络服务，只有 Celery worker 同时接入该网络；R 不挂载媒体卷、不连接 PostgreSQL，也没有宿主机公开端口。公网仍需要 Nginx 或等效反向代理，把 `/` 指向 React 静态构建，把 `/api/`、`/admin/` 和 `/accounts/` 指向 Django。生产代理、部署容器和 TLS 还没有实现。
 
 原 `src/` Next.js 页面、组件和 CSS 尚留在仓库中供迁移参考。`web/` 当前有首页、登录页、医案、数据集、蛋白组学和网络药理工作台；首页沿用现有视觉样式，React Router 接管页面路由，首页统计从 Django 计数 API 获取。蛋白组学工作台沿用 main 的列映射、阈值筛选、本地靶点/通路网络及交叉验证交互；网络药理页按本地来源证据计算中药靶点与疾病靶点交集。旧研究组件并没有自动成为已接通页面；接入时要逐个核对它调用的接口和后端业务。
 
@@ -36,6 +37,7 @@ API 按模块分组：
 | 研究工作区 | `/api/v1/research/` | 数据集、医案、分析任务 |
 | 蛋白组学 | `/api/v1/research/datasets/{id}/analyze/`、`analysis-tasks/{id}/rows/`、`analysis-tasks/{id}/export/` | 后台分析、行级 QC/映射结果、CSV/XLSX 导出 |
 | 网络药理 | `/api/v1/analysis/network-pharmacology/` | 本地中药—成分—靶点和疾病—靶点证据交集、网络数据及私有任务记录 |
+| R 图表 | `/api/v1/research/analysis-tasks/{id}/visualizations/`、`analysis-artifacts/{id}/download/` | 从已完成任务选取白名单图表数据，异步调用 R 并私有保存 SVG/PDF/PNG/HTML；下载按所有者授权 |
 | 医案审计 | `/api/v1/research/cases/{id}/audit/`、`cases/{id}/review/` | 私有操作日志；管理员审核通过会记录操作者和时间 |
 | 外部分析 | `/api/v1/analysis/pathway-enrichment/`、`string-network/` | 需要显式同意的 Reactome 富集和 STRING 物理互作后台任务 |
 | 知识目录 | `/api/v1/catalog/` | 数据源、实体、证据关系 |
@@ -79,14 +81,15 @@ API 按模块分组：
 - 研究者可主动勾选外部分析；默认关闭，只向 MyGene.info 发送通过筛选、未能在本地映射的最多 500 个标识，再向 Reactome 发送通过筛选的人类基因符号。完整上传文件、未通过行、账号和医案不发送。MyGene 精确符号先匹配，模糊多结果保留为歧义；映射结果、Reactome 版本和命中通路进入任务溯源。合成 TP53/IL6 联通测试已通过，尚未用真实项目文件逐项核对 main 输出。
 - `/admin/sources` 仅平台超级管理员可访问；Reactome 人类通路目录和 main `backend/cache_builder.py` 生成的旧 SQLite 三表（中药—成分—靶点、疾病—靶点、疾病—中药—靶点）可在该页管理。Reactome 试运行生成版本和 SHA-256，人工应用前复核并按稳定 ID 幂等写入；SQLite 只读打开配置目录内的相对路径，检查三表/列映射和文件校验值，按批次导入中药、成分、疾病、靶点及来源关系；重复来源通过唯一键更新，删除项软停用，版本、操作者、状态和计数进入审计。无任意绝对路径或连接串接口。Reactome 当前目录 2,883 条在临时 SQLite 验证；三表 SQLite 仅以合成表验证，真实数据文件不在仓库。
 - `/network-pharmacology` 需要登录；通过本地知识实体与证据关系计算中药成分靶点、疾病靶点严格交集和显式疾病—中药直接关联。每个靶点展示来源、版本、原始记录号和关系类型，结果写入当前用户的 `AnalysisTask` 并锁定所用来源版本；不会在无匹配数据时套用示例规则。此版本还不做显著性富集、PPI 或因果推断。
-- 该闭环尚未实现 UniProt/Entrez 完整稳定 ID 映射、GO/KEGG 富集、STRING PPI、原始矩阵统计分析、R 图表或 PDF 报告；本地知识库为空时会明确显示无本地注释，不会伪称外部富集结果。
+- 完成的网络药理交集任务可以请求 R 柱状图；worker 只从任务结果选取重叠计数，R 目前产出静态 SVG/PDF/PNG/HTML。文件 SHA-256、输入摘要哈希和 renderer 版本均入库，可在权限检查后预览 SVG 或下载。R runtime 和 Docker image 尚未实跑，当前 Python worker 用模拟 R 响应测试私有文件持久化/下载。
+- 该闭环尚未实现 UniProt/Entrez 完整稳定 ID 映射、GO/KEGG 富集、原始矩阵统计分析、可交互网络 R 图和完整 PDF 报告；本地知识库为空时会明确显示无本地注释，不会伪称外部富集结果。STRING PPI 目前仅在网络药理模块按需查询，尚未整合进蛋白组学 pipeline。
 - 医案智能分析/候选生成仍未接通；数据集文件上传、解析和当前蛋白组学分析不等同于完整生信引擎。
 
 ## 后续填充顺序
 
-1. 用 main 的实际样例和输出核对当前蛋白组学逻辑，再迁入外部 ID 映射、富集、PPI 和报告图表；不得把本地网络 degree 误报为 PPI 或富集。
+1. 用 main 的实际样例和输出核对当前蛋白组学逻辑，再迁入外部 ID 映射、GO/KEGG 富集、PPI 和报告图表；不得把本地网络 degree 误报为 PPI 或富集。
 2. 取得旧 SQLite 文件并确认许可/字段语义后做真实数据导入验收；再按许可/速率限制接入 UniProt、PubChem、STRING，并完善大文件负载和失败恢复策略。
-3. 为 R Plumber 定义并实现内部 JSON 合约、图表工件权限和失败降级；补齐知识目录检索、网络图交互和 PDF 导出。
+3. 在 Docker 可用环境构建并启动 R Plumber 镜像，验证锁文件、鉴权、SVG/PDF/PNG/HTML 字节和失败恢复；扩展火山图/富集/网络图及对应页面预览。
 4. 在 Docker 可用环境验证 PostgreSQL 全迁移和 Celery 真实队列；之后配置反向代理、生产密钥、对象存储、HTTPS、备份/恢复和部署检查。
 
-当前首页、服务端会话登录、医案管理与审计/人工审核、私有数据集文件管理、第一版蛋白组学闭环、本地网络药理交集、可选 Reactome/STRING 分析、Reactome 目录预览/应用和旧 SQLite 三表导入适配器已接通；真实旧库验收、UniProt/PubChem/STRING 目录同步、账号自助注册、完整 GO/KEGG/富集图表、医案模型/RAG 候选、R 图表服务、公网安全加固和生产部署仍未完成。首页中的研究流程文案表示目标能力，不代表当前服务已提供。
+当前首页、服务端会话登录、医案管理与审计/人工审核、私有数据集文件管理、第一版蛋白组学闭环、本地网络药理交集、可选 Reactome/STRING 分析、Reactome 目录预览/应用、旧 SQLite 三表导入适配器，以及第一版 R 柱图任务/私有工件代码已接通；真实旧库验收、UniProt/PubChem/STRING 目录同步、账号自助注册、完整 GO/KEGG/富集图表、医案模型/RAG 候选、R 容器实跑与交互图、公网安全加固和生产部署仍未完成。首页中的研究流程文案表示目标能力，不代表当前服务已提供。

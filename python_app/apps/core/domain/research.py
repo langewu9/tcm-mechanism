@@ -112,6 +112,7 @@ class AnalysisTask(models.Model):
         PROTEOMICS = "proteomics", "蛋白组学"
         CASE_LINK = "case_link", "医案药理关联"
         NETWORK = "network", "网络药理"
+        VISUALIZATION = "visualization", "R 图表"
 
     class Status(models.TextChoices):
         QUEUED = "queued", "排队中"
@@ -153,3 +154,38 @@ class AnalysisTask(models.Model):
 
     def __str__(self) -> str:
         return f"{self.get_task_type_display()} · {self.status}"
+
+
+class VisualizationArtifact(models.Model):
+    task = models.ForeignKey(
+        AnalysisTask, on_delete=models.PROTECT, related_name="visualization_artifacts"
+    )
+    render_task = models.ForeignKey(
+        AnalysisTask, on_delete=models.PROTECT, related_name="rendered_artifacts"
+    )
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="visualization_artifacts"
+    )
+    chart_key = models.CharField(max_length=48)
+    file_format = models.CharField(max_length=8)
+    filename = models.CharField(max_length=200)
+    mime_type = models.CharField(max_length=100)
+    storage_key = models.CharField(max_length=500, unique=True)
+    content_sha256 = models.CharField(max_length=64)
+    input_sha256 = models.CharField(max_length=64)
+    byte_size = models.PositiveBigIntegerField()
+    renderer_version = models.CharField(max_length=80)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["file_format", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["task", "chart_key", "file_format", "input_sha256"],
+                name="uniq_task_chart_artifact_input",
+            )
+        ]
+        indexes = [models.Index(fields=["owner", "created_at"], name="viz_owner_created_idx")]
+
+    def __str__(self) -> str:
+        return f"任务 #{self.task_id} · {self.chart_key}.{self.file_format}"

@@ -80,6 +80,7 @@
 .source-create-grid .form-label { display: grid; gap: 0.4rem; }
 .source-last-success, .source-release-line { margin-top: 0.75rem; color: var(--color-ink-soft); font-size: 0.72rem; line-height: 1.6; }
 .source-record-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.8rem; }
+.visualization-preview { display: block; width: 100%; max-height: 34rem; object-fit: contain; margin: 0.8rem 0; border: 1px solid var(--color-border); border-radius: 0.75rem; background: #fff; }
 .source-record > .section-help { margin-top: 0.75rem; }
 .source-sync-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: 0.85rem; }
 .source-sync-metrics-sqlite { grid-template-columns: repeat(4, minmax(0, 1fr)); }

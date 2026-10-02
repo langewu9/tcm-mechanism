@@ -97,6 +97,9 @@ SQLITE_SOURCE_ROOT = env("SQLITE_SOURCE_ROOT", default="")
 SQLITE_SOURCE_MAX_BYTES = env.int("SQLITE_SOURCE_MAX_BYTES", default=512 * 1024 * 1024)
 SQLITE_SOURCE_MAX_ROWS = env.int("SQLITE_SOURCE_MAX_ROWS", default=500_000)
 STRING_DB_VERSION = env("STRING_DB_VERSION", default="")
+R_VIZ_BASE_URL = env("R_VIZ_BASE_URL", default="")
+R_VIZ_API_TOKEN = env("R_VIZ_API_TOKEN", default="")
+R_VIZ_MAX_RESPONSE_BYTES = env.int("R_VIZ_MAX_RESPONSE_BYTES", default=20 * 1024 * 1024)
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 CSRF_FAILURE_VIEW = "config.api_errors.csrf_failure"

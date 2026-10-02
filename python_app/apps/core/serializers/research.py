@@ -133,6 +133,12 @@ class MedicalCaseAuditEventSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class VisualizationRequestSerializer(serializers.Serializer):
+    chartKey = serializers.ChoiceField(choices=[
+        "overlap", "components", "pathways", "proteomics_summary", "proteomics_top_nodes",
+    ])
+
+
 class AnalysisTaskSerializer(serializers.ModelSerializer):
     owner_id = serializers.ReadOnlyField()
     owner_username = serializers.CharField(source="owner.username", read_only=True)

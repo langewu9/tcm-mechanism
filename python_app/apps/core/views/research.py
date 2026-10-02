@@ -1,18 +1,22 @@
 """Researcher-owned datasets, cases, and analysis task records."""
 
+from django.conf import settings
 from django.core.files.storage import default_storage
 from django.db import transaction
 from django.http import FileResponse, HttpResponse
 from django.utils import timezone
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from ..exceptions import ResourceConflict, TaskQueueUnavailable
-from ..models import AnalysisTask, MedicalCase, MedicalCaseAuditEvent, ResearchDataset
-from ..serializers import AnalysisTaskSerializer, MedicalCaseAuditEventSerializer, MedicalCaseSerializer, ResearchDatasetSerializer
+from ..models import AnalysisTask, MedicalCase, MedicalCaseAuditEvent, ResearchDataset, VisualizationArtifact
+from ..serializers import AnalysisTaskSerializer, MedicalCaseAuditEventSerializer, MedicalCaseSerializer, ResearchDatasetSerializer, VisualizationRequestSerializer
 from apps.proteomics.serializers import ProteomicsRunRequestSerializer
 from apps.proteomics.models import ProteomicsRowResult
 from apps.proteomics.serializers_rows import ProteomicsRowResultSerializer
@@ -207,6 +211,40 @@ class AnalysisTaskViewSet(viewsets.ReadOnlyModelViewSet):
             queryset = queryset.filter(owner=self.request.user)
         return queryset
 
+    @action(detail=True, methods=["post"], url_path="visualizations")
+    def visualizations(self, request, pk=None):
+        parent_task = self.get_object()
+        if not settings.R_VIZ_BASE_URL or not settings.R_VIZ_API_TOKEN:
+            raise TaskQueueUnavailable("R 图表服务尚未配置，请先启动可访问的 Plumber 服务。")
+        serializer = VisualizationRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        from ..services.visualization import VisualizationInputError, queue_visualization
+
+        try:
+            task, created = queue_visualization(
+                parent_task=parent_task,
+                user=request.user,
+                chart_key=serializer.validated_data["chartKey"],
+            )
+        except VisualizationInputError as exc:
+            raise ValidationError({"chartKey": str(exc)}) from exc
+        if created:
+            try:
+                from ..tasks import run_visualization_task
+
+                run_visualization_task.apply_async(args=[task.pk])
+            except Exception as exc:
+                task.status = AnalysisTask.Status.FAILED
+                task.progress = 100
+                task.error_summary = "R 图表任务队列暂不可用，请稍后重试。"
+                task.finished_at = timezone.now()
+                task.save(update_fields=["status", "progress", "error_summary", "finished_at"])
+                raise TaskQueueUnavailable() from exc
+        return Response(
+            AnalysisTaskSerializer(task).data,
+            status=status.HTTP_202_ACCEPTED if created else status.HTTP_200_OK,
+        )
+
     @action(detail=True, methods=["get"])
     def rows(self, request, pk=None):
         task = self.get_object()
@@ -247,4 +285,34 @@ class AnalysisTaskViewSet(viewsets.ReadOnlyModelViewSet):
         response = HttpResponse(content, content_type=content_type)
         response["Content-Disposition"] = f'attachment; filename="proteomics-task-{task.pk}.{export_format}"'
         response["X-Content-Type-Options"] = "nosniff"
+        return response
+
+
+class VisualizationArtifactDownloadView(APIView):
+    """Serve private R artifacts only through an authenticated, owner-scoped URL."""
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: OpenApiTypes.BINARY})
+    def get(self, request, pk):
+        queryset = VisualizationArtifact.objects.select_related("task", "render_task", "owner")
+        if not request.user.is_superuser:
+            queryset = queryset.filter(owner=request.user)
+        try:
+            artifact = queryset.get(pk=pk)
+        except VisualizationArtifact.DoesNotExist as exc:
+            raise NotFound("图表文件不存在或无权访问。") from exc
+        if not default_storage.exists(artifact.storage_key):
+            raise NotFound("图表文件暂不可用。")
+        response = FileResponse(
+            default_storage.open(artifact.storage_key, "rb"),
+            as_attachment=not (
+                request.query_params.get("inline") == "1"
+                and artifact.file_format in {"svg", "png"}
+            ),
+            filename=artifact.filename,
+            content_type=artifact.mime_type,
+        )
+        response["X-Content-Type-Options"] = "nosniff"
+        response["Cache-Control"] = "private, no-store"
+        response["Content-Security-Policy"] = "sandbox"
         return response

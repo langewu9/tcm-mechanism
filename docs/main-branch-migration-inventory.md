@@ -24,7 +24,7 @@
 | `src/app/api/network-pharmacology/route.ts`、`pathway-enrichment/route.ts`、`src/lib/reactome.ts`、`NetworkPharmacologyWorkbench.tsx` | 靶点交集、Reactome 富集和网络药理视图 | Django connector/service；任务固定数据源版本，页面显示证据来源 | 本地中药—成分—靶点 × 疾病—靶点交集 API/页面已接入；只按目录精确名称匹配，保存任务归属、来源版本和关系证据。用户显式同意后可异步请求 Reactome 富集和 STRING 物理互作（各有输入上限）。尚缺 main 黄金样例核对、Reactome/STRING 结果的图形化、GO/KEGG，以及 UniProt/PubChem/STRING 目录同步 connector |
 | `src/app/admin/page.tsx`、`DatabaseSyncConsole.tsx`、`ReactomeCatalogSync.tsx`、`src/lib/database-sync.ts`、`backend/cache_builder.py` | 管理员数据源管理、测试和同步；旧缓存由中药—成分—靶点、疾病—靶点、疾病—中药—靶点三表构成 | Django Admin + 受管理员权限保护的同步 API/控制台 | Reactome 后台预览/人工应用已接入，真实目录 2,883 条已在临时 SQLite 上验证；旧 SQLite 连接器现可配置 main `cache_builder.py` 生成的三张表，预览全部实体/关系，按 SHA-256 与配置版本人工确认、批量幂等导入并软停用旧关系。合成三表端到端通过；主机目录仅通过 `SQLITE_SOURCE_ROOT` 挂载且只读，不接受任意绝对路径。原 SQLite 文件仍不在仓库，真实字段语义和规模未核实；UniProt/PubChem/STRING connector 仍待迁移 |
 | `src/app/assistant/page.tsx`、`AssistantWorkspace.tsx`、`src/app/api/assistant/route.ts`、`backend/qwen_service.py` | 科研助手和 Qwen/BianCang 接口 | Django provider adapter/异步服务，前端呈现证据和模型版本 | 待迁移；不默认调用无鉴权公网模型地址。旧助手的规则回答和旧 `runAnalysis` 的任意证候回退均未照搬 |
-| `src/app/api/analysis/results/*`、`src/lib/exporters.ts`、`Charts.tsx`、`NetworkGraph.tsx` | 结果、CSV/PDF 导出和图形展示 | Django 授权结果 API；React 交互图表；R 工件后续集成 | 待迁移 |
+| `src/app/api/analysis/results/*`、`src/lib/exporters.ts`、`Charts.tsx`、`NetworkGraph.tsx` | 结果、CSV/PDF 导出和图形展示 | Django 授权结果 API；React 交互图表；R 工件后续集成 | 网络药理汇总图第一版接入独立 Plumber：服务只接收白名单柱图摘要，worker 校验返回 SHA-256/文件类型，将 SVG/PDF/PNG/HTML 存入私有媒体并通过 Django 所有者权限下载。合成响应测试覆盖任务排队、跨用户隔离、散列与下载。R/Docker 镜像未能实跑，交互图、proteomics 全图表、main 对照结果和下载量/超时生产压测仍缺 |
 
 ## main 中的重要数据对象
 
@@ -35,7 +35,7 @@
 - 研究知识：`Syndrome`、`Formula`、`Herb`、`Compound`、`Target`、`Gene`、`Pathway`。
 - 结果与来源：`AnalysisResult`、`PathwayEnrichmentRun`、`PathwayEnrichmentItem`、`DatabaseSource`、`DatabaseSyncRun`。
 
-当前 Django 已有 `ResearchDataset`、`MedicalCase`、`AnalysisTask`、`KnowledgeEntity`、`EvidenceRelation`、`DataSource`、`SourceRelease` 和 `SyncRun`。迁移时要优先做字段映射：例如 main 的多个知识实体表映射到 Django 的实体类型/规范 ID；main `DatasetRow` 不应无界转成 JSON 表；蛋白组学的行级结果、输入文件、任务、结果及图表工件需要明确模型边界和容量策略。
+当前 Django 已有 `ResearchDataset`、`MedicalCase`、`MedicalCaseAuditEvent`、`AnalysisTask`、`VisualizationArtifact`、`KnowledgeEntity`、`EvidenceRelation`、`DataSource`、`SourceRelease` 和 `SyncRun`。迁移时要优先做字段映射：例如 main 的多个知识实体表映射到 Django 的实体类型/规范 ID；main `DatasetRow` 不应无界转成 JSON 表；蛋白组学的行级结果、输入文件、任务、结果及图表工件需要明确模型边界和容量策略。
 
 ### 首版字段映射
 

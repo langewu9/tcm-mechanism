@@ -10,6 +10,7 @@ from .models import (
     ResearchDataset,
     SourceRelease,
     SyncRun,
+    VisualizationArtifact,
 )
 
 
@@ -76,6 +77,23 @@ class MedicalCaseAuditEventAdmin(admin.ModelAdmin):
     list_filter = ("action", "created_at")
     search_fields = ("case_title_snapshot", "owner__username", "actor__username")
     readonly_fields = tuple(field.name for field in MedicalCaseAuditEvent._meta.fields)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(VisualizationArtifact)
+class VisualizationArtifactAdmin(admin.ModelAdmin):
+    list_display = ("task", "chart_key", "file_format", "owner", "byte_size", "renderer_version", "created_at")
+    list_filter = ("file_format", "chart_key", "created_at")
+    search_fields = ("task__id", "owner__username", "content_sha256")
+    readonly_fields = tuple(field.name for field in VisualizationArtifact._meta.fields)
 
     def has_add_permission(self, request):
         return False

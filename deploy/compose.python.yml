@@ -28,6 +28,23 @@ services:
       timeout: 3s
       retries: 12
 
+  r-viz:
+    build:
+      context: ../r_viz
+      dockerfile: Dockerfile
+    environment:
+      R_VIZ_API_TOKEN: local-only-unsafe-render-token
+      PORT: "8001"
+    expose:
+      - "8001"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - visualization
+
   api:
     build:
       context: ..
@@ -66,6 +83,8 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/0
       MEDIA_ROOT: /app/var/media
       SQLITE_SOURCE_ROOT: /app/var/source-databases
+      R_VIZ_BASE_URL: http://r-viz:8001
+      R_VIZ_API_TOKEN: local-only-unsafe-render-token
     volumes:
       - tcm_platform_media:/app/var/media
       - ../var/source-databases:/app/var/source-databases:ro
@@ -74,8 +93,17 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      r-viz:
+        condition: service_healthy
+    networks:
+      - default
+      - visualization
 
 volumes:
   tcm_platform_pgdata:
   tcm_platform_redisdata:
   tcm_platform_media:
+
+networks:
+  visualization:
+    internal: true

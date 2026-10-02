@@ -1,7 +1,7 @@
 """Compatibility exports for models split into business domains."""
 
 from .domain.knowledge import EvidenceRelation, KnowledgeEntity
-from .domain.research import AnalysisTask, MedicalCase, MedicalCaseAuditEvent, ResearchDataset
+from .domain.research import AnalysisTask, MedicalCase, MedicalCaseAuditEvent, ResearchDataset, VisualizationArtifact
 from .domain.sources import DataSource, SourceRelease, SyncRun
 
 __all__ = [
@@ -14,4 +14,5 @@ __all__ = [
     "ResearchDataset",
     "SourceRelease",
     "SyncRun",
+    "VisualizationArtifact",
 ]

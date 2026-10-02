@@ -47,3 +47,6 @@ export const runReactomeEnrichment = (targets: string[]) =>
 
 export const runStringNetwork = (targets: string[], required_score: number) =>
   apiRequest<AnalysisTask>("/api/v1/analysis/string-network/", { method: "POST", body: { targets, required_score, consent: true } });
+
+export const createVisualization = (taskId: number, chartKey: string) =>
+  apiRequest<AnalysisTask>(`/api/v1/research/analysis-tasks/${taskId}/visualizations/`, { method: "POST", body: { chartKey } });

@@ -3,7 +3,7 @@ import { Link, useNavigate, useOutletContext } from "react-router-dom";
 import { Activity, ArrowLeft, Network, RefreshCw } from "lucide-react";
 import { logout, type Session } from "../api/auth";
 import { getAnalysisTask, type AnalysisTask } from "../api/datasets";
-import { runNetworkPharmacology, runReactomeEnrichment, runStringNetwork, type NetworkPharmacologyResult } from "../api/network";
+import { createVisualization, runNetworkPharmacology, runReactomeEnrichment, runStringNetwork, type NetworkPharmacologyResult } from "../api/network";
 import { ApiError } from "../api/client";
 
 function errorMessage(error: unknown) {
@@ -18,6 +18,7 @@ export function NetworkPharmacologyPage() {
   const [result, setResult] = useState<NetworkPharmacologyResult | null>(null);
   const [pathwayTask, setPathwayTask] = useState<AnalysisTask | null>(null);
   const [stringTask, setStringTask] = useState<AnalysisTask | null>(null);
+  const [visualizationTask, setVisualizationTask] = useState<AnalysisTask | null>(null);
   const [shareWithReactome, setShareWithReactome] = useState(false);
   const [shareWithString, setShareWithString] = useState(false);
   const [requiredScore, setRequiredScore] = useState(700);
@@ -25,18 +26,19 @@ export function NetworkPharmacologyPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const pending = [pathwayTask, stringTask].filter((task): task is AnalysisTask => Boolean(task && ["queued", "running"].includes(task.status)));
+    const pending = [pathwayTask, stringTask, visualizationTask].filter((task): task is AnalysisTask => Boolean(task && ["queued", "running"].includes(task.status)));
     if (!pending.length) return;
     const timer = window.setTimeout(() => {
       for (const task of pending) {
         void getAnalysisTask(task.id).then((latest) => {
           if (latest.input_parameters.analysisKind === "reactome_enrichment") setPathwayTask(latest);
           if (latest.input_parameters.analysisKind === "string_ppi") setStringTask(latest);
+          if (latest.input_parameters.analysisKind === "r_visualization") setVisualizationTask(latest);
         }).catch((cause: unknown) => setError(errorMessage(cause)));
       }
     }, 1500);
     return () => window.clearTimeout(timer);
-  }, [pathwayTask, stringTask]);
+  }, [pathwayTask, stringTask, visualizationTask]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -45,6 +47,7 @@ export function NetworkPharmacologyPage() {
     setResult(null);
     setPathwayTask(null);
     setStringTask(null);
+    setVisualizationTask(null);
     try {
       setResult(await runNetworkPharmacology({ herb, disease }));
     } catch (cause) {
@@ -68,6 +71,13 @@ export function NetworkPharmacologyPage() {
     try {
       setStringTask(await runStringNetwork(result.targets.map((item) => item.target), requiredScore));
     } catch (cause) { setError(errorMessage(cause)); }
+  }
+
+  async function requestVisualization() {
+    if (!result) return;
+    setError(null);
+    try { setVisualizationTask(await createVisualization(result.taskId, "overlap")); }
+    catch (cause) { setError(errorMessage(cause)); }
   }
 
   async function signOut() {
@@ -97,6 +107,8 @@ export function NetworkPharmacologyPage() {
           {!result ? <div className="panel empty-state"><Network size={27} /><strong>等待查询条件</strong><p>数据会在本地知识目录中检索，不会调用外部服务。</p></div> : <>
             <div className="case-list-heading"><div><p className="page-kicker">Evidence-backed result</p><h2 className="section-title-sm">分析任务 #{result.taskId}</h2></div><span className="status-badge status-success">已保存，可在任务记录中追溯</span></div>
             <div className="panel proteomics-result-panel">
+              <div className="source-record-actions"><button className="btn btn-secondary" type="button" disabled={Boolean(visualizationTask && ["queued", "running"].includes(visualizationTask.status))} onClick={() => void requestVisualization()}>生成 R 图表</button></div>
+              {visualizationTask && <VisualizationResult task={visualizationTask} />}
               <div className="proteomics-metrics">
                 <Metric label="匹配中药靶点" value={result.summary.herbTargetCount} />
                 <Metric label="匹配疾病靶点" value={result.summary.diseaseTargetCount} />
@@ -146,5 +158,17 @@ function ExternalTaskResult({ task, kind }: { task: AnalysisTask; kind: "reactom
   const edges = Array.isArray(value.edges) ? value.edges as Array<Record<string, unknown>> : [];
   return <div className="panel source-record"><h3>STRING 网络 · {String(value.sourceVersion ?? "版本未配置")}</h3><p className="section-help">互作 {String(value.interactionCount ?? 0)} 条 · 阈值 {String(value.requiredScore ?? 0)}</p>
     {edges.length ? <ul className="proteomics-pathways">{edges.slice(0, 30).map((item, index) => <li key={`${String(item.source)}-${String(item.target)}-${index}`}><strong>{String(item.source)} ↔ {String(item.target)}</strong><span>score {String(item.scoreOutOf1000)}/1000</span></li>)}</ul> : <p className="section-help">当前标识和置信度下没有返回互作边。</p>}
+  </div>;
+}
+
+function VisualizationResult({ task }: { task: AnalysisTask }) {
+  if (["queued", "running"].includes(task.status)) return <p className="section-help">R 图表任务 #{task.id} 正在后台执行（{task.progress}%）。</p>;
+  if (task.status === "failed") return <div className="notice-error" role="alert">R 图表生成失败：{task.error_summary}</div>;
+  const value = task.result as { rendererVersion?: string; artifacts?: Array<{ id: number; format: string; filename: string; downloadUrl: string; rendererVersion: string }> };
+  const artifacts = value.artifacts ?? [];
+  const svg = artifacts.find((artifact) => artifact.format === "svg");
+  return <div className="panel source-record"><h3>R 图表 · {String(value.rendererVersion ?? "")}</h3>
+    {svg && <img className="visualization-preview" src={`${svg.downloadUrl}?inline=1`} alt="中药—疾病靶点交集柱状图" />}
+    <div className="source-record-actions">{artifacts.map((artifact) => <a className="btn btn-secondary" key={artifact.id} href={artifact.downloadUrl}>下载 {artifact.format.toUpperCase()}</a>)}</div>
   </div>;
 }
