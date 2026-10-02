@@ -134,11 +134,28 @@
 .notice-warning, .notice-info { display: flex; align-items: flex-start; gap: 0.55rem; border: 1px solid var(--color-border); padding: 0.65rem 0.75rem; color: var(--color-ink-soft); font-size: 0.72rem; line-height: 1.6; }
 .notice-warning { border-color: rgba(163, 99, 12, 0.3); background: rgba(231, 195, 111, 0.16); }
 .notice-info { background: rgba(255, 253, 248, 0.7); }
+.knowledge-explorer-grid { display: grid; grid-template-columns: minmax(18rem, 0.82fr) minmax(0, 1.18fr); align-items: start; gap: 1.4rem; }
+.knowledge-search-results { margin-top: 0.9rem; padding: 1rem 1.2rem; }
+.knowledge-entity-list, .knowledge-evidence-list { display: grid; gap: 0.6rem; }
+.knowledge-entity-option { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 0.8rem; border: 1px solid var(--color-border); background: rgba(255, 253, 248, 0.72); padding: 0.8rem; text-align: left; cursor: pointer; }
+.knowledge-entity-option:hover, .knowledge-entity-option[aria-pressed="true"] { border-color: var(--color-border-strong); background: var(--color-cinnabar-soft); }
+.knowledge-entity-option > span { display: grid; min-width: 0; gap: 0.2rem; }
+.knowledge-entity-option strong { color: var(--color-ink); font-size: 0.82rem; overflow-wrap: anywhere; }
+.knowledge-entity-option small, .knowledge-evidence-source { color: var(--color-ink-faint); font-size: 0.65rem; line-height: 1.5; overflow-wrap: anywhere; }
+.knowledge-entity-option > small { text-align: right; }
+.knowledge-entity-detail { padding: 1rem 1.2rem; }
+.knowledge-evidence-list { margin-top: 1rem; }
+.knowledge-evidence-card { padding: 0.9rem 1rem; }
+.knowledge-evidence-edge { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; font-size: 0.78rem; line-height: 1.55; }
+.knowledge-evidence-edge strong { color: var(--color-ink); overflow-wrap: anywhere; }
+.knowledge-evidence-edge span { border: 1px solid var(--color-border); border-radius: 999px; padding: 0.15rem 0.5rem; color: var(--color-cinnabar); font-size: 0.66rem; font-weight: 800; }
+.knowledge-evidence-text { margin-top: 0.55rem; color: var(--color-ink-soft); font-size: 0.72rem; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
 .spin { animation: proteomics-spin 1s linear infinite; }
 @keyframes proteomics-spin { to { transform: rotate(360deg); } }
 
 @media (max-width: 850px) {
   .case-workspace-grid { grid-template-columns: minmax(0, 1fr); }
+  .knowledge-explorer-grid { grid-template-columns: minmax(0, 1fr); }
   .source-sync-layout { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 560px) {
@@ -160,7 +177,8 @@
   .proteomics-validation-grid { grid-template-columns: minmax(0, 1fr); }
   .workspace-nav { flex-wrap: wrap; }
   .workspace-module-nav { order: 3; width: 100%; justify-content: center; }
-  .workspace-module-nav a { flex: 1; justify-content: center; text-align: center; }
+  .workspace-module-nav { justify-content: flex-start; overflow-x: auto; }
+  .workspace-module-nav a { flex: 0 0 auto; justify-content: center; text-align: center; white-space: nowrap; }
   .source-sync-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .source-create-grid { grid-template-columns: minmax(0, 1fr); }
 }

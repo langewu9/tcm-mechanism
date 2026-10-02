@@ -4,6 +4,7 @@ from .auth import CsrfTokenView, SessionView
 from .catalog import (
     DataSourceViewSet,
     EvidenceRelationViewSet,
+    EntityNeighborhoodView,
     KnowledgeEntityViewSet,
     HomeStatsView,
 )
@@ -14,6 +15,7 @@ __all__ = [
     "AnalysisTaskViewSet",
     "DataSourceViewSet",
     "EvidenceRelationViewSet",
+    "EntityNeighborhoodView",
     "KnowledgeEntityViewSet",
     "MedicalCaseViewSet",
     "ResearchDatasetViewSet",

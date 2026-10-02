@@ -1,0 +1,142 @@
+import { useRef, useState, type FormEvent } from "react";
+import { Link, useNavigate, useOutletContext } from "react-router-dom";
+import { ArrowLeft, Download, Search } from "lucide-react";
+import { logout, type Session } from "../api/auth";
+import { ApiError } from "../api/client";
+import { getEntityNeighborhood, searchCatalogEntities, type EntityNeighborhood, type KnowledgeEntity } from "../api/catalog";
+
+const entityTypes = [
+  ["", "全部实体"], ["disease", "疾病"], ["herb", "中药"], ["formula", "方剂"], ["compound", "成分"],
+  ["syndrome", "证候"], ["gene", "基因"], ["protein", "蛋白"], ["pathway", "通路"],
+];
+const entityTypeLabel = Object.fromEntries(entityTypes.filter(([value]) => value).map(([value, label]) => [value, label]));
+
+function errorMessage(error: unknown) {
+  return error instanceof ApiError ? error.message : "请求未完成，请稍后重试。";
+}
+
+function downloadNeighborhood(data: EntityNeighborhood) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `${data.entity.stable_id.replace(/[^a-zA-Z0-9_-]+/g, "_")}-evidence.json`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+export function KnowledgeExplorerPage() {
+  const user = useOutletContext<NonNullable<Session["user"]>>();
+  const navigate = useNavigate();
+  const [query, setQuery] = useState("");
+  const [entityType, setEntityType] = useState("");
+  const [activeQuery, setActiveQuery] = useState("");
+  const [activeType, setActiveType] = useState("");
+  const [pageNumber, setPageNumber] = useState(1);
+  const [entityPage, setEntityPage] = useState<{ count: number; next: string | null; previous: string | null; results: KnowledgeEntity[] } | null>(null);
+  const [selected, setSelected] = useState<KnowledgeEntity | null>(null);
+  const [neighborhood, setNeighborhood] = useState<EntityNeighborhood | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [detailBusy, setDetailBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const detailRequest = useRef(0);
+
+  async function loadEntities(search: string, type: string, page: number) {
+    setBusy(true);
+    setError(null);
+    try {
+      setEntityPage(await searchCatalogEntities(search, type, page));
+      setPageNumber(page);
+    } catch (cause) {
+      setError(errorMessage(cause));
+      setEntityPage(null);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function submitSearch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const normalizedQuery = query.trim();
+    if (!normalizedQuery) {
+      setError("请输入疾病、中药、方剂、成分、基因或通路名称。");
+      return;
+    }
+    setActiveQuery(normalizedQuery);
+    setActiveType(entityType);
+    setSelected(null);
+    setNeighborhood(null);
+    detailRequest.current += 1;
+    void loadEntities(normalizedQuery, entityType, 1);
+  }
+
+  async function selectEntity(entity: KnowledgeEntity) {
+    const requestId = ++detailRequest.current;
+    setSelected(entity);
+    setNeighborhood(null);
+    setDetailBusy(true);
+    setError(null);
+    try {
+      const data = await getEntityNeighborhood(entity.id);
+      if (detailRequest.current === requestId) setNeighborhood(data);
+    } catch (cause) {
+      if (detailRequest.current === requestId) setError(errorMessage(cause));
+    } finally {
+      if (detailRequest.current === requestId) setDetailBusy(false);
+    }
+  }
+
+  async function signOut() {
+    try { await logout(); navigate("/login", { replace: true }); }
+    catch (cause) { setError(errorMessage(cause)); }
+  }
+
+  return <main className="workspace-page">
+    <header className="workspace-nav">
+      <Link to="/" className="site-brand" aria-label="远志 AI Scientist 首页"><img src="/images/yuanzhi-mark.png" alt="" width={42} height={42} className="brand-mark" /><span><strong>远志 AI Scientist</strong><small>研究者工作区</small></span></Link>
+      <nav className="workspace-module-nav" aria-label="研究模块"><Link to="/cases">医案管理</Link><Link to="/datasets">研究数据集</Link><Link to="/proteomics">蛋白组学</Link><Link to="/network-pharmacology">网络药理</Link><Link to="/research" aria-current="page">知识检索</Link>{user.isSuperuser && <Link to="/admin/sources">数据源同步</Link>}</nav>
+      <div className="workspace-nav-actions"><span className="workspace-user">{user.username}{user.isSuperuser ? " · 平台管理员" : " · 研究者"}</span><button className="btn btn-secondary" type="button" onClick={() => void signOut()}>退出</button></div>
+    </header>
+    <div className="app-main workspace-main"><div className="app-main-inner">
+      <div className="page-heading"><div className="page-heading-copy"><p className="page-kicker">Research knowledge catalogue</p><h1 className="page-title">科研知识检索</h1><p className="page-description">检索已导入的疾病、中药、方剂、成分、基因、蛋白和通路，并查看逐条关系证据与来源版本。这里只查询本地目录，不会调用外部服务。</p></div><Link to="/" className="btn btn-secondary"><ArrowLeft size={16} />返回首页</Link></div>
+      {error && <div className="notice-error workspace-notice" role="alert">{error}</div>}
+      <div className="knowledge-explorer-grid">
+        <section className="case-list">
+          <form className="panel case-form" onSubmit={submitSearch}>
+            <div className="panel-header"><div><h2 className="section-title-sm">检索本地知识目录</h2><p className="section-help">搜索实体名称或稳定标识；结果由管理员导入的数据源决定。</p></div><Search size={20} /></div>
+            <div className="case-form-fields">
+              <label className="form-label" htmlFor="catalog-query">关键词<input className="field" id="catalog-query" value={query} maxLength={120} onChange={(event) => setQuery(event.target.value)} placeholder="例如：肺纤维化、麦冬、甘草酸、TP53" required /></label>
+              <label className="form-label" htmlFor="catalog-type">实体类型<select className="field" id="catalog-type" value={entityType} onChange={(event) => setEntityType(event.target.value)}>{entityTypes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+            </div>
+            <div className="case-form-footer"><p>未导入的名称会明确返回空结果，不会生成推测记录。</p><button className="btn btn-primary" type="submit" disabled={busy}>{busy ? "正在检索…" : "检索"}</button></div>
+          </form>
+          {entityPage && <section className="panel knowledge-search-results" aria-live="polite">
+            <div className="case-list-heading"><div><p className="page-kicker">Local catalogue</p><h2 className="section-title-sm">匹配结果</h2></div><span>{entityPage.count} 条</span></div>
+            {!entityPage.results.length ? <div className="empty-state"><strong>没有匹配的已导入实体</strong><p>请检查名称，或联系平台管理员确认来源目录是否已同步。</p></div> : <div className="knowledge-entity-list">{entityPage.results.map((entity) => <button className="knowledge-entity-option" key={entity.id} type="button" aria-pressed={selected?.id === entity.id} onClick={() => void selectEntity(entity)}>
+              <span><strong>{entity.label}</strong><small>{entityTypeLabel[entity.entity_type] ?? entity.entity_type} · {entity.stable_id}</small></span><small>{entity.source_slug ? `${entity.source_slug} ${entity.source_version ?? ""}` : "来源版本未登记"}</small>
+            </button>)}</div>}
+            {(entityPage.previous || entityPage.next) && <div className="case-pagination"><button className="btn btn-secondary" type="button" disabled={!entityPage.previous || busy} onClick={() => void loadEntities(activeQuery, activeType, pageNumber - 1)}>上一页</button><span>第 {pageNumber} 页</span><button className="btn btn-secondary" type="button" disabled={!entityPage.next || busy} onClick={() => void loadEntities(activeQuery, activeType, pageNumber + 1)}>下一页</button></div>}
+          </section>}
+        </section>
+        <section className="case-list" aria-live="polite">
+          {!selected ? <div className="panel empty-state"><Search size={27} /><strong>选择一个实体查看关系</strong><p>每条关系会并列展示来源及版本；不同来源记录不会被自动合并。</p></div> : detailBusy ? <div className="panel workspace-loading" role="status">正在载入「{selected.label}」的来源证据…</div> : !neighborhood ? <div className="panel empty-state"><strong>来源证据加载失败</strong><p>可以重试查询当前实体。</p><button className="btn btn-primary" type="button" onClick={() => void selectEntity(selected)}>重试</button></div> : <>
+            <article className="panel knowledge-entity-detail">
+              <div className="case-list-heading"><div><p className="page-kicker">{entityTypeLabel[neighborhood.entity.entity_type] ?? neighborhood.entity.entity_type}</p><h2 className="section-title-sm">{neighborhood.entity.label}</h2></div><button className="btn btn-secondary" type="button" onClick={() => downloadNeighborhood(neighborhood)}><Download size={15} />导出 JSON</button></div>
+              <dl className="dataset-provenance"><div><dt>稳定标识</dt><dd>{neighborhood.entity.stable_id}</dd></div><div><dt>物种</dt><dd>{neighborhood.entity.organism || "未指定"}</dd></div><div><dt>实体来源</dt><dd>{neighborhood.entity.source_slug ?? "未登记"}</dd></div><div><dt>来源版本</dt><dd>{neighborhood.entity.source_version ?? "未登记"}</dd></div></dl>
+            </article>
+            <section className="knowledge-evidence-list"><div className="case-list-heading"><div><p className="page-kicker">Versioned provenance</p><h2 className="section-title-sm">关系证据</h2></div><span>{neighborhood.relations.length}{neighborhood.truncated ? "+" : ""} 条</span></div>
+              {!neighborhood.relations.length ? <div className="panel empty-state"><strong>当前实体没有可展示的关系记录</strong><p>实体已存在于目录中，但可能尚未导入关联证据。</p></div> : neighborhood.relations.map((relation) => <article className="panel knowledge-evidence-card" key={relation.id}>
+                <p className="knowledge-evidence-edge"><strong>{relation.subject_label}</strong><span>{relation.relation_type}</span><strong>{relation.object_label}</strong></p>
+                <p className="knowledge-evidence-source">{relation.source_slug} · {relation.source_version} · {relation.evidence_type}{relation.organism ? ` · ${relation.organism}` : ""}{relation.score ? ` · 分值 ${relation.score}` : ""}</p>
+                {relation.evidence_text && <p className="knowledge-evidence-text">{relation.evidence_text}</p>}
+              </article>)}
+              {neighborhood.truncated && <p className="notice-warning">关系数超过单次展示上限，当前显示前 200 条，请进一步缩小数据源或联系管理员导出。</p>}
+            </section>
+          </>}
+        </section>
+      </div>
+    </div></div>
+  </main>;
+}

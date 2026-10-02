@@ -157,7 +157,7 @@ export function SourcesPage() {
         <span><strong>远志 AI Scientist</strong><small>平台管理</small></span>
       </Link>
       <nav className="workspace-module-nav" aria-label="研究模块">
-        <Link to="/cases">医案管理</Link><Link to="/datasets">研究数据集</Link><Link to="/proteomics">蛋白组学</Link><Link to="/network-pharmacology">网络药理</Link><Link to="/admin/sources" aria-current="page">数据源同步</Link>
+        <Link to="/cases">医案管理</Link><Link to="/datasets">研究数据集</Link><Link to="/proteomics">蛋白组学</Link><Link to="/network-pharmacology">网络药理</Link><Link to="/research">知识检索</Link><Link to="/admin/sources" aria-current="page">数据源同步</Link>
       </nav>
       <div className="workspace-nav-actions"><span className="workspace-user">{user.username} · 平台管理员</span>
         <button className="btn btn-secondary" type="button" onClick={() => void signOut()}>退出</button></div>

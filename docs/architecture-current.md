@@ -15,7 +15,7 @@
 
 开发代理已经配置；开发 Compose 中 R Plumber 只有 Celery worker 接入其私有网络，R 不挂载媒体卷、不连接 PostgreSQL，也没有宿主机公开端口。生产 Compose 另配置 Gunicorn、React 静态镜像、Nginx HTTPS、私有 S3 存储、TLS 证书挂载和服务分层网络；证书申请/续签需按部署说明自行配置。PostgreSQL 备份、校验和显式确认恢复脚本也已加入。当前环境不能访问 Docker daemon，因此这些生产容器、TLS、对象存储和恢复流程尚无实机验证。
 
-原 `src/` Next.js 页面、组件和 CSS 尚留在仓库中供迁移参考。`web/` 当前有首页、登录页、医案、数据集、蛋白组学和网络药理工作台；首页沿用现有视觉样式，React Router 接管页面路由，首页统计从 Django 计数 API 获取。蛋白组学工作台沿用 main 的列映射、阈值筛选、本地靶点/通路网络及交叉验证交互；网络药理页按本地来源证据计算中药靶点与疾病靶点交集。旧研究组件并没有自动成为已接通页面；接入时要逐个核对它调用的接口和后端业务。根目录旧 Next.js `pnpm build` 目前仍失败：`src/app/page.tsx` 引用仓库中缺失的 `@/lib/prisma`；当前 Django 分支的前端构建入口是 `web/` 的 Vite build。
+原 `src/` Next.js 页面、组件和 CSS 尚留在仓库中供迁移参考。`web/` 当前有首页、登录/注册页、科研知识检索、医案、数据集、蛋白组学和网络药理工作台；首页沿用现有视觉样式，React Router 接管页面路由，首页统计从 Django 计数 API 获取。蛋白组学工作台沿用 main 的列映射、阈值筛选、本地靶点/通路网络及交叉验证交互；网络药理页按本地来源证据计算中药靶点与疾病靶点交集。旧研究组件并没有自动成为已接通页面；接入时要逐个核对它调用的接口和后端业务。根目录旧 Next.js `pnpm build` 目前仍失败：`src/app/page.tsx` 引用仓库中缺失的 `@/lib/prisma`；当前 Django 分支的前端构建入口是 `web/` 的 Vite build。
 
 ## 后端模块
 
@@ -40,7 +40,7 @@ API 按模块分组：
 | R 图表 | `/api/v1/research/analysis-tasks/{id}/visualizations/`、`analysis-artifacts/{id}/download/` | 从已完成任务选取白名单图表数据，异步调用 R 并私有保存 SVG/PDF/PNG/HTML；下载按所有者授权 |
 | 医案分析与审计 | `/api/v1/research/cases/{id}/analysis/`、`cases/{id}/candidates/{candidate_id}/review/`、`cases/{id}/audit/`、`cases/{id}/review/` | 需主动确认的本机模型任务、可逐字核验的结构化观察/候选、研究者逐条审核、版本化证据链和审计记录 |
 | 外部分析 | `/api/v1/analysis/pathway-enrichment/`、`string-network/`；蛋白组学任务的独立同意参数 | 需要显式同意的 Reactome、STRING 物理互作和 g:Profiler GO/KEGG 富集后台任务 |
-| 知识目录 | `/api/v1/catalog/` | 数据源、实体、证据关系 |
+| 知识目录 | `/api/v1/catalog/` | 数据源、实体、证据关系；实体 neighborhood 最多返回 200 条活动来源关系 |
 | 管理员数据源同步 | `/api/v1/admin/sources/`、`sync-runs/` | Reactome、UniProt、人工 CID 映射的 PubChem、STRING 人类标识映射与受控旧 SQLite 来源的后台预览、审计历史和人工应用 |
 | 平台状态 | `/api/v1/health/` | 服务与数据库可用状态 |
 
@@ -92,4 +92,4 @@ API 按模块分组：
 3. 在 Docker 可用环境构建并启动 R Plumber 镜像，验证锁文件、鉴权、SVG/PDF/PNG/HTML 字节和失败恢复；扩展火山图/富集/网络图及对应页面预览。
 4. 先在 Docker 可用环境验证 PostgreSQL 全迁移、Celery 真实队列、R 容器、TLS、S3 读写和备份/恢复；再使用真实 main 样例逐项验收迁入业务逻辑。
 
-当前首页、服务端会话登录、需管理员启用的研究者注册申请、医案管理与审计/人工审核、私有数据集文件管理、第一版蛋白组学闭环、本地网络药理交集、可选 Reactome/STRING/g:Profiler 分析、Reactome/UniProt/PubChem 目录预览/应用、STRING 本地人类标识交叉映射、旧 SQLite 三表导入适配器、第一版 R 柱图任务/私有工件代码和生产部署配置已接通或完成静态配置；真实旧库验收、PubChem 人工映射的真实项目复核、STRING 整批同步与 PostgreSQL 应用验收、UniProt 与研究者真实数据字段对照、邮箱所有权验证/注册通知、g:Profiler 实时服务/黄金样例验收、原始矩阵分析、真实医案模型联调、更广 RAG 语料、容器实跑、更多交互图和生产环境验证仍未完成。首页中的研究流程文案表示目标能力，不代表当前服务已提供。
+当前首页、服务端会话登录、需管理员启用的研究者注册申请、本地科研知识检索及来源证据浏览、医案管理与审计/人工审核、私有数据集文件管理、第一版蛋白组学闭环、本地网络药理交集、可选 Reactome/STRING/g:Profiler 分析、Reactome/UniProt/PubChem 目录预览/应用、STRING 本地人类标识交叉映射、旧 SQLite 三表导入适配器、第一版 R 柱图任务/私有工件代码和生产部署配置已接通或完成静态配置；真实旧库验收、PubChem 人工映射的真实项目复核、STRING 整批同步与 PostgreSQL 应用验收、UniProt 与研究者真实数据字段对照、邮箱所有权验证/注册通知、g:Profiler 真实项目/黄金样例验收、原始矩阵分析、真实医案模型联调、更广 RAG 语料、容器实跑、更多交互图和生产环境验证仍未完成。首页中的研究流程文案表示目标能力，不代表当前服务已提供。

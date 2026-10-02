@@ -1,6 +1,7 @@
 """Read-only public knowledge catalogue and source provenance endpoints."""
 
 from django.db.models import Count, Q
+from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -36,6 +37,36 @@ class EvidenceRelationViewSet(viewsets.ReadOnlyModelViewSet):
         "subject", "object", "source_release", "source_release__source"
     )
     filterset_fields = ["relation_type", "evidence_type", "organism", "source_release"]
+
+
+class EntityNeighborhoodSerializer(serializers.Serializer):
+    entity = KnowledgeEntitySerializer()
+    relations = EvidenceRelationSerializer(many=True)
+    truncated = serializers.BooleanField()
+
+
+class EntityNeighborhoodView(APIView):
+    permission_classes = [IsAuthenticated]
+    max_relations = 200
+
+    @extend_schema(responses=EntityNeighborhoodSerializer)
+    def get(self, request, entity_id):
+        entity = get_object_or_404(KnowledgeEntity.objects.filter(is_active=True), pk=entity_id)
+        relations = EvidenceRelation.objects.filter(
+            Q(subject=entity) | Q(object=entity),
+            is_active=True,
+            subject__is_active=True,
+            object__is_active=True,
+        ).select_related(
+            "subject", "object", "source_release", "source_release__source"
+        ).order_by("relation_type", "subject__label", "object__label", "source_release__version")
+        records = list(relations[: self.max_relations + 1])
+        truncated = len(records) > self.max_relations
+        return Response({
+            "entity": KnowledgeEntitySerializer(entity).data,
+            "relations": EvidenceRelationSerializer(records[: self.max_relations], many=True).data,
+            "truncated": truncated,
+        })
 
 
 class HomeStatsCountsSerializer(serializers.Serializer):

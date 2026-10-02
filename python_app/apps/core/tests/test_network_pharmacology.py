@@ -57,6 +57,56 @@ class NetworkPharmacologyApiTests(APITestCase):
         )
         self.assertEqual(too_many.status_code, 400)
 
+    def test_entity_neighborhood_returns_both_directions_with_source_versions(self):
+        url = reverse("entity-neighborhood", args=[self.tp53.pk])
+        self.assertEqual(self.client.get(url).status_code, 401)
+
+        self.client.force_authenticate(self.owner)
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["entity"]["stable_id"], "protein:tp53")
+        self.assertFalse(response.data["truncated"])
+        self.assertEqual(
+            {(item["subject_label"], item["relation_type"], item["object_label"], item["source_version"])
+             for item in response.data["relations"]},
+            {
+                ("黄芩苷", "targets", "TP53", "fixture-v1"),
+                ("肺纤维化", "disease_target", "TP53", "fixture-v1"),
+                ("TP53", "participatesin", "细胞应激响应", "fixture-v1"),
+            },
+        )
+
+    def test_entity_neighborhood_caps_large_relation_payloads(self):
+        objects = [
+            KnowledgeEntity(
+                entity_type=KnowledgeEntity.EntityType.GENE,
+                stable_id=f"gene:catalog-{index}",
+                label=f"CATALOG{index}",
+                source_release=self.release,
+            )
+            for index in range(201)
+        ]
+        KnowledgeEntity.objects.bulk_create(objects)
+        EvidenceRelation.objects.bulk_create([
+            EvidenceRelation(
+                source_release=self.release,
+                source_record_id=f"catalog-edge:{index}",
+                subject=self.herb,
+                object=entity,
+                relation_type="catalog_annotation",
+                evidence_type="fixture",
+            )
+            for index, entity in enumerate(objects)
+        ])
+        self.client.force_authenticate(self.owner)
+
+        response = self.client.get(reverse("entity-neighborhood", args=[self.herb.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data["relations"]), 200)
+        self.assertTrue(response.data["truncated"])
+
     def test_returns_local_evidence_intersection_and_records_private_task(self):
         self.client.force_authenticate(self.owner)
         response = self.client.post(
