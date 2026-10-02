@@ -14,6 +14,7 @@ from rest_framework.views import APIView
 from ..models import DataSource, EvidenceRelation, KnowledgeEntity
 from ..serializers import DataSourceSerializer, EvidenceRelationSerializer, KnowledgeEntitySerializer
 from ..services.disease_names import ALIAS_DATA, disease_entity_queryset, expand_disease_queries, matched_disease_queries
+from ..services.herb_evidence import batch_herb_component_evidence
 
 
 class DataSourceViewSet(viewsets.ReadOnlyModelViewSet):
@@ -148,6 +149,72 @@ class DiseaseAliasSearchView(APIView):
             "aliasSourceCommit": ALIAS_DATA["sourceCommit"],
             "results": results,
         })
+
+
+class BatchHerbEvidenceRequestSerializer(serializers.Serializer):
+    queryType = serializers.ChoiceField(choices=["herb", "compound"])
+    queries = serializers.ListField(
+        child=serializers.CharField(max_length=120, trim_whitespace=True),
+        min_length=1,
+        max_length=12,
+    )
+
+    def validate_queries(self, values):
+        distinct = list(dict.fromkeys(value.strip() for value in values if value.strip()))
+        if not distinct:
+            raise serializers.ValidationError("请至少输入一个有效名称。")
+        return distinct
+
+
+class BatchHerbEvidenceEntitySerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    stableId = serializers.CharField()
+    label = serializers.CharField()
+    sourceSlug = serializers.CharField(allow_null=True)
+    sourceVersion = serializers.CharField(allow_null=True)
+
+
+class BatchHerbEvidenceRelationSerializer(serializers.Serializer):
+    subject = serializers.CharField()
+    object = serializers.CharField()
+    subjectType = serializers.CharField()
+    objectType = serializers.CharField()
+    relationType = serializers.CharField()
+    evidenceType = serializers.CharField()
+    sourceSlug = serializers.CharField()
+    sourceVersion = serializers.CharField()
+    sourceRecordId = serializers.CharField()
+    score = serializers.FloatField(allow_null=True)
+
+
+class BatchHerbEvidenceItemSerializer(serializers.Serializer):
+    query = serializers.CharField()
+    matches = BatchHerbEvidenceEntitySerializer(many=True)
+    ambiguous = serializers.BooleanField()
+    herbs = BatchHerbEvidenceEntitySerializer(many=True)
+    compounds = BatchHerbEvidenceEntitySerializer(many=True)
+    targets = BatchHerbEvidenceEntitySerializer(many=True)
+    relations = BatchHerbEvidenceRelationSerializer(many=True)
+    truncated = serializers.BooleanField()
+
+
+class BatchHerbEvidenceResponseSerializer(serializers.Serializer):
+    queryType = serializers.ChoiceField(choices=["herb", "compound"])
+    results = BatchHerbEvidenceItemSerializer(many=True)
+
+
+class BatchHerbEvidenceView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(request=BatchHerbEvidenceRequestSerializer, responses=BatchHerbEvidenceResponseSerializer)
+    def post(self, request):
+        parameters = BatchHerbEvidenceRequestSerializer(data=request.data)
+        parameters.is_valid(raise_exception=True)
+        values = parameters.validated_data
+        return Response(batch_herb_component_evidence(
+            query_type=values["queryType"],
+            queries=values["queries"],
+        ))
 
 
 class HomeStatsCountsSerializer(serializers.Serializer):

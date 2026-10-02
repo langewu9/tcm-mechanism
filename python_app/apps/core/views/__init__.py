@@ -2,6 +2,7 @@
 
 from .auth import CsrfTokenView, SessionView
 from .catalog import (
+    BatchHerbEvidenceView,
     DataSourceViewSet,
     DiseaseAliasSearchView,
     EvidenceRelationViewSet,
@@ -13,6 +14,7 @@ from .health import HealthView
 from .research import AnalysisTaskViewSet, MedicalCaseViewSet, ResearchAssistantView, ResearchDatasetViewSet
 
 __all__ = [
+    "BatchHerbEvidenceView",
     "AnalysisTaskViewSet",
     "DataSourceViewSet",
     "DiseaseAliasSearchView",

@@ -6,6 +6,7 @@ import re
 from collections import defaultdict
 
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from apps.core.models import AnalysisTask, EvidenceRelation, KnowledgeEntity, MedicalCase, MedicalCaseCandidate
@@ -37,6 +38,8 @@ def _entity_matches(entity_type: str, labels: list[str]) -> tuple[list[Knowledge
     for label in labels:
         exact = list(KnowledgeEntity.objects.filter(
             entity_type=entity_type, is_active=True, label__iexact=label,
+        ).filter(
+            Q(source_release__isnull=True) | Q(source_release__source__enabled=True)
         ).order_by("stable_id")[:10])
         if exact:
             matches.extend(exact)
@@ -67,6 +70,9 @@ def _relation_query(*, subject_ids=None, object_ids=None, relation_types, limit)
         object__is_active=True,
         source_release__source__enabled=True,
         relation_type__in=relation_types,
+    ).filter(
+        (Q(subject__source_release__isnull=True) | Q(subject__source_release__source__enabled=True))
+        & (Q(object__source_release__isnull=True) | Q(object__source_release__source__enabled=True))
     ).select_related("subject", "object", "source_release", "source_release__source")
     if subject_ids is not None:
         queryset = queryset.filter(subject_id__in=subject_ids)
@@ -172,7 +178,9 @@ def build_network_pharmacology(
     }
     target_ids = strict_ids | direct_ids
     target_entities = {
-        item.pk: item for item in KnowledgeEntity.objects.filter(pk__in=target_ids, is_active=True)
+        item.pk: item for item in KnowledgeEntity.objects.filter(pk__in=target_ids, is_active=True).filter(
+            Q(source_release__isnull=True) | Q(source_release__source__enabled=True)
+        )
     }
     pathway_by_target: dict[int, set[str]] = defaultdict(set)
     pathway_sources_by_target: dict[int, list[dict]] = defaultdict(list)

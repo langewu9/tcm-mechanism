@@ -145,6 +145,98 @@ class NetworkPharmacologyApiTests(APITestCase):
         self.assertEqual(response.data["summary"]["unmatchedHerbs"], ["不存在的中药"])
         self.assertEqual(response.data["summary"]["matchedDiseases"], [])
 
+    def test_network_search_hides_entities_from_disabled_sources(self):
+        disabled_source = DataSource.objects.create(slug="disabled", name="停用来源", enabled=False)
+        disabled_release = SourceRelease.objects.create(
+            source=disabled_source, version="disabled-v1", checksum_sha256="d" * 64,
+        )
+        hidden_herb = KnowledgeEntity.objects.create(
+            entity_type=KnowledgeEntity.EntityType.HERB,
+            stable_id="herb:hidden", label="停用来源药材", source_release=disabled_release,
+        )
+        hidden_compound = KnowledgeEntity.objects.create(
+            entity_type=KnowledgeEntity.EntityType.COMPOUND,
+            stable_id="compound:hidden", label="停用来源成分", source_release=disabled_release,
+        )
+        self.relation("contains", self.herb, hidden_compound, "enabled-edge-hidden-endpoint")
+        self.relation("contains", hidden_herb, self.compound, "enabled-edge-hidden-herb")
+        self.relation("targets", hidden_compound, self.akt1, "enabled-edge-hidden-target")
+        self.client.force_authenticate(self.owner)
+
+        hidden_search = self.client.post(
+            reverse("network-pharmacology"),
+            {"herb": "停用来源药材", "disease": "肺纤维化"},
+            format="json",
+        )
+        self.assertEqual(hidden_search.status_code, 200)
+        self.assertEqual(hidden_search.data["summary"]["matchedHerbs"], [])
+        self.assertEqual(hidden_search.data["summary"]["unmatchedHerbs"], ["停用来源药材"])
+        batch_hidden = self.client.post(
+            reverse("batch-herb-evidence"),
+            {"queryType": "herb", "queries": ["停用来源药材"]},
+            format="json",
+        )
+        self.assertEqual(batch_hidden.status_code, 200)
+        self.assertEqual(batch_hidden.data["results"][0]["matches"], [])
+
+        enabled_search = self.client.post(
+            reverse("network-pharmacology"),
+            {"herb": "黄芩", "disease": "肺纤维化"},
+            format="json",
+        )
+        self.assertEqual(enabled_search.status_code, 200)
+        node_labels = {node["label"] for node in enabled_search.data["network"]["nodes"]}
+        self.assertNotIn("停用来源药材", node_labels)
+        self.assertNotIn("停用来源成分", node_labels)
+        batch_enabled = self.client.post(
+            reverse("batch-herb-evidence"),
+            {"queryType": "herb", "queries": ["黄芩"]},
+            format="json",
+        )
+        self.assertEqual(batch_enabled.status_code, 200)
+        self.assertNotIn("停用来源成分", {item["label"] for item in batch_enabled.data["results"][0]["compounds"]})
+        source_record_ids = {
+            source["sourceRecordId"]
+            for target in enabled_search.data["targets"]
+            for source in target["sources"]
+        }
+        self.assertNotIn("enabled-edge-hidden-target", source_record_ids)
+
+    def test_batch_herb_and_compound_evidence_returns_versioned_edges(self):
+        url = reverse("batch-herb-evidence")
+        self.assertEqual(self.client.post(url, {"queryType": "herb", "queries": ["黄芩"]}, format="json").status_code, 401)
+        self.client.force_authenticate(self.owner)
+
+        herbs = self.client.post(
+            url,
+            {"queryType": "herb", "queries": ["黄芩", "不存在的中药"]},
+            format="json",
+        )
+        self.assertEqual(herbs.status_code, 200, herbs.data)
+        herb_result, missing_result = herbs.data["results"]
+        self.assertEqual(herb_result["compounds"][0]["label"], "黄芩苷")
+        self.assertEqual(herb_result["targets"][0]["label"], "TP53")
+        self.assertEqual({item["sourceVersion"] for item in herb_result["relations"]}, {"fixture-v1"})
+        self.assertEqual([item["sourceRecordId"] for item in herb_result["relations"]], ["hct:1", "hct:2"])
+        self.assertEqual(missing_result["matches"], [])
+        self.assertEqual(missing_result["relations"], [])
+
+        compounds = self.client.post(
+            url,
+            {"queryType": "compound", "queries": ["黄芩苷"]},
+            format="json",
+        )
+        self.assertEqual(compounds.status_code, 200, compounds.data)
+        self.assertEqual(compounds.data["results"][0]["herbs"][0]["label"], "黄芩")
+        self.assertEqual(compounds.data["results"][0]["targets"][0]["label"], "TP53")
+
+        excessive = self.client.post(
+            url,
+            {"queryType": "herb", "queries": [f"药材{i}" for i in range(13)]},
+            format="json",
+        )
+        self.assertEqual(excessive.status_code, 400)
+
     def test_formula_query_expands_to_its_versioned_herb_relations(self):
         formula = self.entity(KnowledgeEntity.EntityType.FORMULA, "formula:fixture", "测试方剂")
         self.relation("formula_herb", formula, self.herb, "fh:1")

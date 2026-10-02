@@ -3,6 +3,7 @@ import { Link, useNavigate, useOutletContext } from "react-router-dom";
 import { ArrowLeft, Download, Search } from "lucide-react";
 import { logout, type Session } from "../api/auth";
 import { ApiError } from "../api/client";
+import { BatchHerbEvidenceLookup } from "../components/BatchHerbEvidenceLookup";
 import { getEntityNeighborhood, searchCatalogEntities, type EntityNeighborhood, type KnowledgeEntity, type KnowledgeSearchPage } from "../api/catalog";
 import { compareComponents, searchChemblActivities, searchChemblMolecules, type ChemblActivitySearch, type ChemblMoleculeSearch, type ComponentComparison } from "../api/chembl";
 
@@ -228,6 +229,7 @@ export function KnowledgeExplorerPage() {
           {componentComparison.familyMatches.length > 0 && <div className="notice-warning"><span>同家族候选（不计入精确交集）：{componentComparison.familyMatches.map((row) => `${row.detectedInput} ↔ ${row.referenceInput}（${row.familyName}）`).join("；")}</span></div>}
         </section>}
       </section>
+      <BatchHerbEvidenceLookup />
       {error && <div className="notice-error workspace-notice" role="alert">{error}</div>}
       <div className="knowledge-explorer-grid">
         <section className="case-list">

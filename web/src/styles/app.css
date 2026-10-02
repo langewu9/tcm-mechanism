@@ -205,6 +205,15 @@
 .knowledge-evidence-text { margin-top: 0.55rem; color: var(--color-ink-soft); font-size: 0.72rem; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
 .spin { animation: proteomics-spin 1s linear infinite; }
 @keyframes proteomics-spin { to { transform: rotate(360deg); } }
+.batch-evidence-panel { margin-top: 1rem; padding: 1.1rem 1.2rem; }
+.batch-evidence-form { display: grid; grid-template-columns: minmax(12rem, 0.6fr) minmax(0, 1.4fr); gap: 0.8rem; }
+.batch-evidence-form > .case-form-footer { grid-column: 1 / -1; }
+.batch-evidence-results { display: grid; gap: 0.8rem; margin-top: 1rem; }
+.batch-evidence-item { min-width: 0; border-top: 1px solid var(--color-border); padding-top: 0.9rem; }
+.batch-evidence-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.7rem; margin-top: 0.65rem; }
+.batch-evidence-summary p { margin: 0; color: var(--color-ink-soft); font-size: 0.72rem; line-height: 1.6; overflow-wrap: anywhere; }
+.batch-evidence-summary strong { color: var(--color-ink); }
+.batch-evidence-relations { margin-top: 0.65rem; }
 
 @media (max-width: 850px) {
   .case-workspace-grid { grid-template-columns: minmax(0, 1fr); }
@@ -237,6 +246,9 @@
   .chembl-molecule-card .btn { width: 100%; }
   .case-list-actions { align-items: flex-end; flex-direction: column; }
   .workspace-nav { flex-wrap: wrap; }
+  .batch-evidence-form { grid-template-columns: minmax(0, 1fr); }
+  .batch-evidence-form > .case-form-footer { grid-column: auto; }
+  .batch-evidence-summary { grid-template-columns: minmax(0, 1fr); }
   .workspace-module-nav { order: 3; width: 100%; justify-content: center; }
   .workspace-module-nav { justify-content: flex-start; overflow-x: auto; }
   .workspace-module-nav a { flex: 0 0 auto; justify-content: center; text-align: center; white-space: nowrap; }

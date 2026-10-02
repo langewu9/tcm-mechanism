@@ -52,6 +52,43 @@ export type EntityNeighborhood = {
   truncated: boolean;
 };
 
+export type HerbEvidenceEntity = {
+  id: number;
+  stableId: string;
+  label: string;
+  sourceSlug: string | null;
+  sourceVersion: string | null;
+};
+
+export type HerbEvidenceRelation = {
+  subject: string;
+  object: string;
+  subjectType: string;
+  objectType: string;
+  relationType: string;
+  evidenceType: string;
+  sourceSlug: string;
+  sourceVersion: string;
+  sourceRecordId: string;
+  score: number | null;
+};
+
+export type HerbEvidenceItem = {
+  query: string;
+  matches: HerbEvidenceEntity[];
+  ambiguous: boolean;
+  herbs: HerbEvidenceEntity[];
+  compounds: HerbEvidenceEntity[];
+  targets: HerbEvidenceEntity[];
+  relations: HerbEvidenceRelation[];
+  truncated: boolean;
+};
+
+export type HerbEvidenceSearch = {
+  queryType: "herb" | "compound";
+  results: HerbEvidenceItem[];
+};
+
 export function searchCatalogEntities(query: string, entityType: string, page = 1) {
   if (entityType === "disease") {
     const params = new URLSearchParams({ query, page: String(page) });
@@ -64,4 +101,11 @@ export function searchCatalogEntities(query: string, entityType: string, page = 
 
 export function getEntityNeighborhood(entityId: number) {
   return apiRequest<EntityNeighborhood>(`/api/v1/catalog/entities/${entityId}/neighborhood/`);
+}
+
+export function searchHerbComponentEvidence(queryType: HerbEvidenceSearch["queryType"], queries: string[]) {
+  return apiRequest<HerbEvidenceSearch>("/api/v1/catalog/herb-evidence/batch/", {
+    method: "POST",
+    body: { queryType, queries },
+  });
 }
