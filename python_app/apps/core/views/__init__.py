@@ -1,13 +1,13 @@
 """Stable view exports grouped by business capability."""
 
-from .auth import csrf_token, session
+from .auth import CsrfTokenView, SessionView
 from .catalog import (
     DataSourceViewSet,
     EvidenceRelationViewSet,
     KnowledgeEntityViewSet,
-    home_stats,
+    HomeStatsView,
 )
-from .health import health
+from .health import HealthView
 from .research import AnalysisTaskViewSet, MedicalCaseViewSet, ResearchDatasetViewSet
 
 __all__ = [
@@ -17,8 +17,8 @@ __all__ = [
     "KnowledgeEntityViewSet",
     "MedicalCaseViewSet",
     "ResearchDatasetViewSet",
-    "csrf_token",
-    "health",
-    "home_stats",
-    "session",
+    "CsrfTokenView",
+    "HealthView",
+    "HomeStatsView",
+    "SessionView",
 ]
