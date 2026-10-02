@@ -169,6 +169,24 @@ class VisualizationRequestSerializer(serializers.Serializer):
     ])
 
 
+class ResearchAssistantRequestSerializer(serializers.Serializer):
+    question = serializers.CharField(max_length=2000, trim_whitespace=True)
+    entityIds = serializers.ListField(
+        child=serializers.IntegerField(min_value=1), min_length=1, max_length=8
+    )
+    useModel = serializers.BooleanField(default=False)
+    confirmModelSharing = serializers.BooleanField(default=False)
+
+    def validate(self, attrs):
+        if attrs["useModel"] and not attrs["confirmModelSharing"]:
+            raise serializers.ValidationError({
+                "confirmModelSharing": "请先确认本次问题和所选本地证据可以发送到已配置的本机/内网模型。"
+            })
+        if any(ord(character) < 32 and character not in "\n\r\t" for character in attrs["question"]):
+            raise serializers.ValidationError({"question": "问题中包含不支持的控制字符。"})
+        return attrs
+
+
 class AnalysisTaskSerializer(serializers.ModelSerializer):
     owner_id = serializers.ReadOnlyField()
     owner_username = serializers.CharField(source="owner.username", read_only=True)

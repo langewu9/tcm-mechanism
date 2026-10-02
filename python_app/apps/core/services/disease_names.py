@@ -61,4 +61,5 @@ def disease_entity_queryset(queries: list[str]):
     return KnowledgeEntity.objects.filter(
         entity_type=KnowledgeEntity.EntityType.DISEASE,
         is_active=True,
+        source_release__source__enabled=True,
     ).filter(conditions).select_related("source_release", "source_release__source").distinct().order_by("label", "stable_id")

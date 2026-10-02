@@ -175,6 +175,7 @@ class AnalysisTask(models.Model):
         CASE_LINK = "case_link", "医案药理关联"
         NETWORK = "network", "网络药理"
         VISUALIZATION = "visualization", "R 图表"
+        RESEARCH_ASSISTANT = "research_assistant", "科研助手"
 
     class Status(models.TextChoices):
         QUEUED = "queued", "排队中"

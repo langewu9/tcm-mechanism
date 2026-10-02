@@ -16,7 +16,7 @@ from rest_framework.views import APIView
 
 from ..exceptions import ResourceConflict, TaskQueueUnavailable
 from ..models import AnalysisTask, MedicalCase, MedicalCaseAuditEvent, MedicalCaseCandidate, ResearchDataset, VisualizationArtifact
-from ..serializers import AnalysisTaskSerializer, CaseAnalysisRequestSerializer, CaseCandidateReviewRequestSerializer, MedicalCaseAuditEventSerializer, MedicalCaseCandidateSerializer, MedicalCaseSerializer, ResearchDatasetSerializer, VisualizationRequestSerializer
+from ..serializers import AnalysisTaskSerializer, CaseAnalysisRequestSerializer, CaseCandidateReviewRequestSerializer, MedicalCaseAuditEventSerializer, MedicalCaseCandidateSerializer, MedicalCaseSerializer, ResearchAssistantRequestSerializer, ResearchDatasetSerializer, VisualizationRequestSerializer
 from apps.proteomics.serializers import ProteomicsRunRequestSerializer
 from apps.proteomics.models import ProteomicsRowResult
 from apps.proteomics.serializers_rows import ProteomicsRowResultSerializer
@@ -445,6 +445,53 @@ class AnalysisTaskViewSet(viewsets.ReadOnlyModelViewSet):
         response["Content-Disposition"] = f'attachment; filename="proteomics-task-{task.pk}.{export_format}"'
         response["X-Content-Type-Options"] = "nosniff"
         return response
+
+
+class ResearchAssistantView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(request=ResearchAssistantRequestSerializer, responses=AnalysisTaskSerializer)
+    def post(self, request):
+        serializer = ResearchAssistantRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        from ..services.research_assistant import ResearchAssistantError, build_evidence_snapshot
+
+        try:
+            evidence, source_release_ids = build_evidence_snapshot(data["entityIds"])
+        except ResearchAssistantError as exc:
+            raise ValidationError({"entityIds": str(exc)}) from exc
+
+        task = AnalysisTask.objects.create(
+            owner=request.user,
+            created_by=request.user,
+            task_type=AnalysisTask.TaskType.RESEARCH_ASSISTANT,
+            status=AnalysisTask.Status.QUEUED,
+            input_parameters={
+                "analysisKind": "research_assistant",
+                "algorithmVersion": "research-assistant-0.1",
+                "question": data["question"],
+                "entityIds": data["entityIds"],
+                "evidenceSnapshot": evidence,
+                "useModel": data["useModel"],
+                "modelConsentRecorded": data["useModel"] and data["confirmModelSharing"],
+                "modelName": settings.CASE_MODEL_NAME if data["useModel"] else None,
+                "modelVersion": settings.CASE_MODEL_VERSION if data["useModel"] else None,
+            },
+        )
+        task.source_releases.set(source_release_ids)
+        try:
+            from ..tasks import run_research_assistant_task
+
+            run_research_assistant_task.apply_async(args=[task.pk])
+        except Exception as exc:
+            task.status = AnalysisTask.Status.FAILED
+            task.progress = 100
+            task.error_summary = "科研助手任务队列暂不可用，请稍后重试。"
+            task.finished_at = timezone.now()
+            task.save(update_fields=["status", "progress", "error_summary", "finished_at"])
+            raise TaskQueueUnavailable() from exc
+        return Response(AnalysisTaskSerializer(task).data, status=status.HTTP_202_ACCEPTED)
 
 
 class VisualizationArtifactDownloadView(APIView):

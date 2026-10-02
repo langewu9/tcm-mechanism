@@ -100,6 +100,13 @@
 .source-apply-button { margin-top: 0.8rem; }
 .source-run-error { margin-top: 0.75rem; }
 .proteomics-workspace-grid { grid-template-columns: minmax(19rem, 0.78fr) minmax(0, 1.22fr); }
+.assistant-entity-results { margin-top: 0.7rem; max-height: 20rem; overflow-y: auto; }
+.assistant-selected-list { margin-top: 1rem; }
+.assistant-selected-item { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; padding: 0.6rem 0.75rem; }
+.assistant-selected-item > span { display: grid; gap: 0.25rem; }
+.assistant-selected-item small { color: var(--color-ink-faint); font-size: 0.65rem; }
+.assistant-task-result { display: grid; gap: 0.75rem; margin-top: 1rem; }
+.assistant-answer { white-space: pre-wrap; line-height: 1.75; }
 .proteomics-column-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.7rem; }
 .proteomics-threshold-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.7rem; }
 .proteomics-consent { display: flex; align-items: flex-start; gap: 0.65rem; border: 1px solid var(--color-border); background: rgba(255, 253, 248, 0.7); padding: 0.75rem; cursor: pointer; }

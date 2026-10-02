@@ -25,7 +25,9 @@ class DataSourceViewSet(viewsets.ReadOnlyModelViewSet):
 class KnowledgeEntityViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = KnowledgeEntitySerializer
     permission_classes = [IsAuthenticated]
-    queryset = KnowledgeEntity.objects.filter(is_active=True).select_related(
+    queryset = KnowledgeEntity.objects.filter(is_active=True).filter(
+        Q(source_release__isnull=True) | Q(source_release__source__enabled=True)
+    ).select_related(
         "source_release", "source_release__source"
     )
     search_fields = ["stable_id", "label"]
@@ -36,7 +38,13 @@ class EvidenceRelationViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = EvidenceRelationSerializer
     permission_classes = [IsAuthenticated]
     queryset = EvidenceRelation.objects.filter(
-        is_active=True, subject__is_active=True, object__is_active=True
+        is_active=True,
+        subject__is_active=True,
+        object__is_active=True,
+        source_release__source__enabled=True,
+    ).filter(
+        (Q(subject__source_release__isnull=True) | Q(subject__source_release__source__enabled=True))
+        & (Q(object__source_release__isnull=True) | Q(object__source_release__source__enabled=True))
     ).select_related(
         "subject", "object", "source_release", "source_release__source"
     )
@@ -55,12 +63,21 @@ class EntityNeighborhoodView(APIView):
 
     @extend_schema(responses=EntityNeighborhoodSerializer)
     def get(self, request, entity_id):
-        entity = get_object_or_404(KnowledgeEntity.objects.filter(is_active=True), pk=entity_id)
+        entity = get_object_or_404(
+            KnowledgeEntity.objects.filter(is_active=True).filter(
+                Q(source_release__isnull=True) | Q(source_release__source__enabled=True)
+            ),
+            pk=entity_id,
+        )
         relations = EvidenceRelation.objects.filter(
             Q(subject=entity) | Q(object=entity),
             is_active=True,
             subject__is_active=True,
             object__is_active=True,
+            source_release__source__enabled=True,
+        ).filter(
+            (Q(subject__source_release__isnull=True) | Q(subject__source_release__source__enabled=True))
+            & (Q(object__source_release__isnull=True) | Q(object__source_release__source__enabled=True))
         ).select_related(
             "subject", "object", "source_release", "source_release__source"
         ).order_by("relation_type", "subject__label", "object__label", "source_release__version")
@@ -149,7 +166,9 @@ class HomeStatsView(APIView):
 
     @extend_schema(responses=HomeStatsSerializer)
     def get(self, request):
-        counts = KnowledgeEntity.objects.filter(is_active=True).aggregate(
+        counts = KnowledgeEntity.objects.filter(is_active=True).filter(
+            Q(source_release__isnull=True) | Q(source_release__source__enabled=True)
+        ).aggregate(
             herbs=Count("id", filter=Q(entity_type=KnowledgeEntity.EntityType.HERB)),
             compounds=Count("id", filter=Q(entity_type=KnowledgeEntity.EntityType.COMPOUND)),
             targets=Count(

@@ -7,6 +7,7 @@ from django.utils import timezone
 from apps.core.models import AnalysisTask
 from apps.core.services.external_analysis import execute_external_analysis
 from apps.core.services.case_analysis import CaseAnalysisError, CaseModelUnavailable, run_case_analysis
+from apps.core.services.research_assistant import ResearchAssistantError, run_research_assistant
 from apps.core.services.visualization import VisualizationInputError, execute_visualization_task
 
 
@@ -38,6 +39,40 @@ def run_case_analysis_task(task_id: int) -> dict[str, str | int]:
     except Exception as exc:
         public_message = "医案分析失败，请稍后重试或联系平台管理员并提供任务编号。"
         logger.error("Medical case analysis failed task_id=%s error_type=%s", task_id, type(exc).__name__)
+    AnalysisTask.objects.filter(pk=task_id, status=AnalysisTask.Status.RUNNING).update(
+        status=AnalysisTask.Status.FAILED,
+        progress=100,
+        error_summary=public_message,
+        finished_at=timezone.now(),
+    )
+    return {"status": AnalysisTask.Status.FAILED, "taskId": task_id}
+
+
+@shared_task(name="core.research_assistant")
+def run_research_assistant_task(task_id: int) -> dict[str, str | int]:
+    claimed = AnalysisTask.objects.filter(
+        pk=task_id,
+        task_type=AnalysisTask.TaskType.RESEARCH_ASSISTANT,
+        status=AnalysisTask.Status.QUEUED,
+    ).update(status=AnalysisTask.Status.RUNNING, progress=5, started_at=timezone.now())
+    if not claimed:
+        return {"status": "skipped", "taskId": task_id}
+    try:
+        task = AnalysisTask.objects.get(pk=task_id)
+        result = run_research_assistant(task)
+        AnalysisTask.objects.filter(pk=task_id, status=AnalysisTask.Status.RUNNING).update(
+            result=result,
+            status=AnalysisTask.Status.SUCCEEDED,
+            progress=100,
+            finished_at=timezone.now(),
+        )
+        return {"status": AnalysisTask.Status.SUCCEEDED, "taskId": task_id}
+    except (ResearchAssistantError, CaseModelUnavailable) as exc:
+        public_message = str(exc)
+        logger.info("Research assistant task rejected task_id=%s error_type=%s", task_id, type(exc).__name__)
+    except Exception as exc:
+        public_message = "科研助手分析失败，请稍后重试或联系平台管理员并提供任务编号。"
+        logger.error("Research assistant task failed task_id=%s error_type=%s", task_id, type(exc).__name__)
     AnalysisTask.objects.filter(pk=task_id, status=AnalysisTask.Status.RUNNING).update(
         status=AnalysisTask.Status.FAILED,
         progress=100,

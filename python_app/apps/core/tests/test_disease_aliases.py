@@ -11,6 +11,10 @@ class DiseaseAliasExpansionTests(APITestCase):
         self.user = get_user_model().objects.create_user(username="disease-alias-user", password="test-password-123")
         source = DataSource.objects.create(slug="disease-fixture", name="合成疾病来源")
         release = SourceRelease.objects.create(source=source, version="fixture-v1")
+        disabled_source = DataSource.objects.create(
+            slug="disease-disabled-fixture", name="停用疾病来源", enabled=False
+        )
+        disabled_release = SourceRelease.objects.create(source=disabled_source, version="fixture-v1")
         self.fibrosis = KnowledgeEntity.objects.create(
             entity_type=KnowledgeEntity.EntityType.DISEASE,
             stable_id="EFO:0000768",
@@ -31,6 +35,13 @@ class DiseaseAliasExpansionTests(APITestCase):
             label="Pulmonary fibrosis inactive",
             is_active=False,
             source_release=release,
+        )
+        self.disabled_source_disease = KnowledgeEntity.objects.create(
+            entity_type=KnowledgeEntity.EntityType.DISEASE,
+            stable_id="disabled:EFO:0000768",
+            label="Pulmonary fibrosis from disabled source",
+            synonyms=["Pulmonary fibrosis"],
+            source_release=disabled_release,
         )
         self.herb = KnowledgeEntity.objects.create(
             entity_type=KnowledgeEntity.EntityType.HERB,
@@ -60,6 +71,7 @@ class DiseaseAliasExpansionTests(APITestCase):
         self.assertIn("Idiopathic pulmonary fibrosis", response.data["results"][0]["matchedQueries"])
         self.assertEqual(response.data["aliasSourceCommit"], "078d374")
         self.assertNotIn(self.inactive.pk, {row["id"] for row in response.data["results"]})
+        self.assertNotIn(self.disabled_source_disease.pk, {row["id"] for row in response.data["results"]})
         self.assertNotIn(self.herb.pk, {row["id"] for row in response.data["results"]})
         self.assertNotIn(self.other.pk, {row["id"] for row in response.data["results"]})
 
@@ -69,4 +81,3 @@ class DiseaseAliasExpansionTests(APITestCase):
         self.client.force_authenticate(self.user)
         self.assertEqual(self.client.get(url, {"query": "   "}).status_code, 400)
         self.assertEqual(self.client.get(url, {"query": "肺" * 121}).status_code, 400)
-
