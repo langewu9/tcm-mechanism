@@ -77,6 +77,8 @@ export function ProteomicsPage() {
   const [thresholds, setThresholds] = useState({ log2FcMin: "1", fdrMax: "0.05", pValueMax: "0.05" });
   const [referenceTargets, setReferenceTargets] = useState("");
   const [externalReactome, setExternalReactome] = useState(false);
+  const [externalString, setExternalString] = useState(false);
+  const [stringRequiredScore, setStringRequiredScore] = useState("700");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [showRows, setShowRows] = useState(false);
@@ -153,6 +155,8 @@ export function ProteomicsPage() {
         },
         referenceTargets: referenceTargets.split(/[\s,，、;；|/]+/).filter(Boolean),
         externalReactome,
+        externalString,
+        stringRequiredScore: Number(stringRequiredScore),
       });
       setTask(taskResponse);
       setNotice(`分析任务 #${taskResponse.id} 已进入后台队列。`);
@@ -237,6 +241,13 @@ export function ProteomicsPage() {
                 <input type="checkbox" checked={externalReactome} onChange={(event) => setExternalReactome(event.target.checked)} />
                 <span><strong>启用 MyGene.info 标识映射与 Reactome 富集</strong><small>仅发送通过筛选的基因/蛋白标识（最多 500 个），不会发送完整文件、未通过行、账号或医案。当前外部分析仅支持人类标识；不勾选时所有分析留在本地。</small></span>
               </label>
+              <label className="proteomics-consent">
+                <input type="checkbox" checked={externalString} onChange={(event) => setExternalString(event.target.checked)} />
+                <span><strong>另行同意查询 STRING 物理互作（PPI）</strong><small>最多发送筛选后 200 个基因/蛋白标识，只查询人类物理互作；不会发送原始文件或其他行。STRING 分数表示数据库互作证据，不证明因果关系。</small></span>
+              </label>
+              {externalString && <label className="form-label">STRING 最低置信度（0–1000）
+                <input className="field" type="number" min="0" max="1000" step="50" value={stringRequiredScore} onChange={(event) => setStringRequiredScore(event.target.value)} />
+              </label>}
             </>}
           </div>
           <div className="case-form-footer"><p>阈值筛选不会把缺失或非法统计值默认为显著。</p>
@@ -284,6 +295,7 @@ function ProteomicsResultView({
   onToggleRows: () => void;
   onRowPageChange: (page: number) => void;
 }) {
+  const externalStringNodes = new Map((result.externalString?.nodes ?? []).map((node) => [node.id, node.label]));
   return <div className="proteomics-result-content">
     <p className="section-help">原始文件 SHA-256：<code>{result.dataset.sha256}</code> · 算法版本：{result.algorithmVersion} · 来源版本数：{task.source_releases.length}</p>
     <div className="proteomics-metrics">
@@ -319,6 +331,19 @@ function ProteomicsResultView({
         {result.externalReactome.pathways.map((pathway) => <tr key={pathway.stableId}><td>{pathway.name}</td><td>{pathway.stableId}</td><td>{pathway.matchedEntities}/{pathway.totalEntities ?? "—"}</td><td>{pathway.coverage == null ? "—" : formatNumber(pathway.coverage)}</td><td>{formatNumber(pathway.pValue)}</td><td>{formatNumber(pathway.fdr)}</td></tr>)}
       </tbody></table></div> : <p className="section-help">本次没有可展示的显著 Reactome 通路，或外部服务不可用。</p>}
       {result.externalReactome.ambiguousIdentifiers.length > 0 && <details className="case-notes"><summary>存在歧义的标识</summary><p>{result.externalReactome.ambiguousIdentifiers.join("、")}</p></details>}
+    </section>}
+
+    {result.externalString && <section className="proteomics-result-section">
+      <div className="case-list-heading"><div><h3 className="section-title-sm">STRING 物理互作网络</h3><p className="section-help">{result.externalString.organism} · {result.externalString.source}{result.externalString.sourceVersion ? ` ${result.externalString.sourceVersion}` : " · 数据库版本未配置"} · 最低置信度 {result.externalString.requiredScore}/1000</p></div>
+        <span className={`status-badge ${result.externalString.status === "succeeded" ? "status-success" : result.externalString.status === "unavailable" || result.externalString.status === "disabled" ? "status-warning" : ""}`}>{{ succeeded: "已返回互作", no_interactions: "没有满足阈值的互作", insufficient_identifiers: "可用标识不足", unavailable: "服务不可用", disabled: "服务已停用" }[result.externalString.status] ?? result.externalString.status}</span>
+      </div>
+      <p className="section-help">本次识别 {result.externalString.inputCount} 个标识，向 STRING 发送 {result.externalString.submittedIdentifierCount} 个；返回 {result.externalString.interactionCount} 条物理互作。分数是数据库证据，不代表因果结论。</p>
+      {result.externalString.edges.length > 0 ? <div className="table-scroll"><table className="data-table"><thead><tr><th>蛋白 A</th><th>蛋白 B</th><th>STRING 评分</th></tr></thead><tbody>
+        {result.externalString.edges.slice(0, 200).map((edge, index) => {
+          return <tr key={`${edge.source}:${edge.target}:${index}`}><td>{externalStringNodes.get(edge.source) ?? edge.source}</td><td>{externalStringNodes.get(edge.target) ?? edge.target}</td><td>{edge.scoreOutOf1000}/1000</td></tr>;
+        })}
+      </tbody></table></div> : <p className="section-help">本次没有可展示的物理互作边。</p>}
+      {result.externalString.truncatedIdentifierCount > 0 && <p className="section-help">超出每次 200 个标识的上限，未发送 {result.externalString.truncatedIdentifierCount} 个。</p>}
     </section>}
 
     <section className="proteomics-result-section">

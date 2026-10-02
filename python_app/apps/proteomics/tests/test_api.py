@@ -60,6 +60,8 @@ class ProteomicsApiTests(APITestCase):
         self.assertEqual(task.task_type, AnalysisTask.TaskType.PROTEOMICS)
         self.assertEqual(task.status, AnalysisTask.Status.QUEUED)
         self.assertFalse(task.input_parameters["externalReactome"])
+        self.assertFalse(task.input_parameters["externalString"])
+        self.assertEqual(task.input_parameters["stringRequiredScore"], 700)
         self.assertEqual(task.input_parameters["datasetSha256"], "test-digest")
         self.assertEqual(task.input_parameters["referenceTargets"], ["TP53", "IL6"])
         enqueue.assert_called_once_with(args=[task.pk])
@@ -81,6 +83,27 @@ class ProteomicsApiTests(APITestCase):
         self.assertEqual(response.status_code, 202)
         task = AnalysisTask.objects.get(pk=response.data["id"])
         self.assertTrue(task.input_parameters["externalReactome"])
+
+    def test_string_ppi_requires_a_separate_explicit_opt_in_and_bounded_score(self):
+        self.client.force_authenticate(self.owner)
+        with patch("apps.proteomics.tasks.run_proteomics_task.apply_async"):
+            response = self.client.post(
+                reverse("dataset-analyze", args=[self.dataset.pk]),
+                {"externalString": True, "stringRequiredScore": 850},
+                format="json",
+            )
+        self.assertEqual(response.status_code, 202)
+        task = AnalysisTask.objects.get(pk=response.data["id"])
+        self.assertTrue(task.input_parameters["externalString"])
+        self.assertEqual(task.input_parameters["stringRequiredScore"], 850)
+
+        invalid = self.client.post(
+            reverse("dataset-analyze", args=[self.dataset.pk]),
+            {"externalString": True, "stringRequiredScore": 1001},
+            format="json",
+        )
+        self.assertEqual(invalid.status_code, 400)
+        self.assertEqual(AnalysisTask.objects.count(), 1)
 
     def test_queue_failure_returns_standard_503_and_keeps_failed_audit_task(self):
         self.client.force_authenticate(self.owner)

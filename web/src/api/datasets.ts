@@ -81,6 +81,24 @@ export type ProteomicsResult = {
     rejectedIdentifierCount?: number;
     failureStage?: string;
   };
+  externalString?: {
+    status: string;
+    organism: string;
+    source: string;
+    sourceVersion: string | null;
+    sourceVersionKnown: boolean;
+    networkType: "physical";
+    requiredScore: number;
+    inputCount: number;
+    submittedIdentifierCount: number;
+    truncatedIdentifierCount: number;
+    rejectedIdentifierCount?: number;
+    interactionCount: number;
+    nodes: Array<{ id: string; label: string; type: string }>;
+    edges: Array<{ source: string; target: string; score: number; scoreOutOf1000: number }>;
+    consentRecorded: boolean;
+    failureStage?: string;
+  };
   rows: Array<{
     index: number;
     originalLabel: string;
@@ -149,6 +167,8 @@ export type ProteomicsRowPage = { count: number; next: string | null; previous: 
 export type ProteomicsRunRequest = {
   name?: string;
   externalReactome?: boolean;
+  externalString?: boolean;
+  stringRequiredScore?: number;
   mapping?: {
     geneColumn?: string;
     proteinColumn?: string;

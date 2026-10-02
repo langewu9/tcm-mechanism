@@ -20,6 +20,7 @@ from ..serializers import AnalysisTaskSerializer, MedicalCaseAuditEventSerialize
 from apps.proteomics.serializers import ProteomicsRunRequestSerializer
 from apps.proteomics.models import ProteomicsRowResult
 from apps.proteomics.serializers_rows import ProteomicsRowResultSerializer
+from apps.proteomics.services import ALGORITHM_VERSION
 
 
 class ResearchDatasetViewSet(viewsets.ModelViewSet):
@@ -74,8 +75,10 @@ class ResearchDatasetViewSet(viewsets.ModelViewSet):
             input_parameters={
                 "name": data.get("name") or dataset.name,
                 "datasetSha256": dataset.content_sha256,
-                "algorithmVersion": "proteomics-py-1.1",
+                "algorithmVersion": ALGORITHM_VERSION,
                 "externalReactome": data["externalReactome"],
+                "externalString": data["externalString"],
+                "stringRequiredScore": data["stringRequiredScore"],
                 "mapping": data["mapping"],
                 "thresholds": data["thresholds"],
                 "referenceTargets": data["referenceTargets"],

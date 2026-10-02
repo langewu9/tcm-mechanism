@@ -2,10 +2,11 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.urls import reverse
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from rest_framework.test import APITestCase
 
 from apps.core.models import AnalysisTask, DataSource, SourceRelease
+from apps.core.services.external_analysis import query_string_physical_network
 from apps.core.tasks import run_external_analysis_task
 
 
@@ -95,3 +96,28 @@ class ExternalAnalysisWorkerTests(APITestCase):
         self.assertEqual(task.result["interactionCount"], 1)
         self.assertEqual(task.result["edges"][0]["scoreOutOf1000"], 910)
         self.assertEqual(list(task.source_releases.all()), [self.release])
+
+
+class ProteomicsStringConnectorTests(SimpleTestCase):
+    @patch("apps.core.services.external_analysis._run_string")
+    def test_proteomics_connector_deduplicates_and_preserves_physical_network_result(self, run_string):
+        expected = {"networkType": "physical", "interactionCount": 1}
+        run_string.return_value = (expected, "fixture-v1")
+
+        result = query_string_physical_network([" TP53 ", "IL6", "TP53"], 800)
+
+        self.assertEqual(result, (expected, "fixture-v1"))
+        run_string.assert_called_once_with(["TP53", "IL6"], 800)
+
+    @patch("apps.core.services.external_analysis._run_string")
+    def test_proteomics_connector_rejects_unbounded_or_invalid_queries_before_network_call(self, run_string):
+        with self.assertRaises(ValueError):
+            query_string_physical_network([f"GENE{i}" for i in range(201)], 700)
+        with self.assertRaises(ValueError):
+            query_string_physical_network(["TP53", "IL6"], -1)
+        with self.assertRaises(ValueError):
+            query_string_physical_network(["TP53", "IL6"], 1001)
+        with self.assertRaises(ValueError):
+            query_string_physical_network(["TP53", "TP53"], 700)
+
+        run_string.assert_not_called()

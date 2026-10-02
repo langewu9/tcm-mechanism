@@ -6,7 +6,7 @@ from django.utils import timezone
 
 from apps.core.models import AnalysisTask
 from apps.proteomics.models import ProteomicsRowResult
-from apps.proteomics.integrations import run_opt_in_reactome
+from apps.proteomics.integrations import run_opt_in_reactome, run_opt_in_string
 from apps.proteomics.services import ProteomicsInputError, run_proteomics_analysis
 
 
@@ -43,6 +43,24 @@ def run_proteomics_task(task_id: int) -> dict[str, str | int]:
             if external.get("status") in {"unavailable", "no_mapped_identifiers"}:
                 logger.warning(
                     "External proteomics service incomplete task_id=%s stage=%s",
+                    task_id,
+                    external.get("failureStage", external.get("status")),
+                )
+        if task.input_parameters.get("externalString"):
+            AnalysisTask.objects.filter(pk=task_id).update(progress=92)
+            external_release_ids, external_warnings = run_opt_in_string(
+                task,
+                result,
+                row_results,
+                task.input_parameters.get("stringRequiredScore", 700),
+            )
+            release_ids.extend(external_release_ids)
+            result.setdefault("warnings", []).extend(external_warnings)
+            AnalysisTask.objects.filter(pk=task_id).update(progress=97)
+            external = result.get("externalString", {})
+            if external.get("status") in {"unavailable", "disabled", "insufficient_identifiers"}:
+                logger.warning(
+                    "STRING proteomics service incomplete task_id=%s stage=%s",
                     task_id,
                     external.get("failureStage", external.get("status")),
                 )

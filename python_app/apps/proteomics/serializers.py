@@ -19,6 +19,8 @@ class ProteomicsMappingSerializer(serializers.Serializer):
 class ProteomicsRunRequestSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=200, required=False, allow_blank=True)
     externalReactome = serializers.BooleanField(required=False, default=False)
+    externalString = serializers.BooleanField(required=False, default=False)
+    stringRequiredScore = serializers.IntegerField(min_value=0, max_value=1000, required=False, default=700)
     mapping = ProteomicsMappingSerializer(required=False, default=dict)
     thresholds = ProteomicsThresholdsSerializer(required=False, default=dict)
     referenceTargets = serializers.ListField(
@@ -45,6 +47,8 @@ class ProteomicsRunRequestSerializer(serializers.Serializer):
     def validate(self, attrs):
         attrs.setdefault("mapping", {})
         attrs.setdefault("externalReactome", False)
+        attrs.setdefault("externalString", False)
+        attrs.setdefault("stringRequiredScore", 700)
         attrs.setdefault("thresholds", {"log2FcMin": 1.0, "fdrMax": 0.05, "pValueMax": 0.05})
         attrs.setdefault("referenceTargets", [])
         return attrs

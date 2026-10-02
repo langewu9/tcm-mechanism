@@ -17,7 +17,7 @@ from apps.core.models import (
     SourceRelease,
 )
 from apps.proteomics.models import ProteomicsRowResult
-from apps.proteomics.integrations import run_opt_in_reactome
+from apps.proteomics.integrations import run_opt_in_reactome, run_opt_in_string
 from apps.proteomics.services import (
     ProteomicsInputError,
     parse_dataset_table,
@@ -150,15 +150,18 @@ class ProteomicsServiceTests(TestCase):
         self.assertTrue(any("符号格式" in warning for warning in result["warnings"]))
 
     def test_celery_task_persists_results_and_is_idempotent(self):
-        with patch("apps.proteomics.tasks.run_opt_in_reactome") as external_analysis:
+        with patch("apps.proteomics.tasks.run_opt_in_reactome") as external_analysis, patch(
+            "apps.proteomics.tasks.run_opt_in_string"
+        ) as string_analysis:
             outcome = run_proteomics_task.run(self.task.pk)
         external_analysis.assert_not_called()
+        string_analysis.assert_not_called()
 
         self.task.refresh_from_db()
         self.assertEqual(outcome["status"], AnalysisTask.Status.SUCCEEDED)
         self.assertEqual(self.task.status, AnalysisTask.Status.SUCCEEDED)
         self.assertEqual(self.task.progress, 100)
-        self.assertEqual(self.task.result["algorithmVersion"], "proteomics-py-1.2")
+        self.assertEqual(self.task.result["algorithmVersion"], "proteomics-py-1.3")
         self.assertEqual(ProteomicsRowResult.objects.filter(task=self.task).count(), 6)
         self.assertEqual(list(self.task.source_releases.values_list("id", flat=True)), [self.release.pk])
         self.assertEqual(run_proteomics_task.run(self.task.pk)["status"], "skipped")
@@ -204,4 +207,44 @@ class ProteomicsServiceTests(TestCase):
         self.assertEqual(result["summary"]["enrichmentMode"], "LOCAL+REACTOME")
         self.assertEqual(len(release_ids), 2)
         self.assertEqual(list(SourceRelease.objects.filter(pk__in=release_ids).values_list("source__slug", flat=True)), ["mygene-info", "reactome"])
+        self.assertEqual(warnings, [])
+
+    def test_opt_in_string_queries_only_selected_symbols_and_records_version(self):
+        result, row_results, _release_ids = run_proteomics_analysis(self.task)
+        selected_labels = list(dict.fromkeys(
+            row.normalized_symbol for row in row_results if row.selected and row.normalized_symbol
+        ))
+        network = {
+            "analysisKind": "string_ppi",
+            "organism": "Homo sapiens",
+            "taxonId": 9606,
+            "requiredScore": 800,
+            "networkType": "physical",
+            "source": "STRING",
+            "sourceVersion": "12.0",
+            "sourceVersionKnown": True,
+            "inputCount": len(selected_labels),
+            "interactionCount": 1,
+            "nodes": [
+                {"id": "9606.ENSP0001", "label": "TP53", "type": "protein"},
+                {"id": "9606.ENSP0002", "label": "MAPK1", "type": "protein"},
+            ],
+            "edges": [{"source": "9606.ENSP0001", "target": "9606.ENSP0002", "score": 0.91, "scoreOutOf1000": 910}],
+            "retrievedAt": "2026-10-03T00:00:00+00:00",
+            "note": "physical interaction evidence",
+        }
+        with patch(
+            "apps.proteomics.integrations.query_string_physical_network",
+            return_value=(network, "12.0"),
+        ) as query:
+            release_ids, warnings = run_opt_in_string(self.task, result, row_results, 800)
+
+        query.assert_called_once_with(selected_labels, 800)
+        self.assertEqual(result["externalString"]["status"], "succeeded")
+        self.assertEqual(result["externalString"]["interactionCount"], 1)
+        self.assertTrue(result["externalString"]["consentRecorded"])
+        self.assertTrue(result["externalString"]["sourceVersionKnown"])
+        release = SourceRelease.objects.get(pk=release_ids[0])
+        self.assertEqual(release.source.slug, "string")
+        self.assertEqual(release.version, "12.0")
         self.assertEqual(warnings, [])

@@ -191,6 +191,18 @@ def _run_string(labels: list[str], required_score: int) -> tuple[dict, str | Non
     }, version
 
 
+def query_string_physical_network(labels: list[str], required_score: int) -> tuple[dict, str | None]:
+    """Query STRING for a bounded, explicitly consented human identifier set."""
+    unique_labels = _deduplicate_labels(labels)
+    if len(unique_labels) < 2:
+        raise ValueError("STRING 查询至少需要 2 个不同的基因/蛋白标识。")
+    if len(unique_labels) > MAX_STRING_IDENTIFIERS:
+        raise ValueError(f"STRING 单次最多接收 {MAX_STRING_IDENTIFIERS} 个标识。")
+    if not 0 <= required_score <= 1000:
+        raise ValueError("STRING 置信度阈值必须介于 0 到 1000。")
+    return _run_string(unique_labels, required_score)
+
+
 def _attach_source_release(task: AnalysisTask, slug: str, version: str | None) -> None:
     if version:
         release = SourceRelease.objects.filter(source__slug=slug, version=version).first()

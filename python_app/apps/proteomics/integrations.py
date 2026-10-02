@@ -4,6 +4,10 @@ from datetime import date
 
 from django.utils import timezone
 
+from apps.core.services.external_analysis import (
+    ExternalAnalysisError,
+    query_string_physical_network,
+)
 from apps.core.models import DataSource, SourceRelease
 
 from .external_reactome import (
@@ -253,4 +257,102 @@ def run_opt_in_reactome(task, result, row_results):
     result.setdefault("summary", {})["reactomePathwayCount"] = len(enrichment["pathways"])
 
     result["externalReactome"] = output
+    return releases, warnings
+
+
+def run_opt_in_string(task, result, row_results, required_score=700):
+    """Append STRING physical interactions only after separate user consent."""
+    output = {
+        "status": "unavailable",
+        "organism": "Homo sapiens",
+        "source": "STRING",
+        "sourceVersion": None,
+        "sourceVersionKnown": False,
+        "networkType": "physical",
+        "requiredScore": required_score,
+        "inputCount": 0,
+        "submittedIdentifierCount": 0,
+        "truncatedIdentifierCount": 0,
+        "interactionCount": 0,
+        "nodes": [],
+        "edges": [],
+        "consentRecorded": True,
+    }
+    warnings = []
+    releases = []
+
+    source = DataSource.objects.filter(slug="string").only("enabled").first()
+    if source and not source.enabled:
+        output["status"] = "disabled"
+        result["externalString"] = output
+        warnings.append("管理员已停用 STRING 外部物理互作查询；本地分析结果仍可查看。")
+        return releases, warnings
+
+    unique = {}
+    rejected_count = 0
+    for row in row_results:
+        if not row.selected or not row.normalized_symbol:
+            continue
+        symbol = row.normalized_symbol.strip()
+        if len(symbol) > 120 or any(ord(char) < 32 for char in symbol):
+            rejected_count += 1
+            continue
+        unique.setdefault(_canonical(symbol), symbol)
+    labels = list(unique.values())
+    submitted = labels[:200]
+    output["inputCount"] = len(labels)
+    output["submittedIdentifierCount"] = len(submitted)
+    output["truncatedIdentifierCount"] = max(0, len(labels) - len(submitted))
+    output["rejectedIdentifierCount"] = rejected_count
+
+    if len(submitted) < 2:
+        output["status"] = "insufficient_identifiers"
+        result["externalString"] = output
+        warnings.append("筛选并映射后的标识少于 2 个，未向 STRING 发送数据。")
+        return releases, warnings
+
+    try:
+        network, version = query_string_physical_network(submitted, int(required_score))
+    except ExternalAnalysisError:
+        output["status"] = "unavailable"
+        output["failureStage"] = "string_query"
+        result["externalString"] = output
+        warnings.append("STRING 物理互作服务暂不可用；本地分析结果仍可查看。")
+        return releases, warnings
+    except ValueError:
+        output["status"] = "unavailable"
+        output["failureStage"] = "string_query"
+        result["externalString"] = output
+        warnings.append("STRING 查询参数无效，未能完成外部分析。")
+        return releases, warnings
+
+    output.update(network)
+    output["status"] = "succeeded" if network.get("interactionCount", 0) else "no_interactions"
+    output["inputCount"] = len(labels)
+    output["submittedIdentifierCount"] = len(submitted)
+    output["truncatedIdentifierCount"] = max(0, len(labels) - len(submitted))
+    output["rejectedIdentifierCount"] = rejected_count
+    output["consentRecorded"] = True
+    if version:
+        release = _source_release(
+            "string",
+            "STRING",
+            "https://string-db.org/help/api/",
+            version,
+            {
+                "versionStrategy": "administrator-configured-database-version",
+                "retrievedAt": timezone.now().isoformat(),
+                "networkType": "physical",
+                "requiredScore": required_score,
+                "identifierCount": len(submitted),
+            },
+        )
+        releases.append(release.pk)
+    else:
+        warnings.append("STRING 查询已完成，但服务器未配置 STRING_DB_VERSION，结果版本无法固定。")
+    if output["truncatedIdentifierCount"]:
+        warnings.append(f"STRING 单次最多发送 200 个标识，另有 {output['truncatedIdentifierCount']} 个未发送。")
+    if rejected_count:
+        warnings.append(f"有 {rejected_count} 个过长或无效标识没有发送到 STRING。")
+    result["externalString"] = output
     return releases, warnings

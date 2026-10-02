@@ -26,7 +26,7 @@ from apps.core.models import AnalysisTask, EntityIdentifier, EvidenceRelation, K
 from apps.proteomics.models import ProteomicsRowResult
 
 
-ALGORITHM_VERSION = "proteomics-py-1.2"
+ALGORITHM_VERSION = "proteomics-py-1.3"
 MAX_CELL_CHARACTERS = 50_000
 MAX_XLSX_EXPANDED_BYTES = 512 * 1024 * 1024
 PATHWAY_RELATION_TYPES = {
