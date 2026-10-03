@@ -1,18 +1,6 @@
 import { Download, FileJson, Table2 } from "lucide-react";
 import type { NetworkPharmacologyResult } from "../api/network";
-
-type CsvValue = string | number | null | undefined;
-
-function csvCell(value: CsvValue) {
-  let text = String(value ?? "");
-  // Spreadsheet applications can interpret quoted strings as formulae too.
-  if (typeof value === "string" && /^[\s\u0000-\u001f]*[=+\-@]/.test(text)) text = `'${text}`;
-  return `"${text.replaceAll('"', '""')}"`;
-}
-
-function csv(headers: string[], rows: CsvValue[][]) {
-  return `\ufeff${[headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n")}\r\n`;
-}
+import { downloadText as download, encodeCsv as csv } from "../utils/downloads";
 
 export function networkTargetsCsv(result: NetworkPharmacologyResult) {
   return csv([
@@ -36,17 +24,6 @@ export function networkEvidenceCsv(result: NetworkPharmacologyResult) {
     result.taskId, result.summary.herb, result.summary.disease, target.target, target.normalizedTarget, target.matchType,
     source.relationType, source.source, source.sourceSlug, source.sourceVersion, source.sourceRecordId, source.evidenceType, source.score,
   ])));
-}
-
-function download(filename: string, body: string, type: string) {
-  const url = URL.createObjectURL(new Blob([body], { type }));
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 export function NetworkResultDownloads({ result }: { result: NetworkPharmacologyResult }) {

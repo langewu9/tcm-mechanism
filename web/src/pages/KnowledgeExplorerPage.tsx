@@ -5,6 +5,7 @@ import { ArrowLeft, Download, Search } from "lucide-react";
 import { logout, type Session } from "../api/auth";
 import { ApiError } from "../api/client";
 import { BatchHerbEvidenceLookup } from "../components/BatchHerbEvidenceLookup";
+import { ComponentComparisonResults } from "../components/ComponentComparisonResults";
 import { getEntityNeighborhood, searchCatalogEntities, type EntityNeighborhood, type KnowledgeEntity, type KnowledgeSearchPage } from "../api/catalog";
 import { compareComponents, searchChemblActivities, searchChemblMolecules, type ChemblActivitySearch, type ChemblMoleculeSearch, type ComponentComparison } from "../api/chembl";
 
@@ -40,10 +41,6 @@ function downloadJson(filename: string, data: unknown) {
   anchor.click();
   anchor.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
-}
-
-function displayCompareRow(row: { detectedInput?: string; referenceInput?: string; input?: string }) {
-  return { detected: row.detectedInput ?? row.input ?? "—", reference: row.referenceInput ?? "—" };
 }
 
 export function KnowledgeExplorerPage() {
@@ -223,12 +220,7 @@ export function KnowledgeExplorerPage() {
         </form>
         <p className="knowledge-evidence-source">名称可用逗号、分号、顿号或换行分隔；每侧最多 100 项。完全同名的标准化匹配计为精确交集；同家族只标候选，不计入命中率。</p>
         {componentCompareError && <div className="notice-error workspace-notice" role="alert">{componentCompareError}</div>}
-        {componentComparison && <section className="chembl-results" aria-live="polite">
-          <div className="case-list-heading"><div><p className="page-kicker">Local alias comparison · {componentComparison.aliasSourceCommit}</p><h3 className="section-title-sm">名称对照结果</h3></div><button className="btn btn-secondary" type="button" onClick={() => downloadJson("component-list-comparison.json", componentComparison)}><Download size={14} />导出 JSON</button></div>
-          <div className="chembl-comparison-counts"><div><strong>{componentComparison.counts.detected}</strong><span>检测项</span></div><div><strong>{componentComparison.counts.reference}</strong><span>参考项</span></div><div><strong>{componentComparison.counts.matched}</strong><span>精确交集</span></div><div><strong>{componentComparison.counts.detectedOnly}</strong><span>仅检测</span></div><div><strong>{componentComparison.counts.referenceOnly}</strong><span>仅参考</span></div><div><strong>{componentComparison.counts.matchRate}%</strong><span>参考列表命中率</span></div></div>
-          <div className="chembl-table-scroll"><table className="chembl-activity-table"><thead><tr><th>分组</th><th>检测输入</th><th>参考输入</th><th>规范名称</th><th>状态</th></tr></thead><tbody>{componentComparison.rows.map((row, index) => { const pair = displayCompareRow(row); return <tr key={`${row.group}-${row.normalizedKey}-${index}`}><td>{row.group}</td><td>{pair.detected}</td><td>{pair.reference}</td><td>{row.chinese || row.english || "—"}{row.english && row.chinese ? ` · ${row.english}` : ""}{row.latin ? ` · ${row.latin}` : ""}</td><td>{row.status}</td></tr>; })}</tbody></table></div>
-          {componentComparison.familyMatches.length > 0 && <div className="notice-warning"><span>同家族候选（不计入精确交集）：{componentComparison.familyMatches.map((row) => `${row.detectedInput} ↔ ${row.referenceInput}（${row.familyName}）`).join("；")}</span></div>}
-        </section>}
+        {componentComparison && <ComponentComparisonResults data={componentComparison} />}
       </section>
       <BatchHerbEvidenceLookup />
       {error && <div className="notice-error workspace-notice" role="alert">{error}</div>}

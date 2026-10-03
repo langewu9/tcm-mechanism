@@ -190,6 +190,9 @@
 .component-compare-panel { display: grid; gap: 0.9rem; margin-bottom: 1.4rem; padding: 1rem 1.2rem; }
 .component-compare-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)) auto; align-items: end; gap: 0.75rem; }
 .component-compare-form textarea { min-height: 7rem; resize: vertical; }
+.component-comparison-summary { display: grid; grid-template-columns: minmax(0, 1fr) minmax(13rem, 0.6fr); align-items: start; gap: 1rem; }
+.component-comparison-downloads { display: grid; gap: 0.65rem; }
+.component-comparison-downloads .btn { justify-content: center; }
 .chembl-comparison-counts { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0.5rem; }
 .chembl-comparison-counts > div { display: grid; gap: 0.22rem; border: 1px solid var(--color-border); background: rgba(255, 253, 248, 0.72); padding: 0.6rem; }
 .chembl-comparison-counts strong { color: var(--color-cinnabar); font-size: 1.05rem; }
@@ -288,6 +291,7 @@
   .proteomics-validation-grid { grid-template-columns: minmax(0, 1fr); }
   .chembl-search-form { grid-template-columns: minmax(0, 1fr); }
   .component-compare-form { grid-template-columns: minmax(0, 1fr); }
+  .component-comparison-summary { grid-template-columns: minmax(0, 1fr); }
   .chembl-comparison-counts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .chembl-consent { grid-column: auto; }
   .chembl-search-form > .btn { width: 100%; }

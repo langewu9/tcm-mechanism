@@ -84,6 +84,9 @@ export const searchChemblActivities = (chemblId: string, consent: boolean) =>
   });
 
 export type ComponentCompareRow = {
+  side?: "detected" | "reference";
+  familyKey?: string;
+  matchedTerms?: string;
   group?: string;
   normalizedKey?: string;
   input?: string;
@@ -101,11 +104,11 @@ export type ComponentCompareRow = {
 export type ComponentComparison = {
   aliasSource: string;
   aliasSourceCommit: string;
-  detected: Array<Record<string, unknown>>;
-  reference: Array<Record<string, unknown>>;
+  detected: ComponentCompareRow[];
+  reference: ComponentCompareRow[];
   exactMatches: ComponentCompareRow[];
-  detectedOnly: Array<Record<string, unknown>>;
-  referenceOnly: Array<Record<string, unknown>>;
+  detectedOnly: ComponentCompareRow[];
+  referenceOnly: ComponentCompareRow[];
   familyMatches: ComponentCompareRow[];
   rows: ComponentCompareRow[];
   counts: {
