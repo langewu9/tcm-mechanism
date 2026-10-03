@@ -2,6 +2,8 @@
 
 盘点基线：`origin/main`，提交 `078d374`（2026-10-02）。当前目标分支：`codex/django-foundation-hardening`。本文把 main 当作页面、业务算法和数据字段的参考来源；不合并整条分支，逐个模块移植到 Django + React/Vite 后通过测试再启用。
 
+2026-10-03 范围确认：当前阶段先迁移 `main` 中确有源码的页面与业务行为，不再新造计划外业务模块，也不先写临时替代品再推倒重做。为迁移必需的 Django API、路由、权限、统一错误格式和测试可以补齐。若旧功能依赖未随仓库提供的数据文件或服务，则保留页面/清单位置并明确标注“待迁移/待数据”，等依赖可核验后再补。计划文档里 `main` 没有的扩展能力放在后续阶段单独实施。
+
 ## 迁移规则
 
 - React 组件和 CSS 可以复用交互与视觉结构，但 `next/navigation`、Next.js Server Actions、Prisma 查询必须改为 React Router、Django API 和当前设计系统。
@@ -20,6 +22,7 @@
 |---|---|---|---|
 | `src/components/AppShell.tsx`、`AppNavigation.tsx`、`PageHeader.tsx`、`src/app/product.css` | 主导航、页面框架和产品视觉样式 | `web/src` 中复用样式/交互，路由改为 React Router | 首页、医案和数据集已接入；通用工作台导航待整理 |
 | `src/app/dashboard/page.tsx`、`src/app/api/dashboard/route.ts` | 展示登录用户的数据集、医案、任务数量，知识库规模和最近五项任务 | React `/dashboard` + 登录保护的 `/api/v1/research/dashboard/` | 已迁移；研究者只看本人记录，超级管理员可看全部，知识实体按启用来源统计；登录后默认进入总览 |
+| `src/app/api-integration/page.tsx`、`ApiIntegrationConsole.tsx`、`src/app/api/integrations/{status,test}/route.ts` | 管理员查看服务状态并测试疾病/中药/成分/ChEMBL/靶点交集/成分比对/Qwen/AI Scientist 调用链 | React `/admin/integrations` + 超级管理员 Django API `/api/v1/admin/integrations/` | 已迁入原监测页及主要测试项；状态映射为 Django/数据库、数据源目录和本机模型配置。疾病、中药、成分、交集与成分比对检查复用当前 Django 服务，交集为只读不建任务；ChEMBL 和本机模型需逐次同意并限流。旧 AI Scientist 依赖仓库缺失的 Excel/SQLite 数据，页面明确标待迁移，不伪造替代结果。6 项权限、同意门槛、只读行为和缺失依赖测试通过 |
 | `src/app/cases/page.tsx`、`src/components/CaseForm.tsx`、`src/app/api/cases/*` | 医案新增、列表、删除 | `/cases` + `/api/v1/research/cases/`，归属由 Django session 决定 | 创建/查看/删除 UI 已接入；API 支持更新。创建、变更、删除和平台管理员审核会追加隐私友好审计记录；本人只查看自己的记录，超级管理员可查看全部并审核。日志保存操作者、时间、字段名和内容哈希，不重复保存医案正文。已补入安全版第一步：本机/内网模型结构化、逐字引文校验、规范实体精确匹配、研究者逐条确认/驳回、隐私友好审计及有来源版本的下游证据链；新增受限 RAG，从医案提及中检索启用来源版本实体和一跳关系，知识引用必须命中本次检索记录白名单，不同来源分别保留并展示。真实模型、项目样例、更广文献语料/语义检索及下游药理/组学任务编排仍待完成 |
 | `src/app/datasets/page.tsx`、`DatasetUploader.tsx`、`DeleteButton.tsx`、`src/app/api/datasets/*` | 上传 CSV/Excel、查看数据集、删除 | `/datasets` + `/api/v1/research/datasets/`，文件私有保存、带校验值和权限下载 | 私有文件 CRUD 已接入；数据集被分析任务引用后禁止替换或删除 |
 | `src/lib/upload.ts` | CSV、XLS、XLSX 表格解析 | Python 解析器，限制大小/行/列/单元格、保留原始文件并生成逐行 QC | CSV/TSV/XLS/XLSX 已支持第一版解析与行数限制；尚无独立上传预览，也未做到 main 样例逐项结果对照 |

@@ -1,4 +1,4 @@
-from django.urls import path
+from django.urls import include, path
 from django.views.decorators.csrf import csrf_protect
 
 from ..views import HealthView, HomeStatsView
@@ -26,6 +26,7 @@ def csrf_checked(view):
 
 
 urlpatterns = [
+    path("admin/", include("apps.core.urls.admin")),
     path("health/", HealthView.as_view(), name="api-health"),
     path("home-stats/", HomeStatsView.as_view(), name="home-stats"),
     path("analysis/network-pharmacology/", NetworkPharmacologyView.as_view(), name="network-pharmacology"),

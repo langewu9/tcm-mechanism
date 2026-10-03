@@ -94,6 +94,31 @@
 .source-record-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.8rem; }
 .visualization-preview { display: block; width: 100%; max-height: 34rem; object-fit: contain; margin: 0.8rem 0; border: 1px solid var(--color-border); border-radius: 0.75rem; background: #fff; }
 .source-record > .section-help { margin-top: 0.75rem; }
+.integration-overview, .integration-tests, .integration-detail { display: grid; gap: 1rem; margin-bottom: 1rem; padding: 1.1rem 1.2rem; }
+.integration-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.integration-status-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.65rem; }
+.integration-status-card { display: grid; gap: 0.45rem; min-width: 0; border: 1px solid var(--color-border); border-radius: 0.65rem; background: rgba(255,253,248,.72); padding: 0.8rem; }
+.integration-status-card strong { font-size: 0.78rem; }
+.integration-status-card small, .integration-card small { color: var(--color-ink-faint); font-size: 0.66rem; overflow-wrap: anywhere; }
+.integration-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; }
+.integration-card { display: grid; align-content: start; gap: 0.65rem; min-width: 0; border: 1px solid var(--color-border); border-radius: 0.7rem; background: rgba(255,253,248,.75); padding: 0.9rem; }
+.integration-card-title { display: flex; align-items: flex-start; gap: 0.6rem; }
+.integration-icon { display: grid; width: 2.1rem; height: 2.1rem; flex: none; place-items: center; border-radius: 0.5rem; background: var(--color-cinnabar); color: white; }
+.integration-card-title h3 { font-size: 0.88rem; font-weight: 850; }
+.integration-card-title p { margin-top: 0.25rem; color: var(--color-ink-soft); font-size: 0.72rem; line-height: 1.55; }
+.integration-consent { display: flex; align-items: flex-start; gap: 0.4rem; color: var(--color-ink-soft); font-size: 0.69rem; line-height: 1.5; }
+.integration-consent input { margin-top: 0.15rem; accent-color: var(--color-cinnabar); }
+.integration-pending { color: var(--color-ink-faint); font-size: 0.7rem; font-weight: 750; }
+.integration-result { display: grid; gap: 0.35rem; border-top: 1px solid var(--color-border); padding-top: 0.65rem; font-size: 0.7rem; }
+.integration-result > strong { display: inline-flex; align-items: center; gap: 0.25rem; }
+.integration-result > span { color: var(--color-ink-soft); line-height: 1.5; }
+.integration-result > small { color: var(--color-ink-faint); }
+.integration-pass { color: #287245; }
+.integration-fail { color: #9f2d20; }
+.integration-json { max-height: 24rem; overflow: auto; border: 1px solid var(--color-border); border-radius: 0.55rem; background: rgba(255,250,241,.8); padding: 0.75rem; color: var(--color-ink-soft); font-size: 0.65rem; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.integration-overview details, .integration-result details { font-size: 0.68rem; }
+.integration-overview summary, .integration-result summary { cursor: pointer; color: var(--color-cinnabar); font-weight: 750; }
+.integration-overview details .integration-json, .integration-result details .integration-json { margin-top: 0.45rem; }
 .source-sync-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: 0.85rem; }
 .source-sync-metrics-sqlite { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .source-checksum { display: block; margin-top: 0.55rem; color: var(--color-ink-soft); font-size: 0.64rem; overflow-wrap: anywhere; }
@@ -275,6 +300,8 @@
   .batch-evidence-summary { grid-template-columns: minmax(0, 1fr); }
   .dashboard-stat-grid, .dashboard-actions-grid { grid-template-columns: minmax(0, 1fr); }
   .dashboard-panel { padding: 0.9rem; }
+  .integration-status-grid, .integration-grid { grid-template-columns: minmax(0, 1fr); }
+  .integration-overview, .integration-tests, .integration-detail { padding: 0.9rem; }
   .workspace-module-nav { order: 3; width: 100%; justify-content: center; }
   .workspace-module-nav { justify-content: flex-start; overflow-x: auto; }
   .workspace-module-nav a { flex: 0 0 auto; justify-content: center; text-align: center; white-space: nowrap; }

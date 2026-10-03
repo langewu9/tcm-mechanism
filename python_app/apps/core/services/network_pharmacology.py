@@ -84,6 +84,7 @@ def _relation_query(*, subject_ids=None, object_ids=None, relation_types, limit)
 def build_network_pharmacology(
     *, user, herb_query: str, disease_query: str, row_limit: int = 12000,
     source_case_candidate: MedicalCaseCandidate | None = None,
+    persist: bool = True,
 ) -> dict:
     requested_names = parse_herb_names(herb_query)
     requested_herbs, matched_herb_names = _entity_matches(KnowledgeEntity.EntityType.HERB, requested_names)
@@ -287,6 +288,9 @@ def build_network_pharmacology(
             "linksTruncated": len(links) > 4000,
         },
     }
+    if not persist:
+        return result
+
     with transaction.atomic():
         owner = user
         medical_case = None
