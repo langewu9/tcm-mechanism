@@ -1,5 +1,10 @@
 from django.contrib import admin
+from django.contrib.auth import get_user_model
+from django.contrib.auth.admin import UserAdmin
+from django.contrib.auth.models import User as DefaultUser
+from django.db import transaction
 
+from .domain.accounts import ResearcherProfile
 from .models import (
     AnalysisTask,
     DataSource,
@@ -14,6 +19,63 @@ from .models import (
     SyncRun,
     VisualizationArtifact,
 )
+
+
+User = get_user_model()
+if User is DefaultUser:
+    admin.site.unregister(User)
+
+
+@admin.register(User)
+class ResearcherUserAdmin(UserAdmin):
+    list_display = (*UserAdmin.list_display, "researcher_email_verified")
+    readonly_fields = (*UserAdmin.readonly_fields, "researcher_email_verification")
+
+    @admin.display(description="邮箱已验证", boolean=True)
+    def researcher_email_verified(self, obj):
+        profile = ResearcherProfile.objects.filter(user_id=obj.pk).only("email_verified_at").first()
+        return not profile or profile.email_verified_at is not None
+
+    @admin.display(description="研究者邮箱验证时间")
+    def researcher_email_verification(self, obj):
+        if not obj or not obj.pk:
+            return "保存账号后显示"
+        profile = ResearcherProfile.objects.filter(user_id=obj.pk).first()
+        if not profile:
+            return "系统管理员账号无需研究者邮箱验证"
+        return profile.email_verified_at or "尚未验证"
+
+    def get_fieldsets(self, request, obj=None):
+        fieldsets = list(super().get_fieldsets(request, obj))
+        for index, (name, options) in enumerate(fieldsets):
+            if name == "Personal info":
+                fieldsets[index] = (
+                    name,
+                    {**options, "fields": (*options["fields"], "researcher_email_verification")},
+                )
+                break
+        return fieldsets
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("researcher_profile")
+
+    def save_model(self, request, obj, form, change):
+        with transaction.atomic():
+            profile = (
+                ResearcherProfile.objects.select_for_update().filter(user_id=obj.pk).first()
+                if change and obj.pk
+                else None
+            )
+            if profile:
+                previous_email = User.objects.filter(pk=obj.pk).values_list("email", flat=True).first() or ""
+                email_changed = previous_email.strip().casefold() != obj.email.strip().casefold()
+                if email_changed:
+                    profile.email_verified_at = None
+                    profile.save(update_fields=["email_verified_at", "updated_at"])
+                    obj.is_active = False
+                elif profile.email_verified_at is None:
+                    obj.is_active = False
+            super().save_model(request, obj, form, change)
 
 
 @admin.register(DataSource)

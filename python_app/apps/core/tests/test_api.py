@@ -1,21 +1,31 @@
 import hashlib
 import json
 import tempfile
+from urllib.parse import parse_qs, urlsplit
 
 from django.contrib.auth import get_user_model
+from django.core import mail
 from django.core.files.storage import default_storage
 from django.db.models.deletion import ProtectedError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 from django.test import RequestFactory, override_settings
+from django.utils import timezone
 from rest_framework.test import APITestCase
 
-from apps.core.models import AnalysisTask, MedicalCase, MedicalCaseAuditEvent, ResearchDataset
+from apps.core.models import AnalysisTask, MedicalCase, MedicalCaseAuditEvent, ResearchDataset, ResearcherProfile
 from config.api_errors import ApiErrorEnvelopeMiddleware
 
 
 class PrivateWorkspaceApiTests(APITestCase):
     def setUp(self):
+        self.email_settings = override_settings(
+            EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+            DEFAULT_FROM_EMAIL="noreply@example.test",
+            PUBLIC_BASE_URL="https://research.example.test",
+        )
+        self.email_settings.enable()
+        self.addCleanup(self.email_settings.disable)
         user_model = get_user_model()
         self.owner = user_model.objects.create_user(username="researcher-a", password="test-password-123")
         self.other_user = user_model.objects.create_user(username="researcher-b", password="test-password-123")
@@ -267,6 +277,15 @@ class ApiErrorContractTests(APITestCase):
 
         cache.clear()
         self.addCleanup(cache.clear)
+        self.email_settings = override_settings(
+            DEBUG=True,
+            EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+            DEFAULT_FROM_EMAIL="noreply@example.test",
+            PUBLIC_BASE_URL="https://research.example.test",
+            ADMIN_NOTIFICATION_EMAILS=["admin@example.test"],
+        )
+        self.email_settings.enable()
+        self.addCleanup(self.email_settings.disable)
 
     def test_unhandled_api_exception_is_returned_in_standard_error_envelope(self):
         request = RequestFactory().get("/api/v1/failing-endpoint/")
@@ -316,6 +335,17 @@ class ApiErrorContractTests(APITestCase):
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.json()["error"]["code"], "CSRF_FAILED")
 
+    def test_invalid_login_uses_stable_401_error_code(self):
+        response = self.client.post(
+            reverse("auth-session"),
+            {"username": "unknown-researcher", "password": "wrong-password"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.data["error"]["code"], "INVALID_CREDENTIALS")
+        self.assertEqual(response["X-Request-ID"], response.data["error"]["requestId"])
+
     def test_researcher_registration_creates_inactive_non_admin_account(self):
         from django.contrib.auth import authenticate
 
@@ -332,7 +362,7 @@ class ApiErrorContractTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, 201)
-        self.assertEqual(response.data["status"], "pending_approval")
+        self.assertEqual(response.data["status"], "pending_verification")
         user = get_user_model().objects.get(username="evidence-reader")
         self.assertEqual(user.email, "reader@example.org")
         self.assertFalse(user.is_active)
@@ -340,10 +370,204 @@ class ApiErrorContractTests(APITestCase):
         self.assertFalse(user.is_superuser)
         self.assertTrue(user.check_password(password))
         self.assertIsNone(authenticate(username="evidence-reader", password=password))
+        profile = ResearcherProfile.objects.get(user=user)
+        self.assertIsNone(profile.email_verified_at)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ["reader@example.org"])
+        verification_url = next(
+            line for line in mail.outbox[0].body.splitlines()
+            if line.startswith("https://research.example.test/verify-email?")
+        )
+        token = parse_qs(urlsplit(verification_url).query)["token"][0]
+        verified = self.client.post(
+            reverse("auth-verify-email"), {"token": token}, format="json"
+        )
+        self.assertEqual(verified.status_code, 200, verified.data)
+        self.assertFalse(verified.data["accountActive"])
+        profile.refresh_from_db()
+        self.assertIsNotNone(profile.email_verified_at)
+        self.assertEqual(len(mail.outbox), 2)
+        self.assertEqual(mail.outbox[1].to, ["admin@example.test"])
+        replayed = self.client.post(
+            reverse("auth-verify-email"), {"token": token}, format="json"
+        )
+        self.assertEqual(replayed.status_code, 200)
+        self.assertEqual(replayed.data["status"], "already_verified")
+        self.assertEqual(len(mail.outbox), 2)
+        self.assertIsNone(authenticate(username="evidence-reader", password=password))
 
         user.is_active = True
         user.save(update_fields=["is_active"])
         self.assertEqual(authenticate(username="evidence-reader", password=password), user)
+
+    def test_invalid_email_token_is_rejected_without_verifying_account(self):
+        password = "Lemon-Cedar-47!river"
+        response = self.client.post(
+            reverse("auth-register"),
+            {
+                "username": "verify-reader",
+                "email": "verify-reader@example.org",
+                "password": password,
+                "password_confirmation": password,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+        user = get_user_model().objects.get(username="verify-reader")
+        invalid = self.client.post(reverse("auth-verify-email"), {"token": "not-a-token"}, format="json")
+        self.assertEqual(invalid.status_code, 400)
+        self.assertIsNone(user.researcher_profile.email_verified_at)
+
+    def test_expired_email_token_is_rejected_without_verifying_account(self):
+        from unittest.mock import patch
+
+        from django.conf import settings
+
+        response = self.client.post(
+            reverse("auth-register"),
+            {
+                "username": "expired-reader",
+                "email": "expired-reader@example.org",
+                "password": "Lemon-Cedar-47!river",
+                "password_confirmation": "Lemon-Cedar-47!river",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+        user = get_user_model().objects.get(username="expired-reader")
+        verification_url = next(
+            line for line in mail.outbox[0].body.splitlines()
+            if line.startswith("https://research.example.test/verify-email?")
+        )
+        token = parse_qs(urlsplit(verification_url).query)["token"][0]
+
+        with patch("django.core.signing.time.time", return_value=2_000_000_000):
+            rejected = self.client.post(reverse("auth-verify-email"), {"token": token}, format="json")
+
+        self.assertEqual(rejected.status_code, 400)
+        user.researcher_profile.refresh_from_db()
+        self.assertIsNone(user.researcher_profile.email_verified_at)
+
+    def test_email_change_invalidates_old_verification_token(self):
+        password = "Horizon-Pine-92!cobalt"
+        response = self.client.post(
+            reverse("auth-register"),
+            {
+                "username": "changed-email-reader",
+                "email": "old-reader@example.org",
+                "password": password,
+                "password_confirmation": password,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201, response.data)
+        verification_url = next(
+            line for line in mail.outbox[-1].body.splitlines()
+            if line.startswith("https://research.example.test/verify-email?")
+        )
+        token = parse_qs(urlsplit(verification_url).query)["token"][0]
+        user = get_user_model().objects.get(username="changed-email-reader")
+        user.email = "new-reader@example.org"
+        user.save(update_fields=["email"])
+
+        rejected = self.client.post(reverse("auth-verify-email"), {"token": token}, format="json")
+
+        self.assertEqual(rejected.status_code, 400)
+        self.assertIsNone(user.researcher_profile.email_verified_at)
+
+    def test_resend_verification_response_does_not_reveal_account_existence(self):
+        password = "Lemon-Cedar-47!river"
+        registered = self.client.post(
+            reverse("auth-register"),
+            {
+                "username": "resend-reader",
+                "email": "resend-reader@example.org",
+                "password": password,
+                "password_confirmation": password,
+            },
+            format="json",
+        )
+        self.assertEqual(registered.status_code, 201)
+        mail.outbox.clear()
+
+        existing = self.client.post(
+            reverse("auth-resend-verification"), {"email": "resend-reader@example.org"}, format="json"
+        )
+        missing = self.client.post(
+            reverse("auth-resend-verification"), {"email": "missing@example.org"}, format="json"
+        )
+
+        self.assertEqual(existing.status_code, missing.status_code)
+        self.assertEqual(existing.data, missing.data)
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_unverified_account_cannot_start_a_session_even_if_active_flag_is_set(self):
+        user = get_user_model().objects.create_user(
+            username="tampered-unverified", email="tampered@example.org",
+            password="Lemon-Cedar-47!river", is_active=True,
+        )
+        ResearcherProfile.objects.create(user=user)
+
+        response = self.client.post(
+            reverse("auth-session"),
+            {"username": user.username, "password": "Lemon-Cedar-47!river"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.data["error"]["code"], "EMAIL_NOT_VERIFIED")
+
+    def test_email_delivery_failure_rolls_back_new_account(self):
+        from unittest.mock import patch
+
+        from apps.core.services.account_verification import EmailVerificationUnavailable
+
+        with patch(
+            "apps.core.views.auth.send_verification_email",
+            side_effect=EmailVerificationUnavailable("test email delivery failure"),
+        ):
+            response = self.client.post(
+                reverse("auth-register"),
+                {
+                    "username": "undeliverable-reader",
+                    "email": "undeliverable@example.org",
+                    "password": "Lemon-Cedar-47!river",
+                    "password_confirmation": "Lemon-Cedar-47!river",
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertFalse(get_user_model().objects.filter(username="undeliverable-reader").exists())
+
+    def test_admin_cannot_activate_unverified_or_keep_account_active_after_email_change(self):
+        from django.contrib import admin
+        from django.contrib.auth.admin import UserAdmin
+        from django.test import RequestFactory
+
+        from apps.core.admin import ResearcherUserAdmin
+
+        user = get_user_model().objects.create_user(
+            username="admin-verification", email="before@example.org",
+            password="Lemon-Cedar-47!river", is_active=True,
+        )
+        profile = ResearcherProfile.objects.create(user=user)
+        model_admin = ResearcherUserAdmin(get_user_model(), admin.site)
+        request = RequestFactory().post("/admin/auth/user/")
+
+        model_admin.save_model(request, user, form=None, change=True)
+        user.refresh_from_db()
+        self.assertFalse(user.is_active)
+
+        profile.email_verified_at = timezone.now()
+        profile.save(update_fields=["email_verified_at"])
+        user.is_active = True
+        user.email = "after@example.org"
+        model_admin.save_model(request, user, form=None, change=True)
+        user.refresh_from_db()
+        profile.refresh_from_db()
+        self.assertFalse(user.is_active)
+        self.assertIsNone(profile.email_verified_at)
 
     def test_researcher_registration_rejects_mismatched_and_weak_passwords(self):
         response = self.client.post(
@@ -375,6 +599,13 @@ class ApiErrorContractTests(APITestCase):
         rejected = client.post("/api/v1/auth/register/", payload, content_type="application/json")
         self.assertEqual(rejected.status_code, 403)
         self.assertEqual(rejected.json()["error"]["code"], "CSRF_FAILED")
+        for route, data in (
+            ("/api/v1/auth/verify-email/", {"token": "invalid"}),
+            ("/api/v1/auth/resend-verification/", {"email": "reader@example.org"}),
+        ):
+            protected = client.post(route, data, content_type="application/json")
+            self.assertEqual(protected.status_code, 403)
+            self.assertEqual(protected.json()["error"]["code"], "CSRF_FAILED")
 
         csrf_token = client.get("/api/v1/auth/csrf/").json()["csrfToken"]
         accepted = client.post(

@@ -20,6 +20,6 @@ export function LoginPage() {
     <form className="auth-form" onSubmit={submit}><label className="form-label" htmlFor="username">用户名</label><input className="field" id="username" name="username" autoComplete="username" required />
       <label className="form-label" htmlFor="password">密码</label><input className="field" id="password" name="password" type="password" autoComplete="current-password" required />
       <button className="btn btn-primary" type="submit" disabled={busy}>{busy ? "正在登录…" : "登录"}</button></form>
-    <p className="auth-note">还没有账号？<Link to="/register">申请研究者账号</Link>。新账号需经平台管理员审核启用。</p>
+    <p className="auth-note">还没有账号？<Link to="/register">申请研究者账号</Link>。新账号需验证邮箱并经平台管理员审核启用；<Link to="/verify-email">重新发送验证邮件</Link>。</p>
   </section></main>;
 }

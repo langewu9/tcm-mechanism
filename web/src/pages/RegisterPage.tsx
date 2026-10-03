@@ -53,10 +53,10 @@ export function RegisterPage() {
     <Link className="auth-back" to="/">← 返回首页</Link><p className="page-kicker">Researcher account</p><h1 className="page-title">申请研究者账号</h1>
     {result ? <>
       <div className="notice-success" role="status"><strong>申请已提交</strong><br />{result.message}</div>
-      <p className="page-description">平台管理员启用账号后，你就可以使用注册的用户名和密码登录。当前平台不会在注册后自动开通权限。</p>
-      <Link className="btn btn-primary" to="/login">前往登录</Link>
+      <p className="page-description">请先点击邮件中的验证链接，再等待平台管理员审核启用账号。邮箱验证不会自动开通研究权限。</p>
+      <Link className="btn btn-primary" to="/verify-email">重新发送验证邮件</Link>
     </> : <>
-      <p className="page-description">填写研究者账号申请。管理员审核并启用账号后，你即可登录；注册不会授予管理员权限。</p>
+      <p className="page-description">填写研究者账号申请。邮箱验证后还需管理员审核启用；注册不会授予管理员权限。</p>
       {error && <div className="notice-error" role="alert">{error}</div>}
       <form className="auth-form" onSubmit={submit}>
         <label className="form-label" htmlFor="register-username">用户名</label>
@@ -65,7 +65,7 @@ export function RegisterPage() {
         <label className="form-label" htmlFor="register-email">邮箱</label>
         <input className="field" id="register-email" name="email" type="email" autoComplete="email" maxLength={254} required aria-describedby={fieldErrors.email ? "register-email-error" : undefined} />
         {fieldErrors.email && <small className="form-field-error" id="register-email-error">{fieldErrors.email}</small>}
-        <small className="auth-note">当前不会发送验证邮件，请填写管理员可以核验的邮箱地址。</small>
+        <small className="auth-note">请填写你可以收取邮件的地址。平台会发送一次性验证链接。</small>
         <label className="form-label" htmlFor="register-password">密码</label>
         <input className="field" id="register-password" name="password" type="password" autoComplete="new-password" minLength={8} required aria-describedby={fieldErrors.password ? "register-password-error" : "register-password-help"} />
         {fieldErrors.password ? <small className="form-field-error" id="register-password-error">{fieldErrors.password}</small> : <small className="auth-note" id="register-password-help">请设置不常见且不包含用户名或邮箱信息的密码，服务端会执行密码强度检查。</small>}

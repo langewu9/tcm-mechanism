@@ -89,6 +89,27 @@ STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 MEDIA_ROOT = (BASE_DIR / env("MEDIA_ROOT", default="var/media")).resolve()
 MEDIA_URL = "media/"
+PUBLIC_BASE_URL = env(
+    "PUBLIC_BASE_URL",
+    default="http://127.0.0.1:5173" if DEBUG else "",
+).rstrip("/")
+EMAIL_BACKEND = env(
+    "EMAIL_BACKEND",
+    default=(
+        "django.core.mail.backends.console.EmailBackend"
+        if DEBUG
+        else "django.core.mail.backends.smtp.EmailBackend"
+    ),
+)
+EMAIL_HOST = env("EMAIL_HOST", default="")
+EMAIL_PORT = env.int("EMAIL_PORT", default=587)
+EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="")
+EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
+EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=True)
+EMAIL_TIMEOUT = env.int("EMAIL_TIMEOUT", default=10)
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="noreply@localhost" if DEBUG else "")
+EMAIL_VERIFICATION_MAX_AGE_SECONDS = env.int("EMAIL_VERIFICATION_MAX_AGE_SECONDS", default=24 * 60 * 60)
+ADMIN_NOTIFICATION_EMAILS = env.list("ADMIN_NOTIFICATION_EMAILS", default=[])
 S3_STORAGE_ENABLED = env.bool("S3_STORAGE_ENABLED", default=False)
 STORAGES = {
     "default": {
@@ -169,6 +190,7 @@ REST_FRAMEWORK = {
     "NUM_PROXIES": 1,
     "DEFAULT_THROTTLE_RATES": {
         "registration": "5/hour",
+        "email_verification": "5/hour",
         "chembl": "10/hour",
     },
 }

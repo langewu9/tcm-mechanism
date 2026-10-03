@@ -52,7 +52,7 @@ celery -A config worker --loglevel=INFO
 
 - `GET /api/v1/health/`：应用与数据库健康状态。
 - `GET /api/v1/home-stats/`：公开首页显示的知识目录计数。
-- `/api/v1/auth/csrf/`、`/api/v1/auth/session/`：Django 会话登录、状态查询和退出；`POST /api/v1/auth/register/` 接收待审核的研究者账号申请（Django/Redis 5 次/小时，CSRF 校验；生产 Nginx 另有限速），仅管理员启用后可登录。邮箱所有权验证和申请通知尚未接通。
+- `/api/v1/auth/csrf/`、`/api/v1/auth/session/`：Django 会话登录、状态查询和退出；`POST /api/v1/auth/register/` 接收研究者账号申请（Django/Redis 5 次/小时，CSRF 校验；生产 Nginx 另有限速）。新账号初始停用且无管理员权限；先通过 24 小时有效的一次性邮箱链接验证，再由管理员审核启用。`POST /api/v1/auth/verify-email/` 在用户点击确认后完成验证，`POST /api/v1/auth/resend-verification/` 可重发链接且不泄露邮箱是否登记。验证成功后，若配置 `ADMIN_NOTIFICATION_EMAILS`，平台才通知管理员。生产须配置 `PUBLIC_BASE_URL`、SMTP 和 `DEFAULT_FROM_EMAIL`；开发默认把邮件内容输出到 Django 控制台。
 - `/api/v1/research/datasets/`、`cases/`、`analysis-tasks/`：研究者工作区记录。研究者只访问自己的数据，超级管理员可看全部。
 - 医案支持私有审计查询 `GET /api/v1/research/cases/{id}/audit/`；平台管理员可显式 `POST /api/v1/research/cases/{id}/review/`（`{"decision":"approve"}`）标记审核。审计日志保留操作人、时间、变更字段与内容哈希，不重复存储医案正文。研究者还可在 `GET/POST /api/v1/research/cases/{id}/analysis/` 查询或发起明确同意的本机/内网模型分析，并在 `POST /api/v1/research/cases/{id}/candidates/{candidate_id}/review/` 逐项确认/驳回。只发送脱敏正文、舌脉和诊断；候选需带有与原文逐字相符的引文并唯一对应本地规范实体，确认后才加入带来源版本的关系链。设置 `CASE_MODEL_BASE_URL`、`CASE_MODEL_NAME`、实际 `CASE_MODEL_VERSION` 和可选 API key；Compose worker 访问宿主机模型时使用 `host.docker.internal`，宿主机进程运行 worker 时使用 `127.0.0.1`。公网模型端点会被拒绝。
 - `POST /api/v1/research/datasets/{id}/analyze/`：将已保存的数据集排入 Celery，创建有归属和原文件 SHA-256 的分析任务。
@@ -87,5 +87,7 @@ DJANGO_DEBUG=true DATABASE_URL=sqlite:///:memory: python manage.py test
 生产环境变量、证书准备、启动、日志和备份/恢复流程见仓库根目录的 [`deploy/README-production.md`](../deploy/README-production.md)。生产上传文件通过 S3 兼容私有 bucket 保存；本地开发和测试仍使用受控 `MEDIA_ROOT`。备份 PostgreSQL 不会备份对象文件，需要在对象存储提供方另行配置版本管理或副本。
 
 ## 尚未实现
+
+研究者注册的邮箱验证、一次性链接过期和管理员通知已接通；生产 SMTP 与实际邮件收件仍需在部署环境配置并验收。首次新增的研究者邮箱资料迁移会为历史非管理员账号补建资料；历史上已启用的账号按迁移时间标记为已验证，以免升级后被锁在平台外；未启用账号仍须完成邮箱验证和管理员审核。
 
 研究数据集支持上传、私有下载和删除，开发和测试时默认保存于 `MEDIA_ROOT`，单个文件上限由 `DATASET_UPLOAD_MAX_BYTES` 控制（默认 100 MiB）；生产环境使用私有 S3 兼容对象存储并通过 Django 授权端点传输。蛋白组学已支持 CSV/TSV/XLS/XLSX 解析、常见列名识别、基础阈值/QC 和原始定量矩阵的首版差异分析（用户显式指定非配对或配对实验设计；配对逐对指定对应列；明确是否 log2、归一化及缺失策略；Welch 或配对 t 检验、Benjamini–Hochberg FDR，不作缺失值插补）、本地实体映射、UniProt accession 别名、本地来源通路网络、候选靶点交集、Celery 后台任务和 CSV/XLSX/JSON 结果导出；用户主动启用时还可调用 MyGene.info 和 Reactome（最多 500 个通过筛选的人类标识，默认关闭）。另有独立的 STRING PPI 同意项（最多 200 个标识，置信度默认 700/1000），结果与本地网络 degree 分开呈现；默认自动发现 STRING 当前版本并请求版本专属 API 地址，配置 `STRING_DB_VERSION` 可显式固定服务版本。网络药理交集页也支持用户主动同意后的 Reactome 富集（最多 500 标识）和 STRING 物理互作查询（最多 200 标识）；管理员来源页还可预览/应用 STRING 人类 ID 交叉映射，只处理本地已有人类实体，不下载完整 STRING 蛋白目录、不创建或合并知识实体。STRING v12.5 的单条 TP53 官方 API 映射已实测通过；真实本地目录整批应用和 PostgreSQL 验收尚未完成。网络交集和蛋白组学汇总可请求受控 R 静态柱图；Plumber 服务仅接收服务端白名单摘要数据，工件保存在私有存储并受 Django 用户权限保护。开发 Compose 内 R 服务仅接在 worker 专用隔离网络，未公开宿主端口。R 容器目前未能实际构建或运行；前端预览、后端权限和工件写入只通过模拟响应验收。Reactome 2,883 条已在临时 SQLite 验证；UniProt release `2026_03` 的 20,431 条已完整导入临时 SQLite，82,588 条标识记录在重复应用后仍保持幂等；PubChem PUG REST 已真实读取 main seed 中 6 个 CID，并在一次性 SQLite 验证 1 个 CID 的真实预览、应用和幂等；临时库已删除，未写入项目数据库；实际研究数据字段语义和 PostgreSQL 生产数据库尚未验收。多因素原始矩阵模型、交互式 R 网络图仍待实现。PubChem 映射尚未用真实研究项目成分核实；STRING 真实本地目录整批映射、医案证候/方剂候选本机模型首版与人工复核已接通，但本地模型服务需由部署者提供且当前未实跑；完整 RAG、冲突证据比较和下游任务编排仍待实现。生产部署所需的网络拓扑、TLS 代理、私有对象存储适配和 PostgreSQL 备份/恢复脚本已有配置，但 Docker/PostgreSQL、TLS、S3 读写和备份恢复尚未实机验证。SQLite 测试不代替 PostgreSQL 环境验证。

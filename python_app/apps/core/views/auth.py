@@ -1,5 +1,7 @@
 """Session-based authentication endpoints for the React client."""
 
+import logging
+
 from django.contrib.auth import authenticate, get_user_model, login, logout
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -9,12 +11,23 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import ensure_csrf_cookie
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status
+from rest_framework.exceptions import APIException, AuthenticationFailed
 from rest_framework.throttling import AnonRateThrottle
-from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.core.models import ResearcherProfile
+from apps.core.services.account_verification import (
+    EmailVerificationUnavailable,
+    InvalidEmailVerificationToken,
+    send_admin_registration_notice,
+    send_verification_email,
+    verify_email_token,
+)
+
+
+logger = logging.getLogger(__name__)
 
 class LoginSerializer(serializers.Serializer):
     username = serializers.CharField(max_length=150)
@@ -62,7 +75,7 @@ class ResearcherRegistrationSerializer(serializers.Serializer):
         validated_data.pop("password_confirmation")
         try:
             with transaction.atomic():
-                return user_model.objects.create_user(
+                user = user_model.objects.create_user(
                     username=validated_data["username"],
                     email=validated_data["email"],
                     password=validated_data["password"],
@@ -70,6 +83,8 @@ class ResearcherRegistrationSerializer(serializers.Serializer):
                     is_staff=False,
                     is_superuser=False,
                 )
+                ResearcherProfile.objects.create(user=user)
+                return user
         except IntegrityError as exc:
             raise serializers.ValidationError({"username": "该用户名已被使用，请重新选择。"}) from exc
 
@@ -79,12 +94,41 @@ class CsrfTokenSerializer(serializers.Serializer):
 
 
 class RegistrationResponseSerializer(serializers.Serializer):
-    status = serializers.ChoiceField(choices=["pending_approval"])
+    status = serializers.ChoiceField(choices=["pending_verification"])
+    message = serializers.CharField()
+
+
+class EmailVerificationRequestSerializer(serializers.Serializer):
+    token = serializers.CharField(max_length=4096, trim_whitespace=True)
+
+
+class EmailVerificationResponseSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(choices=["verified", "already_verified"])
+    accountActive = serializers.BooleanField()
+    message = serializers.CharField()
+
+
+class ResendVerificationRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField(max_length=254)
+
+
+class ResendVerificationResponseSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(choices=["accepted"])
     message = serializers.CharField()
 
 
 class RegistrationRateThrottle(AnonRateThrottle):
     scope = "registration"
+
+
+class EmailVerificationRateThrottle(AnonRateThrottle):
+    scope = "email_verification"
+
+
+class EmailDeliveryUnavailable(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_detail = "目前无法发送验证邮件，请稍后重试或联系平台管理员。"
+    default_code = "EMAIL_DELIVERY_UNAVAILABLE"
 
 
 class SessionUserSerializer(serializers.Serializer):
@@ -115,10 +159,69 @@ class ResearcherRegistrationView(APIView):
     def post(self, request):
         serializer = ResearcherRegistrationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        serializer.save()
+        try:
+            with transaction.atomic():
+                user = serializer.save()
+                send_verification_email(user)
+        except EmailVerificationUnavailable as exc:
+            logger.warning("Researcher verification email unavailable reason=%s", str(exc))
+            raise EmailDeliveryUnavailable from exc
         return Response(
-            {"status": "pending_approval", "message": "申请已提交，请等待平台管理员审核启用账号。"},
+            {
+                "status": "pending_verification",
+                "message": "验证邮件已发送。请先确认邮箱，随后等待平台管理员审核启用账号。",
+            },
             status=status.HTTP_201_CREATED,
+        )
+
+
+class EmailVerificationView(APIView):
+    permission_classes = [AllowAny]
+    throttle_classes = [EmailVerificationRateThrottle]
+
+    @extend_schema(request=EmailVerificationRequestSerializer, responses=EmailVerificationResponseSerializer)
+    def post(self, request):
+        serializer = EmailVerificationRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            profile, changed = verify_email_token(serializer.validated_data["token"])
+        except InvalidEmailVerificationToken as exc:
+            raise serializers.ValidationError({"token": str(exc)}) from exc
+        if changed:
+            send_admin_registration_notice(profile.user)
+        return Response(
+            {
+                "status": "verified" if changed else "already_verified",
+                "accountActive": profile.user.is_active,
+                "message": (
+                    "邮箱已验证，账号还需平台管理员审核启用。"
+                    if not profile.user.is_active
+                    else "邮箱已验证，账号可以登录。"
+                ),
+            }
+        )
+
+
+class ResendVerificationEmailView(APIView):
+    permission_classes = [AllowAny]
+    throttle_classes = [EmailVerificationRateThrottle]
+
+    @extend_schema(request=ResendVerificationRequestSerializer, responses=ResendVerificationResponseSerializer)
+    def post(self, request):
+        serializer = ResendVerificationRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = get_user_model().objects.filter(email__iexact=serializer.validated_data["email"]).first()
+        profile = ResearcherProfile.objects.filter(user=user).first() if user else None
+        if profile and not profile.email_verified_at:
+            try:
+                send_verification_email(user)
+            except EmailVerificationUnavailable as exc:
+                logger.warning("Researcher verification resend unavailable reason=%s", str(exc))
+        return Response(
+            {
+                "status": "accepted",
+                "message": "如果该邮箱对应待验证的研究者申请，新的验证邮件已发送。",
+            }
         )
 
 
@@ -147,6 +250,9 @@ class SessionView(APIView):
         user = authenticate(request, **credentials.validated_data)
         if user is None:
             raise AuthenticationFailed("Invalid username or password.", code="invalid_credentials")
+        profile = ResearcherProfile.objects.filter(user=user).first()
+        if profile and not profile.email_verified_at:
+            raise AuthenticationFailed("请先通过注册邮箱中的链接完成邮箱验证。", code="email_not_verified")
         login(request, user)
         return Response(
             {

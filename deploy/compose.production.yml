@@ -7,6 +7,15 @@ x-django-environment: &django-environment
   DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Set DJANGO_SECRET_KEY in .env.production}
   DJANGO_ALLOWED_HOSTS: ${PUBLIC_DOMAIN:?Set PUBLIC_DOMAIN in .env.production}
   CSRF_TRUSTED_ORIGINS: https://${PUBLIC_DOMAIN:?Set PUBLIC_DOMAIN in .env.production}
+  PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?Set PUBLIC_BASE_URL in .env.production}
+  EMAIL_HOST: ${EMAIL_HOST:?Set EMAIL_HOST in .env.production}
+  EMAIL_PORT: ${EMAIL_PORT:-587}
+  EMAIL_HOST_USER: ${EMAIL_HOST_USER:?Set EMAIL_HOST_USER in .env.production}
+  EMAIL_HOST_PASSWORD: ${EMAIL_HOST_PASSWORD:?Set EMAIL_HOST_PASSWORD in .env.production}
+  EMAIL_USE_TLS: ${EMAIL_USE_TLS:-true}
+  DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:?Set DEFAULT_FROM_EMAIL in .env.production}
+  ADMIN_NOTIFICATION_EMAILS: ${ADMIN_NOTIFICATION_EMAILS:-}
+  EMAIL_VERIFICATION_MAX_AGE_SECONDS: ${EMAIL_VERIFICATION_MAX_AGE_SECONDS:-86400}
   DJANGO_SECURE_SSL_REDIRECT: "true"
   DJANGO_SESSION_COOKIE_SECURE: "true"
   DJANGO_CSRF_COOKIE_SECURE: "true"
@@ -113,6 +122,11 @@ services:
     environment:
       <<: *django-environment
       MEDIA_ROOT: /app/var/media
+      EMAIL_HOST: ""
+      EMAIL_HOST_USER: ""
+      EMAIL_HOST_PASSWORD: ""
+      DEFAULT_FROM_EMAIL: ""
+      ADMIN_NOTIFICATION_EMAILS: ""
     depends_on:
       postgres:
         condition: service_healthy

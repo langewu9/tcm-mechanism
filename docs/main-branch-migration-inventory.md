@@ -10,6 +10,10 @@
 - 登录使用 Django 服务端 session 和 CSRF。旧项目的 Cookie/JWT 解析、内置默认管理员密码和角色逻辑不作为新系统鉴权实现。
 - 旧 API 若依赖 Windows 固定路径、`data_cache.db`、Excel 本地文件、公开模型地址或 SQLite，应先抽出领域逻辑和数据契约，再改造成配置化服务。
 
+### 认证与账号迁移
+
+`origin/main` 的旧 Cookie/JWT 判定方式不作为新平台的认证实现；新系统由 Django 服务端 session 识别用户，并以服务端 `request.user` 绑定研究者提交的数据。新注册流程属于 Django 安全基础设施补齐，没有可直接复用的 main 业务代码：账号初始停用、无 staff/superuser 权限，先以 24 小时有时限的签名邮件链接确认邮箱，再由管理员审核启用。验证确认由单独 CSRF 保护的 POST 完成，重发链接不透露邮箱是否存在；验证成功后才向配置的管理员邮箱发通知。后台改研究者邮箱会清除验证时间并停用账号。迁移 `0017_researcherprofile` 为历史非管理员账号创建邮箱状态；既有 active 用户按迁移时刻标记为历史已验证，以免升级后失去登录能力。SMTP、退信和生产收件流程尚需部署环境验收。
+
 ## 页面与业务迁移映射
 
 | main 分支源码 | main 中的用途 | 当前 Django + React/Vite 目标 | 状态 |

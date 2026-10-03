@@ -45,14 +45,19 @@ def api_exception_handler(exc, context):
         429: ("RATE_LIMITED", "请求过于频繁，请稍后重试。"),
         503: ("SERVICE_UNAVAILABLE", "服务暂时不可用，请稍后重试。"),
     }
-    if getattr(exc, "default_code", None) in {"invalid_credentials", "not_authenticated"}:
+    exception_code = exc.get_codes() if hasattr(exc, "get_codes") else getattr(exc, "default_code", None)
+    if not isinstance(exception_code, str):
+        exception_code = getattr(getattr(exc, "detail", None), "code", None)
+    if exception_code in {"invalid_credentials", "not_authenticated"}:
         response.status_code = 401
         status_code = 401
     code, message = error_map.get(status_code, ("API_ERROR", "请求未能完成。"))
-    if getattr(exc, "default_code", None) == "invalid_credentials":
+    if exception_code == "invalid_credentials":
         code, message = "INVALID_CREDENTIALS", "用户名或密码不正确。"
-    elif getattr(exc, "default_code", None) == "not_authenticated":
+    elif exception_code == "not_authenticated":
         code, message = "AUTHENTICATION_REQUIRED", "请先登录后再操作。"
+    elif exception_code == "email_not_verified":
+        code, message = "EMAIL_NOT_VERIFIED", "请先通过注册邮箱中的链接完成邮箱验证。"
     elif status_code == 403 and str(getattr(exc, "detail", "")).startswith("CSRF Failed:"):
         code, message = "CSRF_FAILED", "请求校验失败，请刷新页面后重试。"
     response.data = error_payload(code, message, response.data, request)

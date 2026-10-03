@@ -2,7 +2,13 @@ from django.urls import path
 from django.views.decorators.csrf import csrf_protect
 
 from ..views import HealthView, HomeStatsView
-from ..views.auth import CsrfTokenView, ResearcherRegistrationView, SessionView
+from ..views.auth import (
+    CsrfTokenView,
+    EmailVerificationView,
+    ResearcherRegistrationView,
+    ResendVerificationEmailView,
+    SessionView,
+)
 from ..views.network_pharmacology import NetworkPharmacologyView
 from ..views.external_analysis import (
     ChemblActivitySearchView,
@@ -31,4 +37,6 @@ urlpatterns = [
     path("auth/csrf/", csrf_checked(CsrfTokenView.as_view()), name="auth-csrf"),
     path("auth/session/", csrf_checked(SessionView.as_view()), name="auth-session"),
     path("auth/register/", csrf_checked(ResearcherRegistrationView.as_view()), name="auth-register"),
+    path("auth/verify-email/", csrf_checked(EmailVerificationView.as_view()), name="auth-verify-email"),
+    path("auth/resend-verification/", csrf_checked(ResendVerificationEmailView.as_view()), name="auth-resend-verification"),
 ]
