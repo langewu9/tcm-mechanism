@@ -6,6 +6,7 @@ import { logout, type Session } from "../api/auth";
 import { ApiError } from "../api/client";
 import { BatchHerbEvidenceLookup } from "../components/BatchHerbEvidenceLookup";
 import { ComponentComparisonResults } from "../components/ComponentComparisonResults";
+import { ReactomePathwayLookup } from "../components/ReactomePathwayLookup";
 import { getEntityNeighborhood, searchCatalogEntities, type EntityNeighborhood, type KnowledgeEntity, type KnowledgeSearchPage } from "../api/catalog";
 import { compareComponents, searchChemblActivities, searchChemblMolecules, type ChemblActivitySearch, type ChemblMoleculeSearch, type ComponentComparison } from "../api/chembl";
 
@@ -223,6 +224,7 @@ export function KnowledgeExplorerPage() {
         {componentComparison && <ComponentComparisonResults data={componentComparison} />}
       </section>
       <BatchHerbEvidenceLookup />
+      <ReactomePathwayLookup />
       {error && <div className="notice-error workspace-notice" role="alert">{error}</div>}
       <div className="knowledge-explorer-grid">
         <section className="case-list">

@@ -2,6 +2,21 @@ import { apiRequest } from "./client";
 export type HomeStats = { counts: { herbs: number; compounds: number; targets: number; pathways: number } };
 export const getHomeStats = () => apiRequest<HomeStats>("/api/v1/home-stats/");
 
+export type ReactomeCatalogResult = {
+  query: string; catalogTotal: number; matchedTotal: number; maxItems: number; truncated: boolean;
+  sourceCode: string; warnings: string[];
+  sources: Array<{ sourceSlug: string; sourceVersion: string; checksumSha256: string }>;
+  items: Array<{
+    entityId: number; stableId: string; name: string; species: string; sourceVersion: string;
+    checksumSha256: string; sourceUrl: string; lastSyncedAt: string; targetAnnotations: number;
+    annotationSources: Array<{ sourceSlug: string; sourceVersion: string }>;
+    enrichmentRecords: number | null;
+  }>;
+};
+export const searchReactomeCatalog = (query: string) => apiRequest<ReactomeCatalogResult>(
+  `/api/v1/catalog/pathways/reactome/?${new URLSearchParams({ query })}`,
+);
+
 export type DashboardTask = {
   id: number;
   title: string;

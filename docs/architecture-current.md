@@ -45,6 +45,7 @@ API 按模块分组：
 | 科研助手 | `/api/v1/research/assistant/`、`analysis-tasks/{id}/` | 研究者选择启用来源目录实体；默认只返回本地证据，逐次同意后才调用内网模型；异步任务冻结来源快照并校验回答引用 |
 | 外部分析 | `/api/v1/analysis/pathway-enrichment/`、`string-network/`；蛋白组学任务的独立同意参数 | 需要显式同意的 Reactome、STRING 物理互作和 g:Profiler GO/KEGG 富集后台任务 |
 | 知识目录 | `/api/v1/catalog/` | 数据源、实体、证据关系；实体 neighborhood 最多返回 200 条活动来源关系；`herb-evidence/batch/` 支持每批最多 12 个中药或成分的本地精确查询，返回成分/靶点关系和来源记录 |
+| Reactome 人类通路目录 | `/api/v1/catalog/pathways/reactome/` | 登录后共享的启用、版本化人类通路目录；名称/稳定 ID 检索，最多 100 项，实际来源版本与校验值；不读取用户私有富集任务 |
 | 管理员数据源同步 | `/api/v1/admin/sources/`、`sync-runs/` | Reactome、UniProt、人工 CID 映射的 PubChem、STRING 人类标识映射与受控旧 SQLite 来源的后台预览、审计历史和人工应用；`DELETE /sources/{id}/` 仅删除无版本/同步历史的登记，有历史则返回 409 保留溯源 |
 | 管理员平台总览 | `/admin`、`/api/v1/admin/overview/` | 仅超级管理员可见的用户角色/状态/资产计数与最近 10 项数据集、分析任务；只读接口，身份和所有权由 Django session/服务端控制 |
 | 管理员 API 接入监测 | `/api/v1/admin/integrations/status/`、`integrations/test/` | 旧 main 服务状态和业务接口测试；模型与 ChEMBL 测试单次授权，交集检查不写入任务表；旧 AI Scientist 因缺数据文件标记为待迁移 |
@@ -98,6 +99,8 @@ API 按模块分组：
 - 科研助手已迁移受控首版：从本地目录选择实体，任务按用户隔离并冻结实体、关系与来源版本；默认不调用模型；研究者逐次同意后只发送问题和所选证据到已配置的本机/内网模型，模型引用限定为本次提供的 refId。模型未配置或响应格式错误时任务以安全错误结束，不生成假答案。真实模型联调和项目黄金样例仍待完成。
 
 ## 后续填充顺序
+
+本次补入 main 的 Reactome 人类通路目录检索与 CSV/JSON 导出，接在 `/research` 知识检索页。结果按名称排序，最多 100 项，匹配超限会明确提示；本地靶点注释按启用来源的活动基因/蛋白关系去重，并列出注释来源版本。旧版全局富集记录没有迁入，API 返回 `null`，页面与 CSV 标为“未迁入”，不会冒充零条或查询其他研究者的私有任务。来源版本读取实际 release，不复制旧 API 固定写入的版本 97。新增 6 项接口测试，全量 229 项 SQLite 测试、系统/迁移/OpenAPI 检查通过；页面分页、编号检索、无匹配与统一错误提示采用合成数据核对，窄屏只让表格容器横向滚动。CSV 内容已检查，浏览器文件落盘仍待常规浏览器确认。
 
 1. 用 main 的实际样例和输出核对当前蛋白组学逻辑；实测 g:Profiler 并逐项确认 GO/KEGG 自定义背景/FDR 输出，然后扩展非人类物种及更多来源的稳定 ID 映射、R 交互图和报告图表，并验证已接入的 STRING PPI；多因素目前仅有无交互项的加性分类模型，仍需用真实实验设计样例核验；不得把本地网络 degree 误报为 PPI 或富集。
 2. 取得旧 SQLite 文件并确认许可/字段语义后做真实数据导入验收；继续逐项验证 UniProt/PubChem/STRING 与真实项目字段，核对 STRING 人类标识映射的速率限制、冲突和 PostgreSQL 幂等应用，并完善大文件负载和失败恢复策略。
