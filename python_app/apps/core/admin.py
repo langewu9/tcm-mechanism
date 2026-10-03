@@ -130,7 +130,7 @@ class EvidenceRelationAdmin(admin.ModelAdmin):
 
 @admin.register(ResearchDataset)
 class ResearchDatasetAdmin(admin.ModelAdmin):
-    list_display = ("name", "owner", "original_filename", "byte_size", "created_at")
+    list_display = ("name", "owner", "original_filename", "row_count", "byte_size", "created_at")
     search_fields = ("name", "owner__username", "owner__email", "content_sha256")
     readonly_fields = ("created_at", "updated_at")
 

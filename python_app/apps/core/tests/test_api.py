@@ -13,7 +13,7 @@ from django.test import RequestFactory, override_settings
 from django.utils import timezone
 from rest_framework.test import APITestCase
 
-from apps.core.models import AnalysisTask, MedicalCase, MedicalCaseAuditEvent, ResearchDataset, ResearcherProfile
+from apps.core.models import AnalysisTask, MedicalCase, MedicalCaseAuditEvent, ResearchDataset, ResearchDatasetRow, ResearcherProfile
 from config.api_errors import ApiErrorEnvelopeMiddleware
 
 
@@ -99,12 +99,22 @@ class PrivateWorkspaceApiTests(APITestCase):
             self.assertEqual(dataset.original_filename, "proteins.csv")
             self.assertEqual(dataset.byte_size, len(contents))
             self.assertEqual(dataset.content_sha256, hashlib.sha256(contents).hexdigest())
+            self.assertEqual(dataset.row_count, 1)
+            self.assertEqual(dataset.columns, ["gene", "log2fc"])
+            self.assertEqual(dataset.rows.get().data, {"gene": "TP53", "log2fc": "1.25"})
+            self.assertEqual(response.data["row_count"], 1)
+            self.assertEqual(response.data["columns"], ["gene", "log2fc"])
+            self.assertEqual(response.data["rows"], [{"row_index": 0, "data": {"gene": "TP53", "log2fc": "1.25"}}])
             self.assertTrue(default_storage.exists(dataset.storage_key))
 
             self.client.force_authenticate(self.owner)
             response = self.client.get(reverse("dataset-list"))
             self.assertEqual(response.data["count"], 1)
             self.assertEqual(response.data["results"][0]["id"], self.dataset.pk)
+            self.assertEqual(
+                self.client.get(reverse("dataset-detail", args=[dataset.pk])).status_code,
+                404,
+            )
 
             missing_permission_response = self.client.get(
                 reverse("dataset-download", args=[dataset.pk])
@@ -114,6 +124,56 @@ class PrivateWorkspaceApiTests(APITestCase):
             download_response = self.client.get(reverse("dataset-download", args=[dataset.pk]))
             self.assertEqual(download_response.status_code, 200)
             self.assertEqual(b"".join(download_response.streaming_content), contents)
+
+    def test_dataset_upload_returns_25_rows_and_detail_returns_100(self):
+        contents = "gene,value\n" + "".join(f"G{index},{index}\n" for index in range(101))
+        with tempfile.TemporaryDirectory() as media_root, override_settings(MEDIA_ROOT=media_root):
+            self.client.force_authenticate(self.owner)
+            response = self.client.post(
+                reverse("dataset-list"),
+                {"name": "Preview limits", "file": SimpleUploadedFile("preview.csv", contents.encode())},
+                format="multipart",
+            )
+
+            self.assertEqual(response.status_code, 201)
+            self.assertEqual(response.data["row_count"], 101)
+            self.assertEqual(len(response.data["rows"]), 25)
+            dataset_id = response.data["id"]
+            detail = self.client.get(reverse("dataset-detail", args=[dataset_id]))
+            self.assertEqual(detail.status_code, 200)
+            self.assertEqual(len(detail.data["rows"]), 100)
+            listing = self.client.get(reverse("dataset-list"))
+            self.assertNotIn("rows", listing.data["results"][0])
+
+    def test_dataset_upload_stores_at_most_5000_rows_but_keeps_full_count(self):
+        contents = "gene,value\n" + "".join(f"G{index},{index}\n" for index in range(5002))
+        with tempfile.TemporaryDirectory() as media_root, override_settings(MEDIA_ROOT=media_root):
+            self.client.force_authenticate(self.owner)
+            response = self.client.post(
+                reverse("dataset-list"),
+                {"name": "Truncated rows", "file": SimpleUploadedFile("large.csv", contents.encode())},
+                format="multipart",
+            )
+
+            self.assertEqual(response.status_code, 201)
+            dataset = ResearchDataset.objects.get(pk=response.data["id"])
+            self.assertEqual(dataset.row_count, 5002)
+            self.assertEqual(dataset.rows.count(), 5000)
+            self.assertEqual(dataset.rows.last().row_index, 4999)
+
+    def test_dataset_upload_rejects_unparseable_tables_without_leaving_files(self):
+        with tempfile.TemporaryDirectory() as media_root, override_settings(MEDIA_ROOT=media_root):
+            self.client.force_authenticate(self.owner)
+            response = self.client.post(
+                reverse("dataset-list"),
+                {"name": "Invalid table", "file": SimpleUploadedFile("empty.csv", b"\n")},
+                format="multipart",
+            )
+
+            self.assertEqual(response.status_code, 400)
+            self.assertIn("file", response.data["error"]["details"])
+            self.assertEqual(ResearchDataset.objects.filter(name="Invalid table").count(), 0)
+            self.assertEqual(ResearchDatasetRow.objects.count(), 0)
 
     def test_dataset_upload_rejects_unsupported_file_types(self):
         self.client.force_authenticate(self.owner)

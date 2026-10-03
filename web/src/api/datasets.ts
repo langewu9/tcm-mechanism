@@ -9,6 +9,9 @@ export type ResearchDataset = {
   original_filename: string;
   content_sha256: string;
   byte_size: number;
+  row_count: number;
+  columns: string[];
+  rows?: Array<{ row_index: number; data: Record<string, string> }>;
   columns_mapping: Record<string, unknown>;
   metadata: Record<string, unknown>;
   created_at: string;

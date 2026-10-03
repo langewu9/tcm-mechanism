@@ -14,6 +14,8 @@ class ResearchDataset(models.Model):
     storage_key = models.CharField(max_length=500, blank=True)
     content_sha256 = models.CharField(max_length=64, blank=True)
     byte_size = models.PositiveBigIntegerField(default=0)
+    row_count = models.PositiveBigIntegerField(default=0)
+    columns = models.JSONField(default=list, blank=True)
     columns_mapping = models.JSONField(default=dict, blank=True)
     metadata = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -25,6 +27,25 @@ class ResearchDataset(models.Model):
 
     def __str__(self) -> str:
         return self.name
+
+
+class ResearchDatasetRow(models.Model):
+    dataset = models.ForeignKey(
+        ResearchDataset, on_delete=models.CASCADE, related_name="rows"
+    )
+    row_index = models.PositiveIntegerField()
+    data = models.JSONField()
+
+    class Meta:
+        ordering = ["row_index"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["dataset", "row_index"], name="dataset_row_index_unique"
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"数据集 #{self.dataset_id} · 第 {self.row_index + 1} 行"
 
 
 class MedicalCase(models.Model):

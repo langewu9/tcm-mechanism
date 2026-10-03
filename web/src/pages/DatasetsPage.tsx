@@ -46,7 +46,7 @@ export function DatasetsPage() {
     try {
       const item = await uploadDataset(new FormData(formElement));
       formElement.reset();
-      setNotice(`已保存“${item.name}”的原始文件，SHA-256 校验值已记录。`);
+      setNotice(`已保存“${item.name}”：解析 ${item.row_count.toLocaleString("zh-CN")} 行，原始文件和 SHA-256 校验值已保留。`);
       if (pageNumber !== 1) setPageNumber(1);
       else setRefresh((value) => value + 1);
     } catch (cause) { setError(errorMessage(cause)); }
@@ -100,7 +100,7 @@ export function DatasetsPage() {
             <label className="form-label" htmlFor="dataset-name">数据集名称<input className="field" id="dataset-name" name="name" maxLength={200} placeholder="例如：肺纤维化差异蛋白数据" required /></label>
             <label className="form-label" htmlFor="dataset-description">数据说明<textarea className="field case-textarea case-textarea-short" id="dataset-description" name="description" placeholder="来源、字段含义、物种或实验分组等说明" /></label>
             <label className="form-label" htmlFor="dataset-file">选择文件<input className="field dataset-file-input" id="dataset-file" name="file" type="file" accept=".csv,.tsv,.xls,.xlsx" required /></label>
-            <p className="section-help">支持 CSV、TSV、XLS、XLSX；大小上限由服务端配置。上传后保留原文件并计算 SHA-256，本阶段尚未解析表格或运行分析。</p>
+            <p className="section-help">支持 CSV、TSV、XLS、XLSX；大小和可解析行数上限由服务端配置。上传后保留原文件、字段名和行数，并保存前 5,000 行供后续检查。</p>
           </div>
           <div className="case-form-footer"><p>请确认拥有上传和研究该资料的授权。</p><button className="btn btn-primary" type="submit" disabled={uploading}><Upload size={16} />{uploading ? "正在保存…" : "保存数据集"}</button></div>
         </form>
@@ -114,7 +114,7 @@ export function DatasetsPage() {
                 <button className="icon-button case-delete" type="button" onClick={() => void removeDataset(item)} disabled={deletingId === item.id} aria-label={`删除数据集：${item.name}`} title="删除数据集及原始文件"><Trash2 size={17} /></button></div>
               {item.description && <p className="dataset-description">{item.description}</p>}
               <dl className="dataset-provenance"><div><dt>原始文件</dt><dd>{item.original_filename || "无文件"}</dd></div><div><dt>大小</dt><dd>{formatBytes(item.byte_size)}</dd></div>
-                <div><dt>提交研究者</dt><dd>{item.owner_username}</dd></div><div><dt>SHA-256</dt><dd title={item.content_sha256}>{item.content_sha256.slice(0, 16)}…</dd></div></dl>
+                <div><dt>解析行数</dt><dd>{item.row_count.toLocaleString("zh-CN")}</dd></div><div><dt>提交研究者</dt><dd>{item.owner_username}</dd></div><div><dt>SHA-256</dt><dd title={item.content_sha256}>{item.content_sha256.slice(0, 16)}…</dd></div></dl>
               <a className="btn btn-secondary dataset-download" href={`/api/v1/research/datasets/${item.id}/download/`}><Download size={15} />下载原始文件</a>
             </article>)}</div>
             : <div className="panel empty-state"><Database size={27} /><strong>暂无数据集</strong><p>上传第一份 CSV 或 Excel 文件后，这里会显示原文件信息、提交者与校验值。</p></div>}

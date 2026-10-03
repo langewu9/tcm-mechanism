@@ -1,15 +1,19 @@
 from django.conf import settings
 from django.core.files.storage import default_storage
+from django.db import transaction
 from rest_framework import serializers
 
 from ..exceptions import ResourceConflict
-from ..models import AnalysisTask, MedicalCase, MedicalCaseAuditEvent, MedicalCaseCandidate, ResearchDataset
+from ..models import AnalysisTask, MedicalCase, MedicalCaseAuditEvent, MedicalCaseCandidate, ResearchDataset, ResearchDatasetRow
+
+DATASET_ROW_STORAGE_LIMIT = 5000
 
 
 class ResearchDatasetSerializer(serializers.ModelSerializer):
     owner_id = serializers.ReadOnlyField()
     owner_username = serializers.CharField(source="owner.username", read_only=True)
     file = serializers.FileField(write_only=True, required=False)
+    rows = serializers.SerializerMethodField()
 
     class Meta:
         model = ResearchDataset
@@ -23,8 +27,11 @@ class ResearchDatasetSerializer(serializers.ModelSerializer):
             "original_filename",
             "content_sha256",
             "byte_size",
+            "row_count",
+            "columns",
             "columns_mapping",
             "metadata",
+            "rows",
             "created_at",
             "updated_at",
         ]
@@ -35,8 +42,26 @@ class ResearchDatasetSerializer(serializers.ModelSerializer):
             "original_filename",
             "content_sha256",
             "byte_size",
+            "row_count",
+            "columns",
             "created_at",
             "updated_at",
+        ]
+
+    def get_fields(self):
+        fields = super().get_fields()
+        view = self.context.get("view")
+        action = getattr(view, "action", None)
+        if action not in {"create", "retrieve"}:
+            fields.pop("rows", None)
+        return fields
+
+    def get_rows(self, obj):
+        view = self.context.get("view")
+        limit = 25 if getattr(view, "action", None) == "create" else 100
+        return [
+            {"row_index": row.row_index, "data": row.data}
+            for row in obj.rows.order_by("row_index")[:limit]
         ]
 
     def validate_file(self, upload):
@@ -76,17 +101,56 @@ class ResearchDatasetSerializer(serializers.ModelSerializer):
         upload = validated_data.pop("file")
         storage_key = self._store_upload(validated_data, upload)
         try:
-            return ResearchDataset.objects.create(**validated_data)
+            parsed = self._parse_table(storage_key, validated_data["original_filename"])
+            validated_data["row_count"] = len(parsed.rows)
+            validated_data["columns"] = parsed.columns
+            with transaction.atomic():
+                dataset = ResearchDataset.objects.create(**validated_data)
+                ResearchDatasetRow.objects.bulk_create(
+                    [
+                        ResearchDatasetRow(dataset=dataset, row_index=index, data=row)
+                        for index, row in enumerate(parsed.rows[:DATASET_ROW_STORAGE_LIMIT])
+                    ],
+                    batch_size=1000,
+                )
+            return dataset
+        except serializers.ValidationError:
+            default_storage.delete(storage_key)
+            raise
         except Exception:
             default_storage.delete(storage_key)
             raise
+
+    @staticmethod
+    def _parse_table(storage_key, filename):
+        from apps.proteomics.exceptions import ProteomicsInputError
+        from apps.proteomics.services import parse_dataset_table
+
+        try:
+            return parse_dataset_table(storage_key, filename)
+        except ProteomicsInputError as exc:
+            raise serializers.ValidationError({"file": str(exc)}) from exc
 
     def update(self, instance, validated_data):
         upload = validated_data.pop("file", None)
         old_storage_key = instance.storage_key
         new_storage_key = self._store_upload(validated_data, upload, instance.owner_id) if upload else None
         try:
-            updated = super().update(instance, validated_data)
+            parsed = self._parse_table(new_storage_key, validated_data["original_filename"]) if new_storage_key else None
+            if parsed:
+                validated_data["row_count"] = len(parsed.rows)
+                validated_data["columns"] = parsed.columns
+            with transaction.atomic():
+                updated = super().update(instance, validated_data)
+                if parsed:
+                    updated.rows.all().delete()
+                    ResearchDatasetRow.objects.bulk_create(
+                        [
+                            ResearchDatasetRow(dataset=updated, row_index=index, data=row)
+                            for index, row in enumerate(parsed.rows[:DATASET_ROW_STORAGE_LIMIT])
+                        ],
+                        batch_size=1000,
+                    )
         except Exception:
             if new_storage_key:
                 default_storage.delete(new_storage_key)

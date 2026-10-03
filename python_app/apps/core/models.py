@@ -2,7 +2,7 @@
 
 from .domain.accounts import ResearcherProfile
 from .domain.knowledge import EntityIdentifier, EvidenceRelation, KnowledgeEntity
-from .domain.research import AnalysisTask, MedicalCase, MedicalCaseAuditEvent, MedicalCaseCandidate, ResearchDataset, VisualizationArtifact
+from .domain.research import AnalysisTask, MedicalCase, MedicalCaseAuditEvent, MedicalCaseCandidate, ResearchDataset, ResearchDatasetRow, VisualizationArtifact
 from .domain.sources import DataSource, SourceRelease, SyncRun
 
 __all__ = [
@@ -15,6 +15,7 @@ __all__ = [
     "MedicalCaseAuditEvent",
     "MedicalCaseCandidate",
     "ResearchDataset",
+    "ResearchDatasetRow",
     "ResearcherProfile",
     "SourceRelease",
     "SyncRun",

@@ -45,15 +45,15 @@
 - 研究知识：`Syndrome`、`Formula`、`Herb`、`Compound`、`Target`、`Gene`、`Pathway`。
 - 结果与来源：`AnalysisResult`、`PathwayEnrichmentRun`、`PathwayEnrichmentItem`、`DatabaseSource`、`DatabaseSyncRun`。
 
-当前 Django 已有 `ResearchDataset`、`MedicalCase`、`MedicalCaseAuditEvent`、`AnalysisTask`、`VisualizationArtifact`、`KnowledgeEntity`、`EvidenceRelation`、`DataSource`、`SourceRelease` 和 `SyncRun`。迁移时要优先做字段映射：例如 main 的多个知识实体表映射到 Django 的实体类型/规范 ID；main `DatasetRow` 不应无界转成 JSON 表；蛋白组学的行级结果、输入文件、任务、结果及图表工件需要明确模型边界和容量策略。
+当前 Django 已有 `ResearchDataset`、`MedicalCase`、`MedicalCaseAuditEvent`、`AnalysisTask`、`VisualizationArtifact`、`KnowledgeEntity`、`EvidenceRelation`、`DataSource`、`SourceRelease` 和 `SyncRun`。迁移时要优先做字段映射：例如 main 的多个知识实体表映射到 Django 的实体类型/规范 ID；`DatasetRow` 仅按 main 已有的前 5,000 行策略入库，完整原文件仍在私有存储中；蛋白组学行级结果、任务结果及图表工件继续使用各自的受控模型。
 
 ### 首版字段映射
 
 | main SQLite/Prisma 对象 | Django/PostgreSQL 映射方向 | 需要保留或转换的内容 |
 |---|---|---|
 | `User` | Django `AUTH_USER_MODEL` | main 的字符串 CUID 与 Django 主键不同；导入时需做稳定 ID/email 对照，密码 hash 格式须验证，角色不得直接信任 |
-| `Dataset` | `ResearchDataset` | 名称、说明、上传人、文件名；新系统另记私有 storage key、SHA-256 和字节数 |
-| `DatasetRow` | 暂不直接映射 | 当前不向数据库无界写行 JSON；要按分析用途设计受控导入/分块与原始文件追溯 |
+| `Dataset` | `ResearchDataset` | 名称、说明、上传人、文件名；记录私有 storage key、SHA-256、字节数、解析行数和字段名 |
+| `DatasetRow` | `ResearchDatasetRow` | 上传时解析 CSV/TSV/XLS/XLSX；数据库保存前 5,000 行，创建响应最多返回 25 行，详情最多返回 100 行 |
 | `MedicalCase` | `MedicalCase` | `symptoms` → `deidentified_text`；`patientInfo/tonguePulse/diagnosis` → `structured_data`；`source` → `source_reference`；记录用户和时间 |
 | `AnalysisTask` / `AnalysisResult` | `AnalysisTask` + 待设计结果/工件模型 | 输入医案、参数、状态、证据、网络、算法/来源版本分别建模；不能把历史 `COMPLETED` 假设成新任务状态 |
 | `ProteomicsDataset` / `ProteomicsRow` / `ProteomicsAnalysis` | `ResearchDataset` + `AnalysisTask` + `ProteomicsRowResult` | 原始文件 SHA-256、列映射、阈值、算法版本、逐行原始标识/规范标识/映射状态/排除原因和来源版本均已入账；差异统计矩阵、外部富集结果、PPI 和可视化工件模型仍待扩展 |
