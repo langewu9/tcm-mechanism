@@ -143,6 +143,7 @@ export function ProteomicsPage() {
   const [datasetId, setDatasetId] = useState<number | "">("");
   const [task, setTask] = useState<AnalysisTask | null>(null);
   const [visualizationTask, setVisualizationTask] = useState<AnalysisTask | null>(null);
+  const [volcanoVisualizationTask, setVolcanoVisualizationTask] = useState<AnalysisTask | null>(null);
   const [analysisMode, setAnalysisMode] = useState<"differential_table" | "raw_matrix">("differential_table");
   const [matrixDesignType, setMatrixDesignType] = useState<"unpaired" | "paired" | "multifactor">("unpaired");
   const [mapping, setMapping] = useState(initialMapping);
@@ -190,6 +191,13 @@ export function ProteomicsPage() {
             && Number(item.input_parameters.parentTaskId) === latestTask.id,
           );
           if (latestVisualization) setVisualizationTask(latestVisualization);
+          const latestVolcanoVisualization = taskResponse.results.find((item) =>
+            item.task_type === "visualization"
+            && item.input_parameters.analysisKind === "r_visualization"
+            && item.input_parameters.chartKey === "proteomics_volcano"
+            && Number(item.input_parameters.parentTaskId) === latestTask.id,
+          );
+          if (latestVolcanoVisualization) setVolcanoVisualizationTask(latestVolcanoVisualization);
         }
       })
       .catch((cause: unknown) => { if (active) setError(errorMessage(cause)); })
@@ -218,6 +226,17 @@ export function ProteomicsPage() {
     }, 1400);
     return () => { active = false; window.clearTimeout(timer); };
   }, [visualizationTask]);
+
+  useEffect(() => {
+    if (!volcanoVisualizationTask || !["queued", "running"].includes(volcanoVisualizationTask.status)) return;
+    let active = true;
+    const timer = window.setTimeout(() => {
+      getAnalysisTask(volcanoVisualizationTask.id)
+        .then((latest) => { if (active) setVolcanoVisualizationTask(latest); })
+        .catch((cause: unknown) => { if (active) setError(errorMessage(cause)); });
+    }, 1400);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [volcanoVisualizationTask]);
 
   useEffect(() => {
     if (!showRows || !task || task.status !== "succeeded") return;
@@ -371,6 +390,19 @@ export function ProteomicsPage() {
     }
   }
 
+  async function requestVolcanoVisualization() {
+    if (!task || task.status !== "succeeded") return;
+    setError(null);
+    setVisualizationSubmitting(true);
+    try {
+      setVolcanoVisualizationTask(await createVisualization(task.id, "proteomics_volcano"));
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setVisualizationSubmitting(false);
+    }
+  }
+
   return <main className="workspace-page">
     <header className="workspace-nav">
       <Link to="/" className="site-brand" aria-label="远志 AI Scientist 首页">
@@ -486,7 +518,8 @@ export function ProteomicsPage() {
               {(task.status === "queued" || task.status === "running") && <div className="analysis-progress" role="status"><span>任务已排队，分析过程在后台运行。</span><progress max={100} value={task.progress} /></div>}
               {task.status === "failed" && <div className="notice-error" role="alert">{task.error_summary || "分析失败，请检查文件和列映射。"}</div>}
               {result && <ProteomicsResultView result={result} task={task} showRows={showRows} rowPage={rowPage} rowPageNumber={rowPageNumber}
-                visualizationTask={visualizationTask} visualizationSubmitting={visualizationSubmitting}
+                visualizationTask={visualizationTask} volcanoVisualizationTask={volcanoVisualizationTask} visualizationSubmitting={visualizationSubmitting}
+                onCreateVolcanoVisualization={() => void requestVolcanoVisualization()}
                 onCreateGoKeggVisualization={() => void requestGoKeggVisualization()}
                 onToggleRows={() => { setShowRows((value) => !value); setRowPageNumber(1); }}
                 onRowPageChange={setRowPageNumber} />}
@@ -502,8 +535,8 @@ function Metric({ label, value, note }: { label: string; value: string | number;
 }
 
 function ProteomicsResultView({
-  result, task, showRows, rowPage, rowPageNumber, visualizationTask, visualizationSubmitting,
-  onCreateGoKeggVisualization, onToggleRows, onRowPageChange,
+  result, task, showRows, rowPage, rowPageNumber, visualizationTask, volcanoVisualizationTask, visualizationSubmitting,
+  onCreateVolcanoVisualization, onCreateGoKeggVisualization, onToggleRows, onRowPageChange,
 }: {
   result: ProteomicsResult;
   task: AnalysisTask;
@@ -511,7 +544,9 @@ function ProteomicsResultView({
   rowPage: ProteomicsRowPage | null;
   rowPageNumber: number;
   visualizationTask: AnalysisTask | null;
+  volcanoVisualizationTask: AnalysisTask | null;
   visualizationSubmitting: boolean;
+  onCreateVolcanoVisualization: () => void;
   onCreateGoKeggVisualization: () => void;
   onToggleRows: () => void;
   onRowPageChange: (page: number) => void;
@@ -550,6 +585,12 @@ function ProteomicsResultView({
     {result.warnings.map((warning) => <p className="notice-warning" key={warning}>{warning}</p>)}
     <div className="notice-info"><Activity size={17} /><span>{result.summary.enrichmentNote}</span></div>
 
+    <section className="proteomics-result-section">
+      <div className="case-list-heading"><div><h3 className="section-title-sm">差异蛋白火山图</h3><p className="section-help">根据本任务已保存的 log2FC、P 值和筛选状态生成，最多绘制 5,000 行；不发送原始文件或医案。</p></div>
+        <button className="btn btn-secondary" type="button" disabled={visualizationSubmitting || Boolean(volcanoVisualizationTask && ["queued", "running", "succeeded"].includes(volcanoVisualizationTask.status))} onClick={onCreateVolcanoVisualization}>{visualizationSubmitting ? "正在创建图表…" : volcanoVisualizationTask?.status === "succeeded" ? "R 火山图已生成" : volcanoVisualizationTask?.status === "failed" ? "重试生成 R 火山图" : "生成 R 火山图"}</button></div>
+      {volcanoVisualizationTask && <ProteomicsVisualizationResult task={volcanoVisualizationTask} title="差异蛋白火山图" alt="差异蛋白火山图；横轴为 log2 Fold Change，纵轴为负对数 P 值，颜色区分阈值筛选结果" />}
+    </section>
+
     {result.externalReactome && <section className="proteomics-result-section">
       <div className="case-list-heading"><div><h3 className="section-title-sm">MyGene.info / Reactome 外部结果</h3><p className="section-help">{result.externalReactome.organism} · {result.externalReactome.source}{result.externalReactome.sourceVersion ? ` ${result.externalReactome.sourceVersion}` : " · 版本未返回"}</p></div>
         <span className="status-badge">{{ succeeded: "有显著通路", no_significant_pathways: "无显著通路", no_mapped_identifiers: "没有可映射标识", unavailable: "服务不可用", disabled: "服务已停用" }[result.externalReactome.status] ?? result.externalReactome.status}</span>
@@ -573,7 +614,7 @@ function ProteomicsResultView({
       </tbody></table></div> : <p className="section-help">本次没有可展示的 GO/KEGG 显著条目。</p>}
       {result.externalGProfiler.terms.length > 0 && <>
         <div className="source-record-actions"><button className="btn btn-secondary" type="button" disabled={visualizationSubmitting || Boolean(visualizationTask && ["queued", "running", "succeeded"].includes(visualizationTask.status))} onClick={onCreateGoKeggVisualization}>{visualizationSubmitting ? "正在创建图表…" : visualizationTask?.status === "succeeded" ? "R 气泡图已生成" : visualizationTask?.status === "failed" ? "重试生成 R 气泡图" : "生成 R 富集气泡图"}</button><span className="section-help">只把最多 100 条富集结果的名称、类别、GeneRatio、FDR 和命中数交给 R 绘图；不发送原始文件或医案。</span></div>
-        {visualizationTask && <ProteomicsVisualizationResult task={visualizationTask} />}
+        {visualizationTask && <ProteomicsVisualizationResult task={visualizationTask} title="GO / KEGG 富集气泡图" alt="GO / KEGG 富集气泡图；横轴为 GeneRatio，点大小为命中数，颜色表示 FDR 显著性" />}
       </>}
       {result.externalGProfiler.terms.some((term) => term.matchedIdentifiers.length > 0) && <details className="case-notes"><summary>查看命中标识</summary>{result.externalGProfiler.terms.filter((term) => term.matchedIdentifiers.length > 0).slice(0, 30).map((term) => <p key={`${term.source}:${term.termId}`}><strong>{term.name}</strong>：{term.matchedIdentifiers.join("、")}</p>)}</details>}
     </section>}
@@ -640,14 +681,14 @@ function ProteomicsResultView({
   </div>;
 }
 
-function ProteomicsVisualizationResult({ task }: { task: AnalysisTask }) {
+function ProteomicsVisualizationResult({ task, title, alt }: { task: AnalysisTask; title: string; alt: string }) {
   if (["queued", "running"].includes(task.status)) return <p className="section-help" role="status">R 富集图表任务 #{task.id} 正在后台执行（{task.progress}%）。</p>;
-  if (task.status === "failed") return <div className="notice-error" role="alert">R 富集图表生成失败：{task.error_summary}</div>;
+  if (task.status === "failed") return <div className="notice-error" role="alert">R 图表生成失败：{task.error_summary}</div>;
   const value = task.result as { rendererVersion?: string; artifacts?: Array<{ id: number; format: string; downloadUrl: string }> };
   const artifacts = value.artifacts ?? [];
   const svg = artifacts.find((artifact) => artifact.format === "svg");
-  return <div className="panel source-record"><h3>GO / KEGG 富集气泡图 · {String(value.rendererVersion ?? "")}</h3>
-    {svg && <img className="visualization-preview" src={`${svg.downloadUrl}?inline=1`} alt="GO / KEGG 富集气泡图；横轴为 GeneRatio，点大小为命中数，颜色表示 FDR 显著性" />}
+  return <div className="panel source-record"><h3>{title} · {String(value.rendererVersion ?? "")}</h3>
+    {svg && <img className="visualization-preview" src={`${svg.downloadUrl}?inline=1`} alt={alt} />}
     <div className="source-record-actions">{artifacts.map((artifact) => <a className="btn btn-secondary" key={artifact.id} href={artifact.downloadUrl}>下载 {artifact.format.toUpperCase()}</a>)}</div>
   </div>;
 }

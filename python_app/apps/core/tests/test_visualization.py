@@ -10,8 +10,9 @@ from django.urls import reverse
 from rest_framework.test import APITestCase
 
 from apps.core.models import AnalysisTask, VisualizationArtifact
-from apps.core.services.visualization import build_chart_payload
+from apps.core.services.visualization import VisualizationInputError, build_chart_payload
 from apps.core.tasks import run_visualization_task
+from apps.proteomics.models import ProteomicsRowResult
 
 
 class VisualizationWorkflowTests(APITestCase):
@@ -49,6 +50,133 @@ class VisualizationWorkflowTests(APITestCase):
             separators=(",", ":"),
         )
         self.assertEqual(payload["inputSha256"], hashlib.sha256(canonical.encode()).hexdigest())
+
+    def test_proteomics_volcano_payload_uses_persisted_rows_and_records_thresholds(self):
+        task = AnalysisTask.objects.create(
+            owner=self.owner,
+            task_type=AnalysisTask.TaskType.PROTEOMICS,
+            status=AnalysisTask.Status.SUCCEEDED,
+            input_parameters={"privateCaseText": "不得交给 R 的医案文本"},
+            result={
+                "thresholds": {"log2FcMin": 1.0, "fdrMax": 0.05, "pValueMax": 0.01},
+                "summary": {"privateText": "不得发送"},
+            },
+        )
+        ProteomicsRowResult.objects.create(
+            task=task,
+            row_index=0,
+            original_label="P04637",
+            normalized_symbol="TP53",
+            mapping_status=ProteomicsRowResult.MappingStatus.UNVERIFIED,
+            log2_fold_change=2.0,
+            p_value=0.0,
+            fdr=0.001,
+            selected=True,
+        )
+        ProteomicsRowResult.objects.create(
+            task=task,
+            row_index=1,
+            original_label="IL6",
+            mapping_status=ProteomicsRowResult.MappingStatus.UNVERIFIED,
+            log2_fold_change=-1.2,
+            p_value=0.04,
+            fdr=0.07,
+            selected=False,
+        )
+        ProteomicsRowResult.objects.create(
+            task=task,
+            row_index=2,
+            original_label="MISSING_P",
+            mapping_status=ProteomicsRowResult.MappingStatus.UNMAPPED,
+            log2_fold_change=1.5,
+            p_value=None,
+            selected=False,
+        )
+
+        payload = build_chart_payload(task, "proteomics_volcano")
+
+        self.assertEqual(payload["chartType"], "volcano")
+        self.assertEqual(payload["thresholds"], {"log2FoldChange": 1.0, "pValue": 0.01})
+        self.assertEqual(len(payload["data"]), 2)
+        self.assertEqual(payload["data"][0]["label"], "TP53")
+        self.assertEqual(payload["data"][0]["pValue"], 0.0)
+        serialized = json.dumps(payload, ensure_ascii=False)
+        self.assertNotIn("不得交给 R", serialized)
+        self.assertNotIn("不得发送", serialized)
+        canonical = json.dumps(
+            {key: value for key, value in payload.items() if key != "inputSha256"},
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        self.assertEqual(payload["inputSha256"], hashlib.sha256(canonical.encode()).hexdigest())
+
+    @patch("apps.core.services.visualization.MAX_VOLCANO_POINTS", 2)
+    def test_proteomics_volcano_payload_is_bounded_and_discloses_truncation(self):
+        task = AnalysisTask.objects.create(
+            owner=self.owner,
+            task_type=AnalysisTask.TaskType.PROTEOMICS,
+            status=AnalysisTask.Status.SUCCEEDED,
+            result={"thresholds": {"log2FcMin": 1.0, "pValueMax": 0.05}},
+        )
+        ProteomicsRowResult.objects.bulk_create([
+            ProteomicsRowResult(
+                task=task,
+                row_index=index,
+                original_label=f"GENE{index}",
+                mapping_status=ProteomicsRowResult.MappingStatus.UNMAPPED,
+                log2_fold_change=float(index),
+                p_value=0.01 * (index + 1),
+                fdr=0.02 * (index + 1),
+                selected=index == 0,
+            )
+            for index in range(3)
+        ])
+
+        payload = build_chart_payload(task, "proteomics_volcano")
+
+        self.assertEqual(len(payload["data"]), 2)
+        self.assertIn("展示 2/3 条", payload["subtitle"])
+        self.assertIn("按筛选状态与显著性排序截取", payload["subtitle"])
+
+    def test_proteomics_volcano_payload_trims_to_r_request_byte_limit(self):
+        task = AnalysisTask.objects.create(
+            owner=self.owner,
+            task_type=AnalysisTask.TaskType.PROTEOMICS,
+            status=AnalysisTask.Status.SUCCEEDED,
+            result={"thresholds": {"log2FcMin": 1.0, "pValueMax": 0.05}},
+        )
+        ProteomicsRowResult.objects.bulk_create([
+            ProteomicsRowResult(
+                task=task,
+                row_index=index,
+                original_label=(f"GENE{index}" + "X" * 115),
+                mapping_status=ProteomicsRowResult.MappingStatus.UNMAPPED,
+                log2_fold_change=float(index),
+                p_value=0.01 * (index + 1),
+                fdr=0.02 * (index + 1),
+                selected=index == 0,
+            )
+            for index in range(3)
+        ])
+
+        with patch("apps.core.services.visualization.MAX_R_VIZ_REQUEST_BYTES", 700):
+            payload = build_chart_payload(task, "proteomics_volcano")
+
+        self.assertLess(len(payload["data"]), 3)
+        self.assertIn("受请求大小限制绘制", payload["subtitle"])
+        self.assertLessEqual(len(json.dumps(payload, ensure_ascii=False).encode("utf-8")), 700)
+
+    def test_proteomics_volcano_payload_rejects_missing_statistical_rows(self):
+        task = AnalysisTask.objects.create(
+            owner=self.owner,
+            task_type=AnalysisTask.TaskType.PROTEOMICS,
+            status=AnalysisTask.Status.SUCCEEDED,
+            result={"thresholds": {"log2FcMin": 1.0, "pValueMax": 0.05}},
+        )
+
+        with self.assertRaisesRegex(VisualizationInputError, "没有同时包含有效"):
+            build_chart_payload(task, "proteomics_volcano")
 
     def test_go_kegg_bubble_payload_is_bounded_and_validates_each_term(self):
         terms = [

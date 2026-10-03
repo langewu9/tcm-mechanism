@@ -12,20 +12,24 @@ import urllib.request
 from django.conf import settings
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
+from django.db.models import F
 from django.db import transaction
 from django.utils import timezone
 
 from apps.core.models import AnalysisTask, VisualizationArtifact
+from apps.proteomics.models import ProteomicsRowResult
 
 
 logger = logging.getLogger(__name__)
 MAX_ARTIFACT_BYTES = 10 * 1024 * 1024
+MAX_R_VIZ_REQUEST_BYTES = 1024 * 1024
 FORMAT_MIME_TYPES = {
     "svg": "image/svg+xml",
     "pdf": "application/pdf",
     "png": "image/png",
     "html": "text/html; charset=utf-8",
 }
+MAX_VOLCANO_POINTS = 5000
 
 
 class VisualizationInputError(ValueError):
@@ -54,7 +58,62 @@ def build_chart_payload(task: AnalysisTask, chart_key: str) -> dict:
             raise VisualizationInputError("网络药理任务不支持该图表类型。")
     elif task.task_type == AnalysisTask.TaskType.PROTEOMICS:
         summary = result.get("summary") or {}
-        if chart_key == "proteomics_summary":
+        if chart_key == "proteomics_volcano":
+            threshold_values = result.get("thresholds") or {}
+            log2_fc_threshold = threshold_values.get("log2FcMin")
+            p_value_threshold = threshold_values.get("pValueMax")
+            if (
+                not isinstance(log2_fc_threshold, (int, float))
+                or isinstance(log2_fc_threshold, bool)
+                or not isinstance(p_value_threshold, (int, float))
+                or isinstance(p_value_threshold, bool)
+                or not 0 < p_value_threshold <= 1
+                or log2_fc_threshold < 0
+            ):
+                raise VisualizationInputError("分析任务中的火山图筛选阈值无效。")
+            eligible_rows = ProteomicsRowResult.objects.filter(
+                task=task,
+                log2_fold_change__isnull=False,
+                p_value__isnull=False,
+                p_value__gte=0,
+                p_value__lte=1,
+            )
+            total_count = eligible_rows.count()
+            selected_count = eligible_rows.filter(selected=True).count()
+            unselected_count = total_count - selected_count
+            selected_limit = min(selected_count, MAX_VOLCANO_POINTS // 2)
+            unselected_limit = min(unselected_count, MAX_VOLCANO_POINTS - selected_limit)
+            selected_limit += min(
+                selected_count - selected_limit,
+                MAX_VOLCANO_POINTS - selected_limit - unselected_limit,
+            )
+            unselected_limit = min(unselected_count, MAX_VOLCANO_POINTS - selected_limit)
+            selected_rows = list(
+                eligible_rows.filter(selected=True)
+                .order_by(F("fdr").asc(nulls_last=True), F("p_value").asc(nulls_last=True), "row_index")[:selected_limit]
+            )
+            unselected_rows = list(
+                eligible_rows.filter(selected=False)
+                .order_by(F("p_value").asc(nulls_last=True), "row_index")[:unselected_limit]
+            )
+            plotted_rows = [*selected_rows, *unselected_rows]
+            data = [{
+                "label": (row.normalized_symbol or row.original_label or f"行 {row.row_index + 1}")[:120],
+                "log2FoldChange": row.log2_fold_change,
+                "pValue": row.p_value,
+                "fdr": row.fdr,
+                "selected": row.selected,
+            } for row in plotted_rows]
+            if not data:
+                raise VisualizationInputError("本次分析没有同时包含有效 log2FC 和 P 值的行，无法生成火山图。")
+            title = "差异蛋白火山图"
+            subtitle = (
+                f"筛选阈值：|log2FC| ≥ {log2_fc_threshold:g}，P ≤ {p_value_threshold:g}；"
+                f"展示 {len(data)}/{total_count} 条有效统计结果"
+            )
+            if len(data) < total_count:
+                subtitle += "（按筛选状态与显著性排序截取）"
+        elif chart_key == "proteomics_summary":
             title = "蛋白组学分析概览"
             keys = ["selectedRowCount", "normalizedCount", "databaseMappedCount", "unmappedCount", "candidateOverlapCount", "pathwayCount"]
             labels = ["筛选行", "标准化", "本地映射", "未映射", "候选交集", "通路"]
@@ -120,7 +179,8 @@ def build_chart_payload(task: AnalysisTask, chart_key: str) -> dict:
     else:
         raise VisualizationInputError("当前任务类型没有已支持的 R 图表。")
 
-    if not 1 <= len(data) <= 100:
+    max_points = MAX_VOLCANO_POINTS if chart_key == "proteomics_volcano" else 100
+    if not 1 <= len(data) <= max_points:
         raise VisualizationInputError("该结果没有可供绘图的数据，或数据点超过上限。")
     if chart_key == "proteomics_go_kegg_enrichment":
         payload = {
@@ -131,12 +191,53 @@ def build_chart_payload(task: AnalysisTask, chart_key: str) -> dict:
             "colorLabel": "−log10(FDR)",
             "data": data,
         }
+    elif chart_key == "proteomics_volcano":
+        payload = {
+            "chartType": "volcano",
+            "title": title,
+            "subtitle": subtitle,
+            "xLabel": "log2 Fold Change",
+            "yLabel": "−log10(P 值)",
+            "thresholds": {
+                "log2FoldChange": log2_fc_threshold,
+                "pValue": p_value_threshold,
+            },
+            "data": data,
+        }
     else:
         if any(not isinstance(item.get("label"), str) or not isinstance(item.get("value"), (int, float)) for item in data):
             raise VisualizationInputError("分析结果中的图表数据格式无效。")
         payload = {"chartType": "bar", "title": title, "yLabel": "数量", "data": data}
-    canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
-    payload["inputSha256"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    def with_input_hash(chart_payload):
+        canonical = json.dumps(chart_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        hashed_payload = {**chart_payload, "inputSha256": hashlib.sha256(canonical.encode("utf-8")).hexdigest()}
+        request_bytes = json.dumps(hashed_payload, ensure_ascii=False, allow_nan=False).encode("utf-8")
+        return hashed_payload, len(request_bytes)
+
+    payload, request_size = with_input_hash(payload)
+    if request_size > MAX_R_VIZ_REQUEST_BYTES and chart_key == "proteomics_volcano":
+        original_data = payload["data"]
+        low, high = 1, len(original_data)
+        best_payload = None
+        while low <= high:
+            count = (low + high) // 2
+            candidate = {
+                **payload,
+                "data": original_data[:count],
+                "subtitle": f"{subtitle}；受请求大小限制绘制 {count}/{total_count} 条",
+            }
+            candidate.pop("inputSha256", None)
+            candidate, candidate_size = with_input_hash(candidate)
+            if candidate_size <= MAX_R_VIZ_REQUEST_BYTES:
+                best_payload = candidate
+                low = count + 1
+            else:
+                high = count - 1
+        if best_payload is None:
+            raise VisualizationInputError("火山图数据超过 R 服务请求大小限制，无法安全生成图表。")
+        payload = best_payload
+    elif request_size > MAX_R_VIZ_REQUEST_BYTES:
+        raise VisualizationInputError("图表数据超过 R 服务请求大小限制，无法安全生成图表。")
     return payload
 
 

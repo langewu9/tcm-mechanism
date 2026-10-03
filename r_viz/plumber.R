@@ -107,6 +107,74 @@ make_enrichment_bubble_plot <- function(payload) {
     )
 }
 
+make_volcano_plot <- function(payload) {
+  if (is.null(payload$data) || !is.list(payload$data) || length(payload$data) < 1L || length(payload$data) > 5000L) {
+    stop("data must contain between 1 and 5000 volcano points", call. = FALSE)
+  }
+  thresholds <- payload$thresholds
+  if (!is.list(thresholds) || !is.numeric(thresholds$log2FoldChange) || length(thresholds$log2FoldChange) != 1L ||
+      !is.finite(thresholds$log2FoldChange) || thresholds$log2FoldChange < 0 ||
+      !is.numeric(thresholds$pValue) || length(thresholds$pValue) != 1L ||
+      !is.finite(thresholds$pValue) || thresholds$pValue <= 0 || thresholds$pValue > 1) {
+    stop("volcano thresholds are invalid", call. = FALSE)
+  }
+  points <- lapply(payload$data, function(item) {
+    label <- item$label
+    fold_change <- item$log2FoldChange
+    p_value <- item$pValue
+    fdr <- item$fdr
+    selected <- item$selected
+    if (!is.character(label) || length(label) != 1L || !nzchar(trimws(label)) || nchar(label, type = "chars") > 120L) {
+      stop("every volcano point needs a label of at most 120 characters", call. = FALSE)
+    }
+    if (!is.numeric(fold_change) || length(fold_change) != 1L || !is.finite(fold_change)) {
+      stop("log2FoldChange must be finite", call. = FALSE)
+    }
+    if (!is.numeric(p_value) || length(p_value) != 1L || !is.finite(p_value) || p_value < 0 || p_value > 1) {
+      stop("pValue must be between 0 and 1", call. = FALSE)
+    }
+    if (!is.null(fdr) && (!is.numeric(fdr) || length(fdr) != 1L || !is.finite(fdr) || fdr < 0 || fdr > 1)) {
+      stop("fdr must be null or a finite number between 0 and 1", call. = FALSE)
+    }
+    if (!is.logical(selected) || length(selected) != 1L || is.na(selected)) {
+      stop("selected must be a boolean", call. = FALSE)
+    }
+    data.frame(
+      label = label,
+      log2FoldChange = fold_change,
+      pValue = p_value,
+      fdr = if (is.null(fdr)) NA_real_ else fdr,
+      selected = selected,
+      stringsAsFactors = FALSE
+    )
+  })
+  data <- do.call(rbind, points)
+  data$negLog10P <- -log10(pmax(data$pValue, .Machine$double.xmin))
+  data$selected <- factor(data$selected, levels = c(FALSE, TRUE), labels = c("未通过筛选", "通过筛选"))
+  ggplot(data, aes(x = log2FoldChange, y = negLog10P)) +
+    geom_point(aes(colour = selected), alpha = 0.7, size = 1.6) +
+    geom_vline(xintercept = c(-thresholds$log2FoldChange, thresholds$log2FoldChange),
+               linetype = "dashed", colour = "#75827e", linewidth = 0.45) +
+    geom_hline(yintercept = -log10(thresholds$pValue),
+               linetype = "dashed", colour = "#75827e", linewidth = 0.45) +
+    scale_colour_manual(values = c("未通过筛选" = "#9aa7a3", "通过筛选" = "#b34d43"), drop = FALSE) +
+    labs(
+      title = payload$title,
+      subtitle = payload$subtitle %||% "",
+      x = payload$xLabel %||% "log2 Fold Change",
+      y = payload$yLabel %||% "−log10(P 值)",
+      colour = "阈值筛选"
+    ) +
+    theme_minimal(base_size = 12) +
+    theme(
+      plot.title = element_text(face = "bold", colour = "#172a28", margin = margin(b = 10)),
+      plot.subtitle = element_text(colour = "#53635f", margin = margin(b = 10)),
+      axis.text = element_text(colour = "#344541"),
+      panel.grid.minor = element_blank(),
+      legend.position = "top"
+    )
+}
+
 `%||%` <- function(left, right) if (is.null(left) || !nzchar(as.character(left))) right else left
 
 encode_file <- function(path, format, mime_type, title, svg_data = NULL, chart_payload = NULL) {
@@ -136,6 +204,16 @@ make_data_table_html <- function(payload) {
     rows <- lapply(payload$data, function(item) {
       c(item$source, item$label, format(item$geneRatio, digits = 5, trim = TRUE),
         format(item$adjustedPValue, digits = 5, trim = TRUE), as.character(item$intersectionSize))
+    })
+  } else if (identical(payload$chartType, "volcano")) {
+    headers <- c("基因/蛋白", "log2FC", "P 值", "FDR", "阈值筛选")
+    format_value <- function(value) {
+      if (is.null(value) || !is.numeric(value) || length(value) != 1L || !is.finite(value)) "—"
+      else format(value, digits = 6, trim = TRUE)
+    }
+    rows <- lapply(payload$data, function(item) {
+      c(item$label, format_value(item$log2FoldChange), format_value(item$pValue),
+        format_value(item$fdr), if (isTRUE(item$selected)) "通过" else "未通过")
     })
   } else {
     headers <- c("条目", "数值")
@@ -176,7 +254,7 @@ function(req, res) {
   }
   payload <- tryCatch(jsonlite::fromJSON(body, simplifyVector = FALSE), error = function(error) NULL)
   if (is.null(payload) || !is.list(payload) || !is.character(payload$chartType) ||
-      length(payload$chartType) != 1L || !(payload$chartType %in% c("bar", "enrichment_bubble"))) {
+      length(payload$chartType) != 1L || !(payload$chartType %in% c("bar", "enrichment_bubble", "volcano"))) {
     res$status <- 400L
     return(list(error = "invalid_chart_payload"))
   }
@@ -191,7 +269,7 @@ function(req, res) {
     return(list(error = "invalid_chart_subtitle"))
   }
   plot <- tryCatch(
-    if (identical(payload$chartType, "bar")) make_bar_plot(payload) else make_enrichment_bubble_plot(payload),
+    if (identical(payload$chartType, "bar")) make_bar_plot(payload) else if (identical(payload$chartType, "volcano")) make_volcano_plot(payload) else make_enrichment_bubble_plot(payload),
     error = function(error) error
   )
   if (inherits(plot, "error")) {
