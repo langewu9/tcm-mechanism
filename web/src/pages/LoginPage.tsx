@@ -9,7 +9,7 @@ export function LoginPage() {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setError(null); setBusy(true);
     const form = new FormData(event.currentTarget);
-    try { await login(String(form.get("username") ?? ""), String(form.get("password") ?? "")); navigate("/cases", { replace: true }); }
+    try { await login(String(form.get("username") ?? ""), String(form.get("password") ?? "")); navigate("/dashboard", { replace: true }); }
     catch (cause) { setError(cause instanceof ApiError ? cause.message : "登录失败，请稍后重试。"); }
     finally { setBusy(false); }
   }

@@ -19,6 +19,7 @@
 | main 分支源码 | main 中的用途 | 当前 Django + React/Vite 目标 | 状态 |
 |---|---|---|---|
 | `src/components/AppShell.tsx`、`AppNavigation.tsx`、`PageHeader.tsx`、`src/app/product.css` | 主导航、页面框架和产品视觉样式 | `web/src` 中复用样式/交互，路由改为 React Router | 首页、医案和数据集已接入；通用工作台导航待整理 |
+| `src/app/dashboard/page.tsx`、`src/app/api/dashboard/route.ts` | 展示登录用户的数据集、医案、任务数量，知识库规模和最近五项任务 | React `/dashboard` + 登录保护的 `/api/v1/research/dashboard/` | 已迁移；研究者只看本人记录，超级管理员可看全部，知识实体按启用来源统计；登录后默认进入总览 |
 | `src/app/cases/page.tsx`、`src/components/CaseForm.tsx`、`src/app/api/cases/*` | 医案新增、列表、删除 | `/cases` + `/api/v1/research/cases/`，归属由 Django session 决定 | 创建/查看/删除 UI 已接入；API 支持更新。创建、变更、删除和平台管理员审核会追加隐私友好审计记录；本人只查看自己的记录，超级管理员可查看全部并审核。日志保存操作者、时间、字段名和内容哈希，不重复保存医案正文。已补入安全版第一步：本机/内网模型结构化、逐字引文校验、规范实体精确匹配、研究者逐条确认/驳回、隐私友好审计及有来源版本的下游证据链；新增受限 RAG，从医案提及中检索启用来源版本实体和一跳关系，知识引用必须命中本次检索记录白名单，不同来源分别保留并展示。真实模型、项目样例、更广文献语料/语义检索及下游药理/组学任务编排仍待完成 |
 | `src/app/datasets/page.tsx`、`DatasetUploader.tsx`、`DeleteButton.tsx`、`src/app/api/datasets/*` | 上传 CSV/Excel、查看数据集、删除 | `/datasets` + `/api/v1/research/datasets/`，文件私有保存、带校验值和权限下载 | 私有文件 CRUD 已接入；数据集被分析任务引用后禁止替换或删除 |
 | `src/lib/upload.ts` | CSV、XLS、XLSX 表格解析 | Python 解析器，限制大小/行/列/单元格、保留原始文件并生成逐行 QC | CSV/TSV/XLS/XLSX 已支持第一版解析与行数限制；尚无独立上传预览，也未做到 main 样例逐项结果对照 |

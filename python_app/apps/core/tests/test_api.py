@@ -13,7 +13,7 @@ from django.test import RequestFactory, override_settings
 from django.utils import timezone
 from rest_framework.test import APITestCase
 
-from apps.core.models import AnalysisTask, MedicalCase, MedicalCaseAuditEvent, ResearchDataset, ResearchDatasetRow, ResearcherProfile
+from apps.core.models import AnalysisTask, KnowledgeEntity, MedicalCase, MedicalCaseAuditEvent, ResearchDataset, ResearchDatasetRow, ResearcherProfile
 from config.api_errors import ApiErrorEnvelopeMiddleware
 
 
@@ -265,6 +265,67 @@ class PrivateWorkspaceApiTests(APITestCase):
         self.assertEqual(cases.data["results"][0]["owner_username"], self.owner.username)
         self.assertEqual(tasks.data["count"], 1)
         self.assertEqual(tasks.data["results"][0]["result"]["summary"], "private analysis result")
+
+    def test_dashboard_aggregates_visible_research_records_and_catalog_counts(self):
+        self.task.input_parameters = {"name": "Owner task"}
+        self.task.save(update_fields=["input_parameters"])
+        ResearchDataset.objects.create(owner=self.other_user, name="Other user's dataset")
+        MedicalCase.objects.create(
+            owner=self.other_user,
+            title="Other user's case",
+            deidentified_text="Private case text",
+        )
+        AnalysisTask.objects.create(
+            owner=self.other_user,
+            task_type=AnalysisTask.TaskType.NETWORK,
+            input_parameters={"name": "Other user's task"},
+            result={"summary": "Private result"},
+        )
+        KnowledgeEntity.objects.create(
+            entity_type=KnowledgeEntity.EntityType.HERB,
+            stable_id="herb:test-dashboard",
+            label="测试中药",
+        )
+        KnowledgeEntity.objects.create(
+            entity_type=KnowledgeEntity.EntityType.COMPOUND,
+            stable_id="compound:test-dashboard",
+            label="测试成分",
+        )
+        KnowledgeEntity.objects.create(
+            entity_type=KnowledgeEntity.EntityType.GENE,
+            stable_id="gene:test-dashboard",
+            label="TEST1",
+        )
+        KnowledgeEntity.objects.create(
+            entity_type=KnowledgeEntity.EntityType.PATHWAY,
+            stable_id="pathway:test-dashboard",
+            label="测试通路",
+        )
+
+        self.client.force_authenticate(self.owner)
+        owner_response = self.client.get(reverse("research-dashboard"))
+        self.assertEqual(owner_response.status_code, 200)
+        self.assertEqual(
+            owner_response.data["stats"],
+            {"datasets": 1, "cases": 1, "tasks": 1, "herbs": 1, "compounds": 1, "targets": 1, "pathways": 1},
+        )
+        self.assertEqual([task["title"] for task in owner_response.data["latest_tasks"]], ["Owner task"])
+        self.assertNotIn("Other user's task", str(owner_response.data))
+
+        admin = get_user_model().objects.create_superuser(
+            username="dashboard-admin", email="dashboard-admin@example.test", password="test-password-123"
+        )
+        self.client.force_authenticate(admin)
+        admin_response = self.client.get(reverse("research-dashboard"))
+        self.assertEqual(admin_response.data["stats"]["datasets"], 2)
+        self.assertEqual(admin_response.data["stats"]["cases"], 2)
+        self.assertEqual(admin_response.data["stats"]["tasks"], 2)
+        self.assertEqual(len(admin_response.data["latest_tasks"]), 2)
+
+    def test_dashboard_requires_authentication(self):
+        self.client.force_authenticate(None)
+        response = self.client.get(reverse("research-dashboard"))
+        self.assertEqual(response.status_code, 401)
 
     def test_user_with_research_records_cannot_be_hard_deleted(self):
         with self.assertRaises(ProtectedError):

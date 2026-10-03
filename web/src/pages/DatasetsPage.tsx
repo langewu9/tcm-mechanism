@@ -79,7 +79,7 @@ export function DatasetsPage() {
         <img src="/images/yuanzhi-mark.png" alt="" width={42} height={42} className="brand-mark" />
         <span><strong>远志 AI Scientist</strong><small>研究者工作区</small></span>
       </Link>
-      <nav className="workspace-module-nav" aria-label="研究模块"><Link to="/cases">医案管理</Link><Link to="/datasets" aria-current="page">研究数据集</Link><Link to="/proteomics">蛋白组学</Link><Link to="/network-pharmacology">网络药理</Link><Link to="/research">知识检索</Link><Link to="/assistant">科研助手</Link>{user.isSuperuser && <Link to="/admin/sources">数据源同步</Link>}</nav>
+      <nav className="workspace-module-nav" aria-label="研究模块"><Link to="/dashboard">研究总览</Link><Link to="/cases">医案管理</Link><Link to="/datasets" aria-current="page">研究数据集</Link><Link to="/proteomics">蛋白组学</Link><Link to="/network-pharmacology">网络药理</Link><Link to="/research">知识检索</Link><Link to="/assistant">科研助手</Link>{user.isSuperuser && <Link to="/admin/sources">数据源同步</Link>}</nav>
       <div className="workspace-nav-actions"><span className="workspace-user">{user.username}{user.isSuperuser ? " · 平台管理员" : " · 研究者"}</span>
         <button className="btn btn-secondary" type="button" onClick={signOut}><LogOut size={16} />退出</button></div>
     </header>

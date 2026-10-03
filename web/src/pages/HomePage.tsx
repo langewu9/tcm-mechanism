@@ -31,7 +31,7 @@ export function HomePage() {
   return <main className="site-home">
     <header className="site-nav">
       <Link to="/" className="site-brand" aria-label="远志 AI Scientist 首页"><img src="/images/yuanzhi-mark.png" alt="" width={48} height={48} className="brand-mark" /><span><strong>远志 AI Scientist</strong><small>中医药理研究平台</small></span></Link>
-      <nav aria-label="首页导航"><a href="#workflow">研究流程</a><a href="#capabilities">核心能力</a><Link to="/research">知识检索</Link><Link to="/login">登录</Link><Link to="/cases" className="nav-primary">开始使用 <ArrowRight size={15} /></Link></nav>
+      <nav aria-label="首页导航"><a href="#workflow">研究流程</a><a href="#capabilities">核心能力</a><Link to="/research">知识检索</Link><Link to="/dashboard">研究总览</Link><Link to="/login">登录</Link><Link to="/cases" className="nav-primary">开始使用 <ArrowRight size={15} /></Link></nav>
     </header>
     <section className="product-hero">
       <div className="product-hero-paper" aria-hidden="true" /><div className="product-hero-watermark" aria-hidden="true"><span>远</span><span>志</span></div>

@@ -11,7 +11,7 @@ from .catalog import (
     HomeStatsView,
 )
 from .health import HealthView
-from .research import AnalysisTaskViewSet, MedicalCaseViewSet, ResearchAssistantView, ResearchDatasetViewSet
+from .research import AnalysisTaskViewSet, MedicalCaseViewSet, ResearchAssistantView, ResearchDatasetViewSet, ResearchDashboardView
 
 __all__ = [
     "BatchHerbEvidenceView",
@@ -24,6 +24,7 @@ __all__ = [
     "MedicalCaseViewSet",
     "ResearchDatasetViewSet",
     "ResearchAssistantView",
+    "ResearchDashboardView",
     "CsrfTokenView",
     "HealthView",
     "HomeStatsView",

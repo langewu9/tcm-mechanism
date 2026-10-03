@@ -3,6 +3,7 @@
 from django.conf import settings
 from django.core.files.storage import default_storage
 from django.db import transaction
+from django.db.models import Count, Q
 from django.http import FileResponse, HttpResponse
 from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
@@ -15,12 +16,48 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from ..exceptions import ResourceConflict, TaskQueueUnavailable
-from ..models import AnalysisTask, MedicalCase, MedicalCaseAuditEvent, MedicalCaseCandidate, ResearchDataset, VisualizationArtifact
-from ..serializers import AnalysisTaskSerializer, CaseAnalysisRequestSerializer, CaseCandidateReviewRequestSerializer, MedicalCaseAuditEventSerializer, MedicalCaseCandidateSerializer, MedicalCaseSerializer, ResearchAssistantRequestSerializer, ResearchDatasetSerializer, VisualizationRequestSerializer
+from ..models import AnalysisTask, KnowledgeEntity, MedicalCase, MedicalCaseAuditEvent, MedicalCaseCandidate, ResearchDataset, VisualizationArtifact
+from ..serializers import AnalysisTaskSerializer, CaseAnalysisRequestSerializer, CaseCandidateReviewRequestSerializer, MedicalCaseAuditEventSerializer, MedicalCaseCandidateSerializer, MedicalCaseSerializer, ResearchAssistantRequestSerializer, ResearchDashboardSerializer, ResearchDatasetSerializer, VisualizationRequestSerializer
 from apps.proteomics.serializers import ProteomicsRunRequestSerializer
 from apps.proteomics.models import ProteomicsRowResult
 from apps.proteomics.serializers_rows import ProteomicsRowResultSerializer
 from apps.proteomics.services import ALGORITHM_VERSION
+
+
+class ResearchDashboardView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses=ResearchDashboardSerializer)
+    def get(self, request):
+        owner_filter = {} if request.user.is_superuser else {"owner": request.user}
+        visible_entities = KnowledgeEntity.objects.filter(is_active=True).filter(
+            Q(source_release__isnull=True) | Q(source_release__source__enabled=True)
+        )
+        counts = visible_entities.aggregate(
+            herbs=Count("id", filter=Q(entity_type=KnowledgeEntity.EntityType.HERB)),
+            compounds=Count("id", filter=Q(entity_type=KnowledgeEntity.EntityType.COMPOUND)),
+            targets=Count(
+                "id",
+                filter=Q(
+                    entity_type__in=[
+                        KnowledgeEntity.EntityType.PROTEIN,
+                        KnowledgeEntity.EntityType.GENE,
+                    ]
+                ),
+            ),
+            pathways=Count("id", filter=Q(entity_type=KnowledgeEntity.EntityType.PATHWAY)),
+        )
+        counts.update(
+            datasets=ResearchDataset.objects.filter(**owner_filter).count(),
+            cases=MedicalCase.objects.filter(**owner_filter).count(),
+            tasks=AnalysisTask.objects.filter(**owner_filter).count(),
+        )
+        latest_tasks = AnalysisTask.objects.filter(**owner_filter).order_by("-created_at")[:5]
+        return Response(
+            ResearchDashboardSerializer(
+                {"stats": counts, "latest_tasks": latest_tasks}
+            ).data
+        )
 
 
 class ResearchDatasetViewSet(viewsets.ModelViewSet):

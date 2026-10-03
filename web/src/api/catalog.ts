@@ -2,6 +2,20 @@ import { apiRequest } from "./client";
 export type HomeStats = { counts: { herbs: number; compounds: number; targets: number; pathways: number } };
 export const getHomeStats = () => apiRequest<HomeStats>("/api/v1/home-stats/");
 
+export type DashboardTask = {
+  id: number;
+  title: string;
+  summary: string;
+  task_type: "proteomics" | "case_link" | "network" | "visualization" | "research_assistant";
+  status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
+  created_at: string;
+};
+export type ResearchDashboard = {
+  stats: { datasets: number; cases: number; tasks: number; herbs: number; compounds: number; targets: number; pathways: number };
+  latest_tasks: DashboardTask[];
+};
+export const getResearchDashboard = () => apiRequest<ResearchDashboard>("/api/v1/research/dashboard/");
+
 export type KnowledgeEntity = {
   id: number;
   entity_type: string;

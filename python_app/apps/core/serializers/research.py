@@ -251,6 +251,49 @@ class ResearchAssistantRequestSerializer(serializers.Serializer):
         return attrs
 
 
+class DashboardTaskSerializer(serializers.ModelSerializer):
+    title = serializers.SerializerMethodField()
+    summary = serializers.SerializerMethodField()
+    task_type = serializers.CharField(read_only=True)
+    status = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = AnalysisTask
+        fields = ["id", "title", "summary", "task_type", "status", "created_at"]
+        read_only_fields = fields
+
+    def get_title(self, obj) -> str:
+        parameters = obj.input_parameters if isinstance(obj.input_parameters, dict) else {}
+        return str(parameters.get("name") or obj.get_task_type_display())
+
+    def get_summary(self, obj) -> str:
+        result = obj.result if isinstance(obj.result, dict) else {}
+        summary = result.get("summary")
+        if isinstance(summary, str):
+            return summary
+        if isinstance(summary, dict):
+            values = [str(value) for value in summary.values() if value not in (None, "")]
+            return " · ".join(values[:4])
+        if obj.status == AnalysisTask.Status.FAILED and obj.error_summary:
+            return obj.error_summary
+        return "任务已保存，等待查看结果。"
+
+
+class DashboardStatsSerializer(serializers.Serializer):
+    datasets = serializers.IntegerField()
+    cases = serializers.IntegerField()
+    tasks = serializers.IntegerField()
+    herbs = serializers.IntegerField()
+    compounds = serializers.IntegerField()
+    targets = serializers.IntegerField()
+    pathways = serializers.IntegerField()
+
+
+class ResearchDashboardSerializer(serializers.Serializer):
+    stats = DashboardStatsSerializer()
+    latest_tasks = DashboardTaskSerializer(many=True)
+
+
 class AnalysisTaskSerializer(serializers.ModelSerializer):
     owner_id = serializers.ReadOnlyField()
     owner_username = serializers.CharField(source="owner.username", read_only=True)
