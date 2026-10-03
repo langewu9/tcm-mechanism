@@ -46,11 +46,14 @@ export type ProteomicsResult = {
       invalidSampleValueCount: number;
       missingSampleValueCount: number;
       rowsExcludedByMatrixDesign: number;
+      factorCount?: number;
+      modelParameterCount?: number;
+      modelResidualDegreesOfFreedom?: number;
     };
   };
   differentialAnalysis?: {
     analysisMode: "raw_matrix";
-    designType: "unpaired" | "paired";
+    designType: "unpaired" | "paired" | "multifactor";
     test: string;
     effect: string;
     pValueAdjustment: string;
@@ -58,10 +61,17 @@ export type ProteomicsResult = {
     missingPolicy: string;
     valuesWereLog2: boolean;
     inputScaleTransform: string;
-    controlSamples: string[];
-    treatmentSamples: string[];
+    controlSamples?: string[];
+    treatmentSamples?: string[];
     sampleColumns: string[];
     samplePairs: { pairId: string; controlSample: string; treatmentSample: string }[];
+    model?: string;
+    factorNames?: string[];
+    factorLevels?: Record<string, string[]>;
+    referenceLevels?: Record<string, string>;
+    contrast?: { factor: string; referenceLevel: string; treatmentLevel: string };
+    modelColumns?: string[];
+    sampleFactors?: { sampleColumn: string; factors: Record<string, string> }[];
   };
   warnings: string[];
   summary: {
@@ -233,10 +243,14 @@ export type ProteomicsRunRequest = {
   matrixDesign?: {
     identifierColumn: string;
     sampleColumns: string[];
-    designType: "unpaired" | "paired";
-    controlSamples: string[];
-    treatmentSamples: string[];
+    designType: "unpaired" | "paired" | "multifactor";
+    controlSamples?: string[];
+    treatmentSamples?: string[];
     samplePairs?: { pairId: string; controlSample: string; treatmentSample: string }[];
+    sampleFactors?: { sampleColumn: string; factors: Record<string, string> }[];
+    contrastFactor?: string;
+    referenceLevel?: string;
+    treatmentLevel?: string;
     valuesAreLog2: boolean;
     normalization: "none" | "median_center";
     missingPolicy: "complete_rows" | "available_replicates";

@@ -28,7 +28,7 @@ from apps.proteomics.models import ProteomicsRowResult
 from apps.proteomics.raw_matrix import analyze_raw_matrix
 
 
-ALGORITHM_VERSION = "proteomics-py-1.4"
+ALGORITHM_VERSION = "proteomics-py-1.5"
 MAX_CELL_CHARACTERS = 50_000
 MAX_XLSX_EXPANDED_BYTES = 512 * 1024 * 1024
 PATHWAY_RELATION_TYPES = {
@@ -800,8 +800,8 @@ def run_proteomics_analysis(task: AnalysisTask) -> tuple[dict[str, Any], list[Pr
         parameters["mapping"] = {
             "geneColumn": matrix_design["identifierColumn"],
             "proteinColumn": "",
-            "log2FcColumn": "computed by Welch test",
-            "pValueColumn": "computed by Welch test",
+            "log2FcColumn": "computed from explicit raw-matrix design",
+            "pValueColumn": "computed from explicit raw-matrix design",
             "fdrColumn": "Benjamini-Hochberg adjustment",
             "directionColumn": "computed from log2 fold change",
         }

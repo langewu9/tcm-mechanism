@@ -135,6 +135,61 @@ class ProteomicsApiTests(APITestCase):
         self.assertEqual(response.status_code, 202, response.data)
         self.assertEqual(AnalysisTask.objects.get().input_parameters["matrixDesign"]["samplePairs"], pairs)
 
+    def test_raw_matrix_accepts_explicit_multifactor_design_and_rejects_confounded_design(self):
+        self.client.force_authenticate(self.owner)
+        url = reverse("dataset-analyze", args=[self.dataset.pk])
+        sample_columns = ["C_A1", "C_A2", "C_B1", "C_B2", "D_A1", "D_A2", "D_B1", "D_B2"]
+        factor_values = {
+            "C_A1": {"condition": "control", "batch": "A"},
+            "C_A2": {"condition": "control", "batch": "A"},
+            "C_B1": {"condition": "control", "batch": "B"},
+            "C_B2": {"condition": "control", "batch": "B"},
+            "D_A1": {"condition": "drug", "batch": "A"},
+            "D_A2": {"condition": "drug", "batch": "A"},
+            "D_B1": {"condition": "drug", "batch": "B"},
+            "D_B2": {"condition": "drug", "batch": "B"},
+        }
+        assignments = [
+            {"sampleColumn": sample, "factors": factor_values[sample]}
+            for sample in sample_columns
+        ]
+        design = {
+            "identifierColumn": "Gene",
+            "sampleColumns": sample_columns,
+            "designType": "multifactor",
+            "sampleFactors": assignments,
+            "contrastFactor": "condition",
+            "referenceLevel": "control",
+            "treatmentLevel": "drug",
+            "valuesAreLog2": True,
+            "normalization": "none",
+            "missingPolicy": "complete_rows",
+        }
+        confounded_values = {
+            "C_A1": {"condition": "control", "batch": "A"},
+            "C_A2": {"condition": "control", "batch": "A"},
+            "D_A1": {"condition": "drug", "batch": "B"},
+            "D_A2": {"condition": "drug", "batch": "B"},
+        }
+        confounded = {
+            **design,
+            "sampleColumns": ["C_A1", "C_A2", "D_A1", "D_A2"],
+            "sampleFactors": [
+                {"sampleColumn": sample, "factors": confounded_values[sample]}
+                for sample in ("C_A1", "C_A2", "D_A1", "D_A2")
+            ],
+        }
+        rejected = self.client.post(url, {"analysisMode": "raw_matrix", "matrixDesign": confounded}, format="json")
+        self.assertEqual(rejected.status_code, 400)
+        self.assertEqual(AnalysisTask.objects.count(), 0)
+
+        with patch("apps.proteomics.tasks.run_proteomics_task.apply_async"):
+            response = self.client.post(url, {"analysisMode": "raw_matrix", "matrixDesign": design}, format="json")
+        self.assertEqual(response.status_code, 202, response.data)
+        task = AnalysisTask.objects.get()
+        self.assertEqual(task.input_parameters["matrixDesign"]["sampleFactors"], assignments)
+        self.assertEqual(task.input_parameters["matrixDesign"]["contrastFactor"], "condition")
+
     def test_external_mapping_and_reactome_are_only_enabled_by_explicit_opt_in(self):
         self.client.force_authenticate(self.owner)
         with patch("apps.proteomics.tasks.run_proteomics_task.apply_async"):

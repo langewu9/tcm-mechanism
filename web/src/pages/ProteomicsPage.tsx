@@ -45,6 +45,27 @@ function parseSamplePairs(value: string) {
   return { samplePairs, invalidLineCount };
 }
 
+function parseSampleFactors(value: string) {
+  const lines = value.split(/[\n\r]+/).map((line) => line.trim()).filter(Boolean);
+  const sampleFactors: { sampleColumn: string; factors: Record<string, string> }[] = [];
+  let invalidLineCount = 0;
+  lines.forEach((line) => {
+    const [sampleColumn, ...entries] = line.split(/[,，\t;；]+/).map((item) => item.trim());
+    const factors: Record<string, string> = {};
+    let invalid = !sampleColumn || entries.length < 2;
+    entries.forEach((entry) => {
+      const separator = entry.indexOf("=");
+      const name = separator < 0 ? "" : entry.slice(0, separator).trim();
+      const level = separator < 0 ? "" : entry.slice(separator + 1).trim();
+      if (!name || !level || Object.hasOwn(factors, name)) invalid = true;
+      else factors[name] = level;
+    });
+    if (invalid) invalidLineCount += 1;
+    else sampleFactors.push({ sampleColumn, factors });
+  });
+  return { sampleFactors, invalidLineCount };
+}
+
 function errorMessage(error: unknown) {
   return error instanceof ApiError ? error.message : "请求未完成，请稍后重试。";
 }
@@ -76,6 +97,8 @@ function qualityReasonLabel(reason: string) {
     incomplete_samples: "部分样本缺失，整行未检验",
     insufficient_valid_replicates: "有效重复数不足",
     insufficient_valid_pairs: "有效配对数不足",
+    insufficient_model_degrees_of_freedom: "样本不足以估计模型",
+    rank_deficient_sample_design: "缺失值导致模型因素共线，无法估计",
     test_not_estimable: "当前重复值无法估计统计检验",
     invalid_log2fc: "log2FC 数值非法",
     missing_log2fc: "缺少 log2FC",
@@ -114,12 +137,16 @@ export function ProteomicsPage() {
   const [task, setTask] = useState<AnalysisTask | null>(null);
   const [visualizationTask, setVisualizationTask] = useState<AnalysisTask | null>(null);
   const [analysisMode, setAnalysisMode] = useState<"differential_table" | "raw_matrix">("differential_table");
-  const [matrixDesignType, setMatrixDesignType] = useState<"unpaired" | "paired">("unpaired");
+  const [matrixDesignType, setMatrixDesignType] = useState<"unpaired" | "paired" | "multifactor">("unpaired");
   const [mapping, setMapping] = useState(initialMapping);
   const [matrixIdentifierColumn, setMatrixIdentifierColumn] = useState("");
   const [controlSampleColumns, setControlSampleColumns] = useState("");
   const [treatmentSampleColumns, setTreatmentSampleColumns] = useState("");
   const [pairedSampleColumns, setPairedSampleColumns] = useState("");
+  const [factorSampleColumns, setFactorSampleColumns] = useState("");
+  const [contrastFactor, setContrastFactor] = useState("");
+  const [referenceLevel, setReferenceLevel] = useState("");
+  const [treatmentLevel, setTreatmentLevel] = useState("");
   const [matrixValueScale, setMatrixValueScale] = useState("");
   const [matrixNormalization, setMatrixNormalization] = useState("");
   const [matrixMissingPolicy, setMatrixMissingPolicy] = useState("");
@@ -210,28 +237,47 @@ export function ProteomicsPage() {
     event.preventDefault();
     if (!selectedDataset) return;
     const parsedPairs = parseSamplePairs(pairedSampleColumns);
+    const parsedFactors = parseSampleFactors(factorSampleColumns);
     const controlColumns = matrixDesignType === "paired"
       ? parsedPairs.samplePairs.map((pair) => pair.controlSample)
-      : splitColumnNames(controlSampleColumns);
+      : matrixDesignType === "multifactor" ? [] : splitColumnNames(controlSampleColumns);
     const treatmentColumns = matrixDesignType === "paired"
       ? parsedPairs.samplePairs.map((pair) => pair.treatmentSample)
-      : splitColumnNames(treatmentSampleColumns);
-    const allSampleColumns = [...controlColumns, ...treatmentColumns];
+      : matrixDesignType === "multifactor" ? [] : splitColumnNames(treatmentSampleColumns);
+    const allSampleColumns = matrixDesignType === "multifactor"
+      ? parsedFactors.sampleFactors.map((assignment) => assignment.sampleColumn)
+      : [...controlColumns, ...treatmentColumns];
+    const factorNames = Object.keys(parsedFactors.sampleFactors[0]?.factors ?? {});
+    const hasConsistentFactorNames = parsedFactors.sampleFactors.every(
+      (assignment) => Object.keys(assignment.factors).sort().join("\u0000") === [...factorNames].sort().join("\u0000"),
+    );
+    const contrastLevels = parsedFactors.sampleFactors
+      .map((assignment) => assignment.factors[contrastFactor.trim()])
+      .filter((level): level is string => Boolean(level));
+    const contrastHasReplicates = [referenceLevel.trim(), treatmentLevel.trim()].every(
+      (level) => contrastLevels.filter((value) => value === level).length >= 2,
+    );
     if (analysisMode === "raw_matrix" && (
       !matrixIdentifierColumn.trim()
       || (matrixDesignType === "unpaired" && (controlColumns.length < 2 || treatmentColumns.length < 2))
       || (matrixDesignType === "paired" && (parsedPairs.invalidLineCount > 0 || parsedPairs.samplePairs.length < 2))
+      || (matrixDesignType === "multifactor" && (
+        parsedFactors.invalidLineCount > 0 || parsedFactors.sampleFactors.length < 4
+        || factorNames.length < 2 || !hasConsistentFactorNames
+        || !contrastFactor.trim() || !referenceLevel.trim() || !treatmentLevel.trim()
+        || !contrastHasReplicates || referenceLevel.trim() === treatmentLevel.trim()
+      ))
       || !matrixValueScale || !matrixNormalization || !matrixMissingPolicy
     )) {
-      setError("请填写有效的原始矩阵设计：每组至少 2 个独立样本，或至少 2 行配对关系；并明确数值尺度、归一化和缺失值策略。");
+      setError("请完整填写原始矩阵实验设计、样本分组、主要对比，以及数值尺度、归一化和缺失值策略。");
       return;
     }
     if (analysisMode === "raw_matrix" && matrixDesignType === "paired" && new Set(parsedPairs.samplePairs.map((pair) => pair.pairId)).size !== parsedPairs.samplePairs.length) {
       setError("每一对样本必须使用唯一的配对编号。");
       return;
     }
-    if (analysisMode === "raw_matrix" && matrixDesignType === "paired" && new Set(allSampleColumns).size !== allSampleColumns.length) {
-      setError("一个样本列只能出现在一个配对中，并且不能同时作为对照和实验样本。");
+    if (analysisMode === "raw_matrix" && matrixDesignType !== "unpaired" && new Set(allSampleColumns).size !== allSampleColumns.length) {
+      setError("每个样本列只能出现在设计中一次。");
       return;
     }
     if (analysisMode === "raw_matrix" && new Set(allSampleColumns).size > 100) {
@@ -252,9 +298,17 @@ export function ProteomicsPage() {
             identifierColumn: matrixIdentifierColumn.trim(),
             sampleColumns: [...new Set(allSampleColumns)],
             designType: matrixDesignType,
-            controlSamples: controlColumns,
-            treatmentSamples: treatmentColumns,
+            ...(matrixDesignType !== "multifactor" ? {
+              controlSamples: controlColumns,
+              treatmentSamples: treatmentColumns,
+            } : {}),
             ...(matrixDesignType === "paired" ? { samplePairs: parsedPairs.samplePairs } : {}),
+            ...(matrixDesignType === "multifactor" ? {
+              sampleFactors: parsedFactors.sampleFactors,
+              contrastFactor: contrastFactor.trim(),
+              referenceLevel: referenceLevel.trim(),
+              treatmentLevel: treatmentLevel.trim(),
+            } : {}),
             valuesAreLog2: matrixValueScale === "log2",
             normalization: matrixNormalization as "none" | "median_center",
             missingPolicy: matrixMissingPolicy as "complete_rows" | "available_replicates",
@@ -358,13 +412,20 @@ export function ProteomicsPage() {
                 </label>)}
                 </div>
               </> : <section className="raw-matrix-design">
-                <label className="form-label">实验设计<select className="field" value={matrixDesignType} onChange={(event) => setMatrixDesignType(event.target.value as "unpaired" | "paired")}><option value="unpaired">独立样本（非配对）</option><option value="paired">配对样本</option></select></label>
-                <p className="section-help">请根据实验记录手动指定样本列和配对关系。系统不会根据列名、顺序或数值猜测配对。</p>
+                <label className="form-label">实验设计<select className="field" value={matrixDesignType} onChange={(event) => setMatrixDesignType(event.target.value as "unpaired" | "paired" | "multifactor")}><option value="unpaired">独立样本（非配对）</option><option value="paired">配对样本</option><option value="multifactor">多因素（分类因素加性模型）</option></select></label>
+                <p className="section-help">请按实验记录明确指定样本分组，不会根据列名、顺序或数值猜测设计。多因素首版只拟合各因素主效应，不含交互项。</p>
                 <label className="form-label">蛋白/基因标识列<input className="field" value={matrixIdentifierColumn} onChange={(event) => setMatrixIdentifierColumn(event.target.value)} placeholder="例如：Gene Symbol、UniProt" required /></label>
                 {matrixDesignType === "unpaired" ? <>
                   <label className="form-label">对照组样本列<textarea className="field case-textarea case-textarea-short" value={controlSampleColumns} onChange={(event) => setControlSampleColumns(event.target.value)} placeholder="例如：Control_1, Control_2, Control_3" required /></label>
                   <label className="form-label">实验组样本列<textarea className="field case-textarea case-textarea-short" value={treatmentSampleColumns} onChange={(event) => setTreatmentSampleColumns(event.target.value)} placeholder="例如：Treatment_1, Treatment_2, Treatment_3" required /></label>
-                </> : <label className="form-label">配对样本关系<textarea className="field case-textarea" value={pairedSampleColumns} onChange={(event) => setPairedSampleColumns(event.target.value)} placeholder={"每行填写：配对编号，对照列，实验列\n受试者 1, Control_1, Treatment_1\n受试者 2, Control_2, Treatment_2"} required /><span className="field-help">至少填写 2 对。每行用逗号或制表符分隔，配对编号要唯一，样本列不能重复。</span></label>}
+                </> : matrixDesignType === "paired" ? <label className="form-label">配对样本关系<textarea className="field case-textarea" value={pairedSampleColumns} onChange={(event) => setPairedSampleColumns(event.target.value)} placeholder={"每行填写：配对编号，对照列，实验列\n受试者 1, Control_1, Treatment_1\n受试者 2, Control_2, Treatment_2"} required /><span className="field-help">至少填写 2 对。每行用逗号或制表符分隔，配对编号要唯一，样本列不能重复。</span></label> : <>
+                  <label className="form-label">样本列与因素水平<textarea className="field case-textarea" value={factorSampleColumns} onChange={(event) => setFactorSampleColumns(event.target.value)} placeholder={"每行填写：样本列, 因素名=水平, 因素名=水平\nControl_B1_1, treatment=control, batch=B1\nControl_B2_1, treatment=control, batch=B2\nDrug_B1_1, treatment=drug, batch=B1\nDrug_B2_1, treatment=drug, batch=B2"} required /><span className="field-help">每个样本一行；每行至少写 2 个分类因素，因素名在所有行保持一致。每个主要对比水平至少 2 个样本，且因素组合须能估计所选模型。</span></label>
+                  <div className="proteomics-column-grid">
+                    <label className="form-label">主要对比因素<input className="field" value={contrastFactor} onChange={(event) => setContrastFactor(event.target.value)} placeholder="例如：treatment" required /></label>
+                    <label className="form-label">参考水平<input className="field" value={referenceLevel} onChange={(event) => setReferenceLevel(event.target.value)} placeholder="例如：control" required /></label>
+                    <label className="form-label">实验水平<input className="field" value={treatmentLevel} onChange={(event) => setTreatmentLevel(event.target.value)} placeholder="例如：drug" required /></label>
+                  </div>
+                </>}
                 <div className="proteomics-column-grid">
                   <label className="form-label">样本数值尺度<select className="field" value={matrixValueScale} onChange={(event) => setMatrixValueScale(event.target.value)} required><option value="">请选择</option><option value="linear">原始正值强度（执行 log2 转换）</option><option value="log2">文件中已经是 log2 值</option></select></label>
                   <label className="form-label">样本归一化<select className="field" value={matrixNormalization} onChange={(event) => setMatrixNormalization(event.target.value)} required><option value="">请选择</option><option value="median_center">按样本中位数中心化</option><option value="none">不再归一化（数据已处理）</option></select></label>
@@ -461,8 +522,8 @@ function ProteomicsResultView({
 
     {result.differentialAnalysis && <section className="panel raw-matrix-method">
       <h3 className="section-title-sm">原始矩阵统计设计</h3>
-      <dl className="dataset-provenance"><div><dt>统计检验</dt><dd>{result.differentialAnalysis.designType === "paired" ? "配对 t 检验" : "非配对 Welch t 检验"}</dd></div><div><dt>效应量</dt><dd>{result.differentialAnalysis.designType === "paired" ? "每对样本实验组减对照组的 log2 差值均值" : "实验组减对照组的平均 log2 强度"}</dd></div><div><dt>多重校正</dt><dd>{result.differentialAnalysis.pValueAdjustment}</dd></div><div><dt>变换 / 归一化</dt><dd>{result.differentialAnalysis.inputScaleTransform === "log2" ? "log2 转换" : "不转换"} / {{ none: "不再归一化", median_center: "样本中位数中心化" }[result.differentialAnalysis.normalization] ?? result.differentialAnalysis.normalization}</dd></div><div><dt>缺失策略</dt><dd>{{ complete_rows: "仅完整样本行", available_replicates: "使用可用重复值" }[result.differentialAnalysis.missingPolicy] ?? result.differentialAnalysis.missingPolicy}</dd></div>{result.differentialAnalysis.designType === "paired" ? <div><dt>配对样本</dt><dd>{result.differentialAnalysis.samplePairs.map((pair) => `${pair.pairId}：${pair.controlSample} ↔ ${pair.treatmentSample}`).join("；")}</dd></div> : <><div><dt>对照组样本</dt><dd>{result.differentialAnalysis.controlSamples.join("、")}</dd></div><div><dt>实验组样本</dt><dd>{result.differentialAnalysis.treatmentSamples.join("、")}</dd></div></>}</dl>
-      <p className="notice-warning">统计模型只适用于所选实验设计；未做数值插补，统计结果应按实验设计和领域规范复核。配对检验只使用编号明确匹配的样本对。</p>
+      <dl className="dataset-provenance"><div><dt>统计检验</dt><dd>{result.differentialAnalysis.designType === "paired" ? "配对 t 检验" : result.differentialAnalysis.designType === "multifactor" ? "多因素加性线性模型对比 t 检验" : "非配对 Welch t 检验"}</dd></div><div><dt>效应量</dt><dd>{result.differentialAnalysis.designType === "paired" ? "每对样本实验组减对照组的 log2 差值均值" : result.differentialAnalysis.designType === "multifactor" ? "控制模型中其他因素后的 log2 均值差" : "实验组减对照组的平均 log2 强度"}</dd></div><div><dt>多重校正</dt><dd>{result.differentialAnalysis.pValueAdjustment}</dd></div><div><dt>变换 / 归一化</dt><dd>{result.differentialAnalysis.inputScaleTransform === "log2" ? "log2 转换" : "不转换"} / {{ none: "不再归一化", median_center: "样本中位数中心化" }[result.differentialAnalysis.normalization] ?? result.differentialAnalysis.normalization}</dd></div><div><dt>缺失策略</dt><dd>{{ complete_rows: "仅完整样本行", available_replicates: "使用可用重复值" }[result.differentialAnalysis.missingPolicy] ?? result.differentialAnalysis.missingPolicy}</dd></div>{result.differentialAnalysis.designType === "paired" ? <div><dt>配对样本</dt><dd>{result.differentialAnalysis.samplePairs.map((pair) => `${pair.pairId}：${pair.controlSample} ↔ ${pair.treatmentSample}`).join("；")}</dd></div> : result.differentialAnalysis.designType === "multifactor" ? <><div><dt>主要对比</dt><dd>{result.differentialAnalysis.contrast?.factor}：{result.differentialAnalysis.contrast?.treatmentLevel} − {result.differentialAnalysis.contrast?.referenceLevel}</dd></div><div><dt>模型因素</dt><dd>{result.differentialAnalysis.factorNames?.map((name) => `${name}（${result.differentialAnalysis?.factorLevels?.[name]?.join("、")}）`).join("；")}</dd></div><div><dt>设计模型</dt><dd>{result.differentialAnalysis.model}</dd></div></> : <><div><dt>对照组样本</dt><dd>{result.differentialAnalysis.controlSamples?.join("、")}</dd></div><div><dt>实验组样本</dt><dd>{result.differentialAnalysis.treatmentSamples?.join("、")}</dd></div></>}</dl>
+      <p className="notice-warning">统计模型只适用于所选实验设计；未做数值插补，统计结果应按实验设计和领域规范复核。多因素首版假设样本相互独立、误差方差相同且残差近似正态，只估计主效应，不拟合交互项或随机效应。</p>
     </section>}
 
     <section className="proteomics-qc panel">

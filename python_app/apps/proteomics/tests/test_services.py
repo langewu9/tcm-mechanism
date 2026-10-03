@@ -29,6 +29,7 @@ from apps.proteomics.services import (
     resolve_mapping,
     run_proteomics_analysis,
 )
+from apps.proteomics.raw_matrix import analyze_raw_matrix
 from apps.proteomics.tasks import run_proteomics_task
 
 
@@ -298,6 +299,121 @@ class ProteomicsServiceTests(TestCase):
         partial = next(row for row in stored_rows if row.original_label == "PARTIAL")
         self.assertIn("incomplete_samples", partial.exclusion_reasons)
 
+    def test_raw_matrix_multifactor_model_adjusts_for_batch_and_records_contrast(self):
+        sample_columns = ["C_A1", "C_A2", "C_B1", "C_B2", "D_A1", "D_A2", "D_B1", "D_B2"]
+        factors = {
+            "C_A1": {"condition": "control", "batch": "A"},
+            "C_A2": {"condition": "control", "batch": "A"},
+            "C_B1": {"condition": "control", "batch": "B"},
+            "C_B2": {"condition": "control", "batch": "B"},
+            "D_A1": {"condition": "drug", "batch": "A"},
+            "D_A2": {"condition": "drug", "batch": "A"},
+            "D_B1": {"condition": "drug", "batch": "B"},
+            "D_B2": {"condition": "drug", "batch": "B"},
+        }
+        assignments = [
+            {"sampleColumn": sample, "factors": factors[sample]}
+            for sample in sample_columns
+        ]
+        design = {
+            "identifierColumn": "Gene",
+            "sampleColumns": sample_columns,
+            "designType": "multifactor",
+            "sampleFactors": assignments,
+            "contrastFactor": "condition",
+            "referenceLevel": "control",
+            "treatmentLevel": "drug",
+            "valuesAreLog2": True,
+            "normalization": "none",
+            "missingPolicy": "complete_rows",
+        }
+        rows = [{"Gene": "TP53", **dict(zip(sample_columns, [10, 10.2, 12, 12.4, 11.2, 11.5, 13.2, 13.5]))}]
+        _synthetic, exclusions, details, warnings = analyze_raw_matrix(rows, design)
+        self.assertEqual(exclusions, {})
+        self.assertEqual(details["method"]["test"], "additive multifactor linear-model contrast t-test")
+        self.assertEqual(details["method"]["contrast"], {
+            "factor": "condition", "referenceLevel": "control", "treatmentLevel": "drug",
+        })
+        self.assertAlmostEqual(details["qc"]["modelResidualDegreesOfFreedom"], 5)
+        self.assertIn("未拟合因素交互项", warnings[0])
+        partial_design = {**design, "missingPolicy": "available_replicates"}
+        partial_row = {
+            "Gene": "PARTIAL",
+            **dict(zip(sample_columns, ["10", "10.2", "", "", "", "", "13.2", "13.5"])),
+        }
+        _partial_rows, partial_exclusions, _partial_details, _partial_warnings = analyze_raw_matrix(
+            [partial_row], partial_design,
+        )
+        self.assertEqual(partial_exclusions, {0: ["rank_deficient_sample_design"]})
+
+        dataset = self.make_dataset(
+            "multifactor-matrix.csv",
+            ("Gene," + ",".join(sample_columns) + "\nTP53,10,10.2,12,12.4,11.2,11.5,13.2,13.5\n").encode(),
+        )
+        task = AnalysisTask.objects.create(
+            owner=self.owner,
+            task_type=AnalysisTask.TaskType.PROTEOMICS,
+            dataset=dataset,
+            input_parameters={
+                "analysisMode": "raw_matrix",
+                "matrixDesign": design,
+                "thresholds": {"log2FcMin": 0, "fdrMax": 1, "pValueMax": 1},
+                "referenceTargets": [],
+            },
+        )
+        result, stored_rows, _release_ids = run_proteomics_analysis(task)
+        self.assertAlmostEqual(stored_rows[0].log2_fold_change, 1.2, places=6)
+        self.assertIsNotNone(stored_rows[0].p_value)
+        self.assertEqual(result["differentialAnalysis"]["sampleFactors"], assignments)
+        self.assertEqual(result["qc"]["rawMatrix"]["factorCount"], 2)
+
+    def test_raw_matrix_multifactor_rejects_fully_confounded_design(self):
+        sample_columns = ["C1", "C2", "D1", "D2"]
+        factors = {
+            "C1": {"condition": "control", "batch": "A"},
+            "C2": {"condition": "control", "batch": "A"},
+            "D1": {"condition": "drug", "batch": "B"},
+            "D2": {"condition": "drug", "batch": "B"},
+        }
+        design = {
+            "identifierColumn": "Gene",
+            "sampleColumns": sample_columns,
+            "designType": "multifactor",
+            "sampleFactors": [{"sampleColumn": sample, "factors": factors[sample]} for sample in sample_columns],
+            "contrastFactor": "condition",
+            "referenceLevel": "control",
+            "treatmentLevel": "drug",
+            "valuesAreLog2": True,
+            "normalization": "none",
+            "missingPolicy": "complete_rows",
+        }
+        with self.assertRaisesRegex(ProteomicsInputError, "完全共线"):
+            analyze_raw_matrix([{"Gene": "TP53", "C1": "8", "C2": "9", "D1": "10", "D2": "11"}], design)
+
+    def test_raw_matrix_multifactor_rejects_factor_names_that_collide_after_trimming(self):
+        sample_columns = ["C1", "C2", "D1", "D2"]
+        assignments = [
+            {"sampleColumn": sample, "factors": {"condition": level, " condition ": level, "batch": batch}}
+            for sample, level, batch in (
+                ("C1", "control", "A"), ("C2", "control", "B"),
+                ("D1", "drug", "A"), ("D2", "drug", "B"),
+            )
+        ]
+        design = {
+            "identifierColumn": "Gene",
+            "sampleColumns": sample_columns,
+            "designType": "multifactor",
+            "sampleFactors": assignments,
+            "contrastFactor": "condition",
+            "referenceLevel": "control",
+            "treatmentLevel": "drug",
+            "valuesAreLog2": True,
+            "normalization": "none",
+            "missingPolicy": "complete_rows",
+        }
+        with self.assertRaisesRegex(ProteomicsInputError, "去除首尾空格后也不能重复"):
+            analyze_raw_matrix([{"Gene": "TP53", "C1": "8", "C2": "9", "D1": "10", "D2": "11"}], design)
+
     def test_analysis_succeeds_with_zero_significant_rows_and_preserves_qc(self):
         content = (
             "Gene,Control_1,Control_2,Treatment_1,Treatment_2\n"
@@ -348,7 +464,7 @@ class ProteomicsServiceTests(TestCase):
         self.assertEqual(outcome["status"], AnalysisTask.Status.SUCCEEDED)
         self.assertEqual(self.task.status, AnalysisTask.Status.SUCCEEDED)
         self.assertEqual(self.task.progress, 100)
-        self.assertEqual(self.task.result["algorithmVersion"], "proteomics-py-1.4")
+        self.assertEqual(self.task.result["algorithmVersion"], "proteomics-py-1.5")
         self.assertEqual(ProteomicsRowResult.objects.filter(task=self.task).count(), 6)
         self.assertEqual(list(self.task.source_releases.values_list("id", flat=True)), [self.release.pk])
         self.assertEqual(run_proteomics_task.run(self.task.pk)["status"], "skipped")
