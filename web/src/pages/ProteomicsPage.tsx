@@ -340,7 +340,7 @@ export function ProteomicsPage() {
     catch (cause) { setError(errorMessage(cause)); }
   }
 
-  async function exportRows(format: "csv" | "xlsx") {
+  async function exportRows(format: "csv" | "xlsx" | "pdf") {
     if (!task) return;
     setError(null);
     try {
@@ -473,6 +473,7 @@ export function ProteomicsPage() {
                 {result && <div className="proteomics-export-actions">
                   <button type="button" className="btn btn-secondary" onClick={() => void exportRows("csv")}><Download size={15} />CSV</button>
                   <button type="button" className="btn btn-secondary" onClick={() => void exportRows("xlsx")}><Download size={15} />XLSX</button>
+                  <button type="button" className="btn btn-secondary" onClick={() => void exportRows("pdf")}><Download size={15} />PDF 报告</button>
                   <button type="button" className="btn btn-secondary" onClick={() => downloadJson(`proteomics-task-${task.id}.json`, result)}><Download size={15} />JSON</button>
                 </div>}</div>
               {(task.status === "queued" || task.status === "running") && <div className="analysis-progress" role="status"><span>任务已排队，分析过程在后台运行。</span><progress max={100} value={task.progress} /></div>}

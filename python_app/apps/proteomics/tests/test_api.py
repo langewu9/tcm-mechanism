@@ -324,7 +324,25 @@ class ProteomicsApiTests(APITestCase):
             task_type=AnalysisTask.TaskType.PROTEOMICS,
             dataset=self.dataset,
             status=AnalysisTask.Status.SUCCEEDED,
-            result={"algorithmVersion": "proteomics-py-1.1"},
+            result={
+                "algorithmVersion": "proteomics-py-1.5",
+                "dataset": {"rowCount": 1},
+                "summary": {
+                    "selectedRowCount": 1,
+                    "normalizedCount": 1,
+                    "databaseMappedCount": 1,
+                    "unmappedCount": 0,
+                    "candidateOverlapCount": 1,
+                    "pathwayCount": 2,
+                },
+                "differentialAnalysis": {
+                    "designType": "multifactor",
+                    "test": "additive multifactor linear-model contrast t-test",
+                    "effect": "adjusted log2 difference",
+                    "pValueAdjustment": "Benjamini-Hochberg FDR",
+                    "contrast": {"factor": "condition", "referenceLevel": "control", "treatmentLevel": "drug"},
+                },
+            },
             input_parameters={"thresholds": {"fdrMax": 0.05}},
         )
         ProteomicsRowResult.objects.create(
@@ -355,6 +373,14 @@ class ProteomicsApiTests(APITestCase):
         self.assertEqual(workbook["逐行结果"]["B2"].value, "'=2+2")
         self.assertEqual(workbook["逐行结果"]["B2"].data_type, "s")
 
+        pdf_response = self.client.get(reverse("analysis-task-export", args=[task.pk]), {"file_format": "pdf"})
+        self.assertEqual(pdf_response.status_code, 200)
+        self.assertEqual(pdf_response["Content-Type"], "application/pdf")
+        self.assertIn("attachment;", pdf_response["Content-Disposition"])
+        self.assertTrue(pdf_response.content.startswith(b"%PDF-"))
+
         self.client.force_authenticate(self.other_user)
         hidden = self.client.get(reverse("analysis-task-export", args=[task.pk]), {"file_format": "csv"})
         self.assertEqual(hidden.status_code, 404)
+        hidden_pdf = self.client.get(reverse("analysis-task-export", args=[task.pk]), {"file_format": "pdf"})
+        self.assertEqual(hidden_pdf.status_code, 404)

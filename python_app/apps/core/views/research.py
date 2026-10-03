@@ -427,12 +427,13 @@ class AnalysisTaskViewSet(viewsets.ReadOnlyModelViewSet):
         if task.task_type != AnalysisTask.TaskType.PROTEOMICS or task.status != AnalysisTask.Status.SUCCEEDED:
             raise NotFound("该分析任务没有可导出的蛋白组学结果。")
         export_format = request.query_params.get("file_format", "csv").lower()
-        if export_format not in {"csv", "xlsx"}:
-            raise ValidationError({"file_format": "仅支持 csv 或 xlsx。"})
+        if export_format not in {"csv", "xlsx", "pdf"}:
+            raise ValidationError({"file_format": "仅支持 csv、xlsx 或 pdf。"})
 
         from apps.proteomics.exports import (
             export_proteomics_csv,
             export_proteomics_xlsx,
+            export_proteomics_pdf,
             rows_for_task,
         )
 
@@ -440,9 +441,12 @@ class AnalysisTaskViewSet(viewsets.ReadOnlyModelViewSet):
         if export_format == "csv":
             content = export_proteomics_csv(rows)
             content_type = "text/csv; charset=utf-8"
-        else:
+        elif export_format == "xlsx":
             content = export_proteomics_xlsx(task, rows)
             content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        else:
+            content = export_proteomics_pdf(task, rows)
+            content_type = "application/pdf"
         response = HttpResponse(content, content_type=content_type)
         response["Content-Disposition"] = f'attachment; filename="proteomics-task-{task.pk}.{export_format}"'
         response["X-Content-Type-Options"] = "nosniff"

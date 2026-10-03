@@ -284,5 +284,5 @@ export const getAnalysisTask = (id: number) =>
   apiRequest<AnalysisTask>(`/api/v1/research/analysis-tasks/${id}/`);
 export const getProteomicsRows = (taskId: number, page = 1) =>
   apiRequest<ProteomicsRowPage>(`/api/v1/research/analysis-tasks/${taskId}/rows/?page=${page}`);
-export const exportProteomicsResults = (taskId: number, format: "csv" | "xlsx") =>
+export const exportProteomicsResults = (taskId: number, format: "csv" | "xlsx" | "pdf") =>
   apiRequestBlob(`/api/v1/research/analysis-tasks/${taskId}/export/?file_format=${format}`);
