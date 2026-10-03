@@ -1,3 +1,4 @@
+import { WorkspaceModuleNav } from "../components/WorkspaceModuleNav";
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useOutletContext } from "react-router-dom";
 import { Bot, CircleHelp, LoaderCircle, Search, X } from "lucide-react";
@@ -99,7 +100,7 @@ export function ResearchAssistantPage() {
   return <main className="workspace-page">
     <header className="workspace-nav">
       <Link to="/" className="site-brand" aria-label="远志 AI Scientist 首页"><img src="/images/yuanzhi-mark.png" alt="" width={42} height={42} className="brand-mark" /><span><strong>远志 AI Scientist</strong><small>研究者工作区</small></span></Link>
-      <nav className="workspace-module-nav" aria-label="研究模块"><Link to="/dashboard">研究总览</Link><Link to="/cases">医案管理</Link><Link to="/datasets">研究数据集</Link><Link to="/proteomics">蛋白组学</Link><Link to="/network-pharmacology">网络药理</Link><Link to="/research">知识检索</Link><Link to="/assistant" aria-current="page">科研助手</Link>{user.isSuperuser && <><Link to="/admin">系统总览</Link><Link to="/admin/sources">数据源同步</Link><Link to="/admin/integrations">API 接入监测</Link></>}</nav>
+      <WorkspaceModuleNav isSuperuser={user.isSuperuser} />
       <div className="workspace-nav-actions"><span className="workspace-user">{user.username}{user.isSuperuser ? " · 平台管理员" : " · 研究者"}</span><button className="btn btn-secondary" type="button" onClick={() => void signOut()}>退出</button></div>
     </header>
     <div className="app-main workspace-main"><div className="app-main-inner">

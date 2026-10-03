@@ -6,7 +6,7 @@ export type DashboardTask = {
   id: number;
   title: string;
   summary: string;
-  task_type: "proteomics" | "case_link" | "network" | "visualization" | "research_assistant";
+  task_type: "proteomics" | "case_link" | "network" | "visualization" | "research_assistant" | "text_analysis";
   status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
   created_at: string;
 };

@@ -2,12 +2,15 @@ from uuid import uuid4
 
 from django.db import transaction
 from django.db.models import OuterRef, Subquery
+from django.db.models.deletion import ProtectedError
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from rest_framework import generics, permissions, status
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from apps.core.models import DataSource, SyncRun
+from config.api_errors import error_payload
 from apps.sources.serializers import (
     DataSourceSyncSerializer,
     SyncApplyResponseSerializer,
@@ -68,6 +71,37 @@ class DataSourceListView(generics.ListCreateAPIView):
         )
         response_data = DataSourceSyncSerializer(source).data
         return Response(response_data, status=status.HTTP_201_CREATED)
+
+
+class DataSourceDeleteView(APIView):
+    permission_classes = [IsPlatformAdministrator]
+
+    @extend_schema(responses={204: None, 409: OpenApiTypes.OBJECT})
+    def delete(self, request, source_id: int):
+        try:
+            with transaction.atomic():
+                try:
+                    source = DataSource.objects.select_for_update().get(pk=source_id)
+                except DataSource.DoesNotExist as exc:
+                    raise NotFound("找不到指定的数据源。") from exc
+                if source.releases.exists() or source.sync_runs.exists():
+                    return self._conflict_response(request, source_id)
+                source.delete()
+        except ProtectedError:
+            return self._conflict_response(request, source_id)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @staticmethod
+    def _conflict_response(request, source_id):
+        return Response(
+            error_payload(
+                "RESOURCE_CONFLICT",
+                "该数据源已有来源版本或同步历史，为保留数据溯源不能删除。",
+                {"sourceId": source_id},
+                request=request,
+            ),
+            status=status.HTTP_409_CONFLICT,
+        )
 
 
 class SyncRunListView(generics.ListAPIView):

@@ -1,6 +1,7 @@
+import { WorkspaceModuleNav } from "../components/WorkspaceModuleNav";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link, Navigate, useOutletContext } from "react-router-dom";
-import { ArrowLeft, CheckCircle2, Database, RefreshCw } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Database, RefreshCw, Trash2 } from "lucide-react";
 import { logout, type Session } from "../api/auth";
 import {
   getAdminDataSources,
@@ -9,6 +10,7 @@ import {
   applySyncPreview,
   createSQLiteDataSource,
   testSQLiteDataSource,
+  deleteDataSource,
   type AdminDataSource,
   type SyncRun,
 } from "../api/sources";
@@ -54,6 +56,7 @@ export function SourcesPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [sqliteForm, setSQLiteForm] = useState(emptySQLiteSource);
   const [testingSourceId, setTestingSourceId] = useState<number | null>(null);
+  const [deletingSourceId, setDeletingSourceId] = useState<number | null>(null);
   const [testResults, setTestResults] = useState<Record<number, { rowCount: number; checksum: string; tableRowCounts: Record<string, number> }>>({});
 
   const refresh = useCallback(async () => {
@@ -150,15 +153,31 @@ export function SourcesPage() {
     finally { setTestingSourceId(null); }
   }
 
+  async function removeSource(source: AdminDataSource) {
+    if (!window.confirm(`删除数据源“${source.name}”的登记？已有来源版本或同步历史的登记将保留，服务器原文件和知识记录不受影响。`)) return;
+    setDeletingSourceId(source.id);
+    setError(null);
+    setNotice(null);
+    try {
+      await deleteDataSource(source.id);
+      setNotice(`数据源“${source.name}”的登记已删除。`);
+      setTestResults((current) => {
+        const next = { ...current };
+        delete next[source.id];
+        return next;
+      });
+      await refresh();
+    } catch (cause) { setError(errorMessage(cause)); }
+    finally { setDeletingSourceId(null); }
+  }
+
   return <main className="workspace-page">
     <header className="workspace-nav">
       <Link to="/" className="site-brand" aria-label="远志 AI Scientist 首页">
         <img src="/images/yuanzhi-mark.png" alt="" width={42} height={42} className="brand-mark" />
         <span><strong>远志 AI Scientist</strong><small>平台管理</small></span>
       </Link>
-      <nav className="workspace-module-nav" aria-label="研究模块"><Link to="/dashboard">研究总览</Link>
-        <Link to="/cases">医案管理</Link><Link to="/datasets">研究数据集</Link><Link to="/proteomics">蛋白组学</Link><Link to="/network-pharmacology">网络药理</Link><Link to="/research">知识检索</Link><Link to="/assistant">科研助手</Link><Link to="/admin" >系统总览</Link><Link to="/admin/sources" aria-current="page">数据源同步</Link><Link to="/admin/integrations">API 接入监测</Link>
-      </nav>
+      <WorkspaceModuleNav isSuperuser={user.isSuperuser} />
       <div className="workspace-nav-actions"><span className="workspace-user">{user.username} · 平台管理员</span>
         <button className="btn btn-secondary" type="button" onClick={() => void signOut()}>退出</button></div>
     </header>
@@ -178,7 +197,12 @@ export function SourcesPage() {
           {loading ? <div className="panel empty-state" role="status">正在读取数据源…</div> : sources.length ? <div className="case-list-items">
             {sources.map((source) => <article className="panel source-record" key={source.id}>
               <div className="case-record-top"><div><h3>{source.name}</h3><time>{source.slug} · {source.access_mode === "download" ? "版本文件" : source.access_mode}</time></div>
-                <span className={`status-badge ${source.enabled ? "status-success" : "status-warning"}`}>{source.enabled ? "已启用" : "已停用"}</span></div>
+                <div className="source-record-actions"><span className={`status-badge ${source.enabled ? "status-success" : "status-warning"}`}>{source.enabled ? "已启用" : "已停用"}</span>
+                  <button className="btn btn-secondary" type="button" aria-label={`删除数据源：${source.name}`} title="删除未使用的数据源登记"
+                    disabled={deletingSourceId !== null || busy !== null || testingSourceId !== null}
+                    onClick={() => void removeSource(source)}>
+                    {deletingSourceId === source.id ? <RefreshCw size={15} className="spin" /> : <Trash2 size={15} />}
+                  </button></div></div>
               <p className="dataset-description">{source.description}</p>
               {source.connector_type === "reactome-catalog" || source.slug === "reactome" || source.connector_type === "uniprot-human-catalog" || source.connector_type === "pubchem-compound-catalog" || source.connector_type === "string-human-identifier-crosswalk" ? <>
                 <p className="source-last-success">最近一次成功应用：{dateTime(source.last_success_at)}</p>
@@ -186,7 +210,7 @@ export function SourcesPage() {
                 {source.connector_type === "pubchem-compound-catalog" && <p className="section-help">PubChem 只补充已登记成分的化学属性。请先在 Django 管理后台核对并配置 CID 到本地成分 stableId 的映射；系统不会按名称猜测或自动改绑。配置格式：<code>{'{"connector":"pubchem-compound-catalog","mappings":[{"stableId":"本地成分stable_id","cid":"5280343"}]}'}</code></p>}
                 {source.connector_type === "string-human-identifier-crosswalk" && <p className="section-help">只为已明确标注为人类的本地基因/蛋白补充 STRING ID，不下载完整蛋白目录、不创建或合并实体。STRING 返回最佳匹配，重名、冲突和未匹配记录会在预览中单独统计；应用前请检查样例。</p>}
                 <div className="source-record-actions">
-                  <button className="btn btn-primary" type="button" disabled={!source.enabled || busy === source.id}
+                  <button className="btn btn-primary" type="button" disabled={!source.enabled || busy === source.id || deletingSourceId === source.id}
                     onClick={() => void startPreview(source)}>
                     {busy === source.id ? <RefreshCw size={15} className="spin" /> : <Database size={15} />}
                     {busy === source.id ? "正在提交…" : source.connector_type === "uniprot-human-catalog" ? "预览 UniProt 目录" : source.connector_type === "pubchem-compound-catalog" ? "预览 PubChem 属性" : source.connector_type === "string-human-identifier-crosswalk" ? "预览 STRING 标识映射" : "检查目录变更"}
@@ -199,12 +223,12 @@ export function SourcesPage() {
                 <p className="source-last-success">最近一次成功导入：{dateTime(source.last_success_at)}</p>
                 <p className="section-help">服务器只读打开受控目录中的 SQLite 文件。浏览器不会提交绝对路径；同步前请确认文件许可和列映射。</p>
                 <div className="source-record-actions">
-                  <button className="btn btn-secondary" type="button" disabled={!source.enabled || testingSourceId === source.id}
+                  <button className="btn btn-secondary" type="button" disabled={!source.enabled || testingSourceId === source.id || deletingSourceId === source.id}
                     onClick={() => void testSource(source)}>
                     {testingSourceId === source.id ? <RefreshCw size={15} className="spin" /> : <CheckCircle2 size={15} />}
                     {testingSourceId === source.id ? "正在测试…" : "测试连接"}
                   </button>
-                  <button className="btn btn-primary" type="button" disabled={!source.enabled || busy === source.id}
+                  <button className="btn btn-primary" type="button" disabled={!source.enabled || busy === source.id || deletingSourceId === source.id}
                     onClick={() => void startPreview(source)}>
                     {busy === source.id ? <RefreshCw size={15} className="spin" /> : <Database size={15} />}
                     {busy === source.id ? "正在预览…" : "预览导入差异"}

@@ -197,6 +197,7 @@ class AnalysisTask(models.Model):
         NETWORK = "network", "网络药理"
         VISUALIZATION = "visualization", "R 图表"
         RESEARCH_ASSISTANT = "research_assistant", "科研助手"
+        TEXT_ANALYSIS = "text_analysis", "证候与方药规则分析"
 
     class Status(models.TextChoices):
         QUEUED = "queued", "排队中"

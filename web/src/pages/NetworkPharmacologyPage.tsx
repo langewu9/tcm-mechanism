@@ -1,3 +1,4 @@
+import { WorkspaceModuleNav } from "../components/WorkspaceModuleNav";
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useLocation, useNavigate, useOutletContext } from "react-router-dom";
 import { Activity, ArrowLeft, Network, RefreshCw } from "lucide-react";
@@ -6,6 +7,8 @@ import { getAnalysisTask, type AnalysisTask } from "../api/datasets";
 import { createVisualization, runNetworkPharmacology, runReactomeEnrichment, runStringNetwork, type NetworkPharmacologyResult } from "../api/network";
 import { ApiError } from "../api/client";
 import { KnowledgeNetworkGraph } from "../components/KnowledgeNetworkGraph";
+import { NetworkPharmacologyCharts } from "../components/NetworkPharmacologyCharts";
+import { NetworkResultDownloads } from "../components/NetworkResultDownloads";
 
 function errorMessage(error: unknown) {
   return error instanceof ApiError ? error.message : "请求未完成，请稍后重试。";
@@ -107,7 +110,7 @@ export function NetworkPharmacologyPage() {
   return <main className="workspace-page">
     <header className="workspace-nav">
       <Link to="/" className="site-brand" aria-label="远志 AI Scientist 首页"><img src="/images/yuanzhi-mark.png" alt="" width={42} height={42} className="brand-mark" /><span><strong>远志 AI Scientist</strong><small>研究者工作区</small></span></Link>
-      <nav className="workspace-module-nav" aria-label="研究模块"><Link to="/dashboard">研究总览</Link><Link to="/cases">医案管理</Link><Link to="/datasets">研究数据集</Link><Link to="/proteomics">蛋白组学</Link><Link to="/network-pharmacology" aria-current="page">网络药理</Link><Link to="/research">知识检索</Link><Link to="/assistant">科研助手</Link>{user.isSuperuser && <><Link to="/admin">系统总览</Link><Link to="/admin/sources">数据源同步</Link><Link to="/admin/integrations">API 接入监测</Link></>}</nav>
+      <WorkspaceModuleNav isSuperuser={user.isSuperuser} />
       <div className="workspace-nav-actions"><span className="workspace-user">{user.username}{user.isSuperuser ? " · 平台管理员" : " · 研究者"}</span><button className="btn btn-secondary" type="button" onClick={() => void signOut()}>退出</button></div>
     </header>
     <div className="app-main workspace-main"><div className="app-main-inner">
@@ -136,6 +139,8 @@ export function NetworkPharmacologyPage() {
                 <Metric label="候选靶点" value={result.summary.candidateTargetCount} />
                 <Metric label="关联成分" value={result.summary.componentCount} />
               </div>
+              <NetworkResultDownloads result={result} />
+              <NetworkPharmacologyCharts key={result.taskId} result={result} />
               <KnowledgeNetworkGraph network={result.network} knownTruncated={result.limits.linksTruncated || result.limits.targetsTruncated} />
               {(result.summary.unmatchedHerbs.length > 0 || result.summary.unmatchedDiseases.length > 0 || Boolean(result.summary.unresolvedFormulas?.length)) && <div className="notice-error" role="status">{result.summary.unmatchedHerbs.length > 0 ? `未匹配中药或方剂：${result.summary.unmatchedHerbs.join("、")}。` : ""}{result.summary.unmatchedDiseases.length > 0 ? `未匹配疾病：${result.summary.unmatchedDiseases.join("、")}。` : ""}{result.summary.unresolvedFormulas?.length ? `已匹配方剂但本地没有带来源版本的组成关系：${result.summary.unresolvedFormulas.join("、")}。` : ""}当前按知识目录中的精确名称匹配，请检查数据源导入结果和实体名称。</div>}
               {result.summary.matchedFormulas?.length ? <p className="section-help">方剂 {result.summary.matchedFormulas.join("、")} 已按本地组成关系展开为中药：{result.summary.matchedHerbs.join("、") || "暂无可追溯组成"}。</p> : null}

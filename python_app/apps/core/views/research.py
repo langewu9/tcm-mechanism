@@ -71,6 +71,11 @@ class ResearchDatasetViewSet(viewsets.ModelViewSet):
         queryset = ResearchDataset.objects.all()
         if not self.request.user.is_superuser:
             queryset = queryset.filter(owner=self.request.user)
+        query = self.request.query_params.get("q", "").strip() if self.action == "list" else ""
+        if query:
+            queryset = queryset.filter(
+                Q(name__icontains=query) | Q(original_filename__icontains=query)
+            )
         return queryset
 
     def perform_create(self, serializer):
@@ -151,6 +156,13 @@ class MedicalCaseViewSet(viewsets.ModelViewSet):
         queryset = MedicalCase.objects.all()
         if not self.request.user.is_superuser:
             queryset = queryset.filter(owner=self.request.user)
+        query = self.request.query_params.get("q", "").strip() if self.action == "list" else ""
+        if query:
+            queryset = queryset.filter(
+                Q(title__icontains=query)
+                | Q(deidentified_text__icontains=query)
+                | Q(structured_data__diagnosis__icontains=query)
+            )
         return queryset
 
     def perform_create(self, serializer):
@@ -461,6 +473,20 @@ class AnalysisTaskViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=True, methods=["get"])
     def export(self, request, pk=None):
         task = self.get_object()
+        if task.task_type == AnalysisTask.TaskType.TEXT_ANALYSIS:
+            if task.status != AnalysisTask.Status.SUCCEEDED:
+                raise NotFound("该分析任务尚无可导出的规则分析结果。")
+            export_format = request.query_params.get("file_format", "csv").lower()
+            if export_format not in {"csv", "pdf"}:
+                raise ValidationError({"file_format": "规则分析结果仅支持 csv 或 pdf。"})
+            from ..services.text_analysis_exports import export_text_analysis_csv, export_text_analysis_pdf
+
+            content = export_text_analysis_csv(task) if export_format == "csv" else export_text_analysis_pdf(task)
+            content_type = "text/csv; charset=utf-8" if export_format == "csv" else "application/pdf"
+            response = HttpResponse(content, content_type=content_type)
+            response["Content-Disposition"] = f'attachment; filename="text-analysis-task-{task.pk}.{export_format}"'
+            response["X-Content-Type-Options"] = "nosniff"
+            return response
         if task.task_type != AnalysisTask.TaskType.PROTEOMICS or task.status != AnalysisTask.Status.SUCCEEDED:
             raise NotFound("该分析任务没有可导出的蛋白组学结果。")
         export_format = request.query_params.get("file_format", "csv").lower()

@@ -1,6 +1,7 @@
 from django.urls import path
 
 from apps.sources.views import (
+    DataSourceDeleteView,
     DataSourceListView,
     SourceSyncApplyView,
     SourceSyncPreviewView,
@@ -11,6 +12,7 @@ from apps.sources.views import (
 
 urlpatterns = [
     path("sources/", DataSourceListView.as_view(), name="sync-source-list"),
+    path("sources/<int:source_id>/", DataSourceDeleteView.as_view(), name="sync-source-delete"),
     path("sources/<int:source_id>/test/", SQLiteSourceTestView.as_view(), name="sync-source-test"),
     path("sources/<int:source_id>/sync/", SourceSyncPreviewView.as_view(), name="sync-source-preview"),
     path("sync-runs/", SyncRunListView.as_view(), name="sync-run-list"),

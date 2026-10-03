@@ -91,6 +91,8 @@ export type SyncRun = {
 export type Page<T> = { count: number; next: string | null; previous: string | null; results: T[] };
 
 export const getAdminDataSources = () => apiRequest<Page<AdminDataSource>>("/api/v1/admin/sources/");
+export const deleteDataSource = (sourceId: number) =>
+  apiRequest<void>(`/api/v1/admin/sources/${sourceId}/`, { method: "DELETE" });
 export const getSyncRuns = () => apiRequest<Page<SyncRun>>("/api/v1/admin/sync-runs/");
 export const previewDataSourceSync = (sourceId: number) =>
   apiRequest<{ run: SyncRun }>(`/api/v1/admin/sources/${sourceId}/sync/`, { method: "POST", body: {} });
