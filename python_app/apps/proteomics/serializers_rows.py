@@ -13,6 +13,7 @@ class ProteomicsRowResultSerializer(serializers.ModelSerializer):
             "original_label",
             "protein_name",
             "normalized_symbol",
+            "external_identifiers",
             "mapping_status",
             "mapping_source",
             "matched_entity",

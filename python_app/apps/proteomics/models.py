@@ -17,6 +17,7 @@ class ProteomicsRowResult(models.Model):
     original_label = models.CharField(max_length=500, blank=True)
     protein_name = models.CharField(max_length=500, blank=True)
     normalized_symbol = models.CharField(max_length=160, blank=True)
+    external_identifiers = models.JSONField(default=list, blank=True)
     mapping_status = models.CharField(max_length=16, choices=MappingStatus.choices)
     mapping_source = models.CharField(max_length=160, blank=True)
     matched_entity = models.ForeignKey(

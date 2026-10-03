@@ -1,4 +1,6 @@
-from io import BytesIO
+import csv
+import json
+from io import BytesIO, StringIO
 import tempfile
 from unittest.mock import patch
 
@@ -305,6 +307,13 @@ class ProteomicsApiTests(APITestCase):
             row_index=0,
             original_label="TP53",
             normalized_symbol="TP53",
+            external_identifiers=[{
+                "namespace": "uniprot",
+                "identifier": "P04637",
+                "source": "uniprot",
+                "sourceVersion": "2026-01",
+                "sourceReleaseId": 17,
+            }],
             mapping_status=ProteomicsRowResult.MappingStatus.UNVERIFIED,
             selected=True,
         )
@@ -313,6 +322,7 @@ class ProteomicsApiTests(APITestCase):
         self.assertEqual(visible.status_code, 200)
         self.assertEqual(visible.data["count"], 1)
         self.assertEqual(visible.data["results"][0]["normalized_symbol"], "TP53")
+        self.assertEqual(visible.data["results"][0]["external_identifiers"][0]["identifier"], "P04637")
 
         self.client.force_authenticate(self.other_user)
         hidden = self.client.get(reverse("analysis-task-rows", args=[task.pk]))
@@ -325,7 +335,7 @@ class ProteomicsApiTests(APITestCase):
             dataset=self.dataset,
             status=AnalysisTask.Status.SUCCEEDED,
             result={
-                "algorithmVersion": "proteomics-py-1.5",
+                "algorithmVersion": "proteomics-py-1.6",
                 "dataset": {"rowCount": 1},
                 "summary": {
                     "selectedRowCount": 1,
@@ -350,6 +360,13 @@ class ProteomicsApiTests(APITestCase):
             row_index=0,
             original_label="=2+2",
             protein_name="@danger",
+            external_identifiers=[{
+                "namespace": "uniprot",
+                "identifier": "P04637",
+                "source": "uniprot",
+                "sourceVersion": "2026-01",
+                "sourceReleaseId": 17,
+            }],
             mapping_status=ProteomicsRowResult.MappingStatus.UNMAPPED,
             selected=True,
         )
@@ -365,6 +382,10 @@ class ProteomicsApiTests(APITestCase):
         csv_content = csv_response.content.decode("utf-8-sig")
         self.assertIn("'=2+2", csv_content)
         self.assertIn("'@danger", csv_content)
+        csv_rows = list(csv.reader(StringIO(csv_content)))
+        identifier_column = csv_rows[0].index("稳定 ID（来源/版本）")
+        csv_identifiers = json.loads(csv_rows[1][identifier_column])
+        self.assertEqual(csv_identifiers[0]["identifier"], "P04637")
 
         xlsx_response = self.client.get(reverse("analysis-task-export", args=[task.pk]), {"file_format": "xlsx"})
         self.assertEqual(xlsx_response.status_code, 200)
@@ -372,6 +393,9 @@ class ProteomicsApiTests(APITestCase):
         self.assertEqual(workbook.sheetnames, ["分析信息", "逐行结果"])
         self.assertEqual(workbook["逐行结果"]["B2"].value, "'=2+2")
         self.assertEqual(workbook["逐行结果"]["B2"].data_type, "s")
+        headers = [cell.value for cell in workbook["逐行结果"][1]]
+        identifiers_column = headers.index("稳定 ID（来源/版本）") + 1
+        self.assertIn("P04637", workbook["逐行结果"].cell(2, identifiers_column).value)
 
         pdf_response = self.client.get(reverse("analysis-task-export", args=[task.pk]), {"file_format": "pdf"})
         self.assertEqual(pdf_response.status_code, 200)

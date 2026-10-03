@@ -6,11 +6,13 @@ from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.test import TestCase, override_settings
+from django.utils import timezone
 from openpyxl import Workbook
 
 from apps.core.models import (
     AnalysisTask,
     DataSource,
+    EntityIdentifier,
     EvidenceRelation,
     KnowledgeEntity,
     ResearchDataset,
@@ -136,6 +138,20 @@ class ProteomicsServiceTests(TestCase):
             resolve_mapping(table.columns, {"gene_column": "not-a-column"})
 
     def test_analysis_matches_main_business_flow_and_adds_row_level_qc(self):
+        identifier_release = SourceRelease.objects.create(
+            source=DataSource.objects.create(
+                slug="test-uniprot",
+                name="UniProt test snapshot",
+                access_mode=DataSource.AccessMode.MANUAL,
+            ),
+            version="2026-01",
+        )
+        EntityIdentifier.objects.create(
+            entity=self.tp53,
+            source_release=identifier_release,
+            namespace="uniprot",
+            identifier="P04637",
+        )
         result, stored_rows, release_ids = run_proteomics_analysis(self.task)
 
         self.assertEqual(result["summary"]["selectedRowCount"], 3)
@@ -144,6 +160,12 @@ class ProteomicsServiceTests(TestCase):
         self.assertEqual(result["validation"]["overlap"], ["TP53"])
         self.assertEqual(result["validation"]["referenceOnly"], ["IL6"])
         self.assertEqual(result["pathways"][0]["name"], "TP53 regulation")
+        tp53_row = next(row for row in stored_rows if row.original_label == "TP53")
+        self.assertEqual(
+            {(item["namespace"], item["identifier"], item["sourceVersion"]) for item in tp53_row.external_identifiers},
+            {("platform_entity", "TP53", "test-v1"), ("uniprot", "P04637", "2026-01")},
+        )
+        self.assertEqual(result["summary"]["stableIdentifierCount"], 2)
         self.assertEqual(result["network"]["links"][0]["sourceVersion"], "test-v1")
         self.assertEqual(result["qc"]["missingIdentifierCount"], 1)
         self.assertEqual(result["qc"]["invalidNumericValueRowCount"], 1)
@@ -464,7 +486,7 @@ class ProteomicsServiceTests(TestCase):
         self.assertEqual(outcome["status"], AnalysisTask.Status.SUCCEEDED)
         self.assertEqual(self.task.status, AnalysisTask.Status.SUCCEEDED)
         self.assertEqual(self.task.progress, 100)
-        self.assertEqual(self.task.result["algorithmVersion"], "proteomics-py-1.5")
+        self.assertEqual(self.task.result["algorithmVersion"], "proteomics-py-1.6")
         self.assertEqual(ProteomicsRowResult.objects.filter(task=self.task).count(), 6)
         self.assertEqual(list(self.task.source_releases.values_list("id", flat=True)), [self.release.pk])
         self.assertEqual(run_proteomics_task.run(self.task.pk)["status"], "skipped")
@@ -506,6 +528,16 @@ class ProteomicsServiceTests(TestCase):
         external_row = next(row for row in row_results if row.original_label == "Unknown label")
         self.assertEqual(external_row.mapping_status, ProteomicsRowResult.MappingStatus.EXTERNAL)
         self.assertEqual(external_row.normalized_symbol, "MAPK1")
+        self.assertEqual(
+            next(item["identifier"] for item in external_row.external_identifiers if item["namespace"] == "entrezgene"),
+            "5594",
+        )
+        entrez_id = next(item for item in external_row.external_identifiers if item["namespace"] == "entrezgene")
+        self.assertEqual(entrez_id["source"], "mygene-info")
+        self.assertEqual(entrez_id["sourceVersion"], f"captured-{timezone.localdate().isoformat()}")
+        self.assertIsNotNone(entrez_id["sourceReleaseId"])
+        preview_row = next(item for item in result["rows"] if item["originalLabel"] == "Unknown label")
+        self.assertTrue(any(item["namespace"] == "entrezgene" for item in preview_row["externalIdentifiers"]))
         self.assertEqual(result["externalReactome"]["pathways"][0]["stableId"], "R-HSA-5673001")
         self.assertEqual(result["summary"]["enrichmentMode"], "LOCAL+REACTOME")
         self.assertEqual(len(release_ids), 2)

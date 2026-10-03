@@ -27,6 +27,7 @@ EXPORT_COLUMNS = [
     ("normalized_symbol", "规范标识"),
     ("mapping_status", "映射状态"),
     ("mapping_source", "映射来源"),
+    ("external_identifiers", "稳定 ID（来源/版本）"),
     ("log2_fold_change", "log2FC"),
     ("p_value", "P值"),
     ("fdr", "FDR"),
@@ -164,6 +165,7 @@ def export_proteomics_pdf(task, rows):
         ("输入行", dataset_metadata.get("rowCount", "—")),
         ("筛选行", "selectedRowCount"),
         ("规范化标识", "normalizedCount"),
+        ("稳定标识", "stableIdentifierCount"),
         ("本地映射", "databaseMappedCount"),
         ("外部映射", "externalMappedCount"),
         ("未映射", "unmappedCount"),
@@ -255,12 +257,20 @@ def export_proteomics_pdf(task, rows):
         story.append(Paragraph("重点差异结果", heading_style))
         table_rows = [[
             Paragraph(_pdf_text(label), header_cell_style)
-            for label in ("原始标识", "规范标识", "log2FC", "P 值", "FDR", "方向")
+            for label in ("原始标识", "规范标识", "稳定 ID", "log2FC", "P 值", "FDR", "方向")
         ]]
         for row in selected_rows[:PDF_RESULT_ROW_LIMIT]:
+            stable_identifiers = [
+                f"{item.get('namespace')}:{item.get('identifier')}"
+                + (f"（{item.get('source')}@{item.get('sourceVersion')}）" if item.get("sourceVersion") else "")
+                for item in (row.external_identifiers or [])[:3]
+            ]
+            if len(row.external_identifiers or []) > 3:
+                stable_identifiers.append("…")
             table_rows.append([
                 Paragraph(_pdf_text(row.original_label, limit=180), cell_style),
                 Paragraph(_pdf_text(row.normalized_symbol or "—", limit=100), cell_style),
+                Paragraph(_pdf_text("；".join(stable_identifiers) or "—", limit=220), cell_style),
                 Paragraph(_pdf_text(_pdf_number(row.log2_fold_change)), cell_style),
                 Paragraph(_pdf_text(_pdf_number(row.p_value)), cell_style),
                 Paragraph(_pdf_text(_pdf_number(row.fdr)), cell_style),
@@ -268,7 +278,7 @@ def export_proteomics_pdf(task, rows):
             ])
         story.append(_pdf_table(
             table_rows,
-            widths=[60 * mm, 50 * mm, 31 * mm, 31 * mm, 31 * mm, 35 * mm],
+            widths=[45 * mm, 38 * mm, 52 * mm, 25 * mm, 25 * mm, 25 * mm, 25 * mm],
         ))
         selected_count = rows.filter(selected=True).count()
         if selected_count > PDF_RESULT_ROW_LIMIT:
@@ -301,6 +311,8 @@ def _row_values(row):
         value = getattr(row, name)
         if name in {"exclusion_reasons", "qc_warnings"}:
             value = "; ".join(value or [])
+        elif name == "external_identifiers":
+            value = json.dumps(value or [], ensure_ascii=False, sort_keys=True)
         elif name == "row_index":
             value += 1
         elif name == "selected":

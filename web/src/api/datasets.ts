@@ -78,6 +78,7 @@ export type ProteomicsResult = {
     selectedRowCount: number;
     uniqueLabelCount: number;
     normalizedCount: number;
+    stableIdentifierCount?: number;
     databaseMappedCount: number;
     unverifiedSymbolCount: number;
     unmappedCount: number;
@@ -179,6 +180,7 @@ export type ProteomicsResult = {
     symbol: string | null;
     mappingStatus: string;
     mappingSource: string;
+    externalIdentifiers: Array<{ namespace: string; identifier: string; source: string; sourceVersion: string | null; sourceReleaseId?: number | null }>;
     log2FoldChange: number | null;
     pValue: number | null;
     fdr: number | null;
@@ -223,6 +225,7 @@ export type ProteomicsRow = {
   original_label: string;
   protein_name: string;
   normalized_symbol: string;
+  external_identifiers: Array<{ namespace: string; identifier: string; source: string; sourceVersion: string | null; sourceReleaseId?: number | null }>;
   mapping_status: string;
   mapping_source: string;
   matched_entity: number | null;

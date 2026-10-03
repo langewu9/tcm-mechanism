@@ -74,6 +74,13 @@ function formatNumber(value: number | null | undefined) {
   return value == null ? "—" : Number(value).toPrecision(4);
 }
 
+function formatExternalIdentifiers(identifiers: Array<{ namespace: string; identifier: string; source: string; sourceVersion: string | null }> | undefined) {
+  if (!identifiers?.length) return "—";
+  return identifiers.map((item) =>
+    `${item.namespace}:${item.identifier} · ${item.source}${item.sourceVersion ? `@${item.sourceVersion}` : ""}`,
+  ).join("；");
+}
+
 function taskStatusLabel(status: AnalysisTask["status"]) {
   return ({ queued: "排队中", running: "分析中", succeeded: "已完成", failed: "失败", cancelled: "已取消" })[status];
 }
@@ -618,13 +625,13 @@ function ProteomicsResultView({
     <section className="proteomics-result-section">
       <div className="case-list-heading"><div><h3 className="section-title-sm">逐行筛选结果</h3><p className="section-help">任务共处理 {result.qc.inputRowCount} 行；当前预览 {result.rows.length} 行。</p></div>
         <button className="btn btn-secondary" type="button" onClick={onToggleRows}>{showRows ? "收起完整结果" : "查看逐行 QC"}</button></div>
-      {!showRows && <div className="table-scroll"><table className="data-table"><thead><tr><th>原始标识</th><th>规范标识</th><th>映射状态</th><th>log2FC</th><th>FDR</th><th>方向</th></tr></thead><tbody>
-        {result.rows.slice(0, 20).map((row) => <tr key={row.index}><td>{row.originalLabel}</td><td>{row.symbol || "—"}</td><td>{mappingStatusLabel(row.mappingStatus)}</td><td>{formatNumber(row.log2FoldChange)}</td><td>{formatNumber(row.fdr)}</td><td>{row.direction || "—"}</td></tr>)}
+      {!showRows && <div className="table-scroll"><table className="data-table"><thead><tr><th>原始标识</th><th>规范标识</th><th>稳定 ID</th><th>映射状态</th><th>log2FC</th><th>FDR</th><th>方向</th></tr></thead><tbody>
+        {result.rows.slice(0, 20).map((row) => <tr key={row.index}><td>{row.originalLabel}</td><td>{row.symbol || "—"}</td><td>{formatExternalIdentifiers(row.externalIdentifiers)}</td><td>{mappingStatusLabel(row.mappingStatus)}</td><td>{formatNumber(row.log2FoldChange)}</td><td>{formatNumber(row.fdr)}</td><td>{row.direction || "—"}</td></tr>)}
       </tbody></table></div>}
       {result.previewTruncated && !showRows && <p className="section-help">预览超过 500 行；打开逐行 QC 可分页读取完整结果。</p>}
       {showRows && <>
-        {rowPage ? <div className="table-scroll"><table className="data-table"><thead><tr><th>行</th><th>原始标识</th><th>规范标识</th><th>映射状态</th><th>log2FC</th><th>FDR</th><th>筛选</th><th>排除/警告</th></tr></thead><tbody>
-          {rowPage.results.map((row) => <tr key={row.row_index}><td>{row.row_index + 1}</td><td>{row.original_label || "—"}</td><td>{row.normalized_symbol || "—"}</td><td>{mappingStatusLabel(row.mapping_status)}</td><td>{formatNumber(row.log2_fold_change)}</td><td>{formatNumber(row.fdr)}</td><td>{row.selected ? "通过" : "排除"}</td><td>{[...row.exclusion_reasons, ...row.qc_warnings].map(qualityReasonLabel).join("、") || "—"}</td></tr>)}
+        {rowPage ? <div className="table-scroll"><table className="data-table"><thead><tr><th>行</th><th>原始标识</th><th>规范标识</th><th>稳定 ID</th><th>映射状态</th><th>log2FC</th><th>FDR</th><th>筛选</th><th>排除/警告</th></tr></thead><tbody>
+          {rowPage.results.map((row) => <tr key={row.row_index}><td>{row.row_index + 1}</td><td>{row.original_label || "—"}</td><td>{row.normalized_symbol || "—"}</td><td>{formatExternalIdentifiers(row.external_identifiers)}</td><td>{mappingStatusLabel(row.mapping_status)}</td><td>{formatNumber(row.log2_fold_change)}</td><td>{formatNumber(row.fdr)}</td><td>{row.selected ? "通过" : "排除"}</td><td>{[...row.exclusion_reasons, ...row.qc_warnings].map(qualityReasonLabel).join("、") || "—"}</td></tr>)}
         </tbody></table></div> : <p className="section-help">正在读取逐行结果…</p>}
         {rowPage && <div className="case-pagination"><button className="btn btn-secondary" type="button" disabled={!rowPage.previous} onClick={() => onRowPageChange(Math.max(1, rowPageNumber - 1))}>上一页</button>
           <span>第 {rowPageNumber} 页 / 共 {rowPage.count} 行</span><button className="btn btn-secondary" type="button" disabled={!rowPage.next} onClick={() => onRowPageChange(rowPageNumber + 1)}>下一页</button></div>}

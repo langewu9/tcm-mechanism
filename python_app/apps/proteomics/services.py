@@ -28,7 +28,7 @@ from apps.proteomics.models import ProteomicsRowResult
 from apps.proteomics.raw_matrix import analyze_raw_matrix
 
 
-ALGORITHM_VERSION = "proteomics-py-1.5"
+ALGORITHM_VERSION = "proteomics-py-1.6"
 MAX_CELL_CHARACTERS = 50_000
 MAX_XLSX_EXPANDED_BYTES = 512 * 1024 * 1024
 PATHWAY_RELATION_TYPES = {
@@ -102,6 +102,7 @@ class AnalyzedRow:
     mapping_status: str
     normalized_symbol: str
     mapping_source: str
+    external_identifiers: list[dict[str, str | None]]
     matched_entity: KnowledgeEntity | None
     selected: bool
     exclusion_reasons: list[str]
@@ -404,6 +405,7 @@ def _parse_rows(
                 mapping_status=status,
                 normalized_symbol="",
                 mapping_source="",
+                external_identifiers=[],
                 matched_entity=None,
                 selected=not reasons,
                 exclusion_reasons=reasons,
@@ -460,6 +462,29 @@ def _matched_external_identifier(entity: KnowledgeEntity, label: str) -> EntityI
     )
 
 
+def _stable_identifiers_for_entity(entity: KnowledgeEntity) -> list[dict[str, Any]]:
+    source_release = entity.source_release if entity.source_release_id else None
+    identifiers = [{
+        "namespace": "platform_entity",
+        "identifier": entity.stable_id,
+        "source": source_release.source.slug if source_release else "local_entity",
+        "sourceVersion": source_release.version if source_release else None,
+        "sourceReleaseId": source_release.pk if source_release else None,
+    }]
+    identifiers.extend({
+        "namespace": identifier.namespace,
+        "identifier": identifier.identifier,
+        "source": identifier.source_release.source.slug,
+        "sourceVersion": identifier.source_release.version,
+        "sourceReleaseId": identifier.source_release_id,
+    } for identifier in entity.identifiers.all())
+    unique = {}
+    for identifier in identifiers:
+        key = (identifier["namespace"], identifier["identifier"], identifier["source"], identifier["sourceVersion"])
+        unique.setdefault(key, identifier)
+    return list(unique.values())
+
+
 def _build_result(
     rows: list[AnalyzedRow],
     reference_targets: list[str],
@@ -499,6 +524,7 @@ def _build_result(
             row.matched_entity = entity
             row.mapping_status = ProteomicsRowResult.MappingStatus.DATABASE
             row.normalized_symbol = _entity_symbol(entity)
+            row.external_identifiers = _stable_identifiers_for_entity(entity)
             metadata = entity.metadata if isinstance(entity.metadata, dict) else {}
             external_identifier = _matched_external_identifier(entity, row.original_label)
             if external_identifier:
@@ -646,6 +672,7 @@ def _build_result(
             original_label=row.original_label[:500],
             protein_name=row.protein_name[:500],
             normalized_symbol=row.normalized_symbol[:160],
+            external_identifiers=row.external_identifiers,
             mapping_status=row.mapping_status,
             mapping_source=row.mapping_source[:160],
             matched_entity=row.matched_entity,
@@ -667,6 +694,7 @@ def _build_result(
             "symbol": row.normalized_symbol or None,
             "mappingStatus": row.mapping_status,
             "mappingSource": row.mapping_source,
+            "externalIdentifiers": row.external_identifiers,
             "log2FoldChange": row.log2_fold_change,
             "pValue": row.p_value,
             "fdr": row.fdr,
@@ -722,6 +750,11 @@ def _build_result(
             "selectedRowCount": len(selected_rows),
             "uniqueLabelCount": len(canonical_labels),
             "normalizedCount": len(mapped_symbols),
+            "stableIdentifierCount": len({
+                (identifier["namespace"], identifier["identifier"])
+                for row in selected_rows
+                for identifier in row.external_identifiers
+            }),
             "databaseMappedCount": len(database_mapped),
             "unverifiedSymbolCount": len(heuristic_mapped),
             "unmappedCount": len(unmapped),

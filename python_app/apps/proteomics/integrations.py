@@ -54,6 +54,7 @@ def _refresh_preview_and_counts(result, rows):
             preview["symbol"] = row.normalized_symbol or None
             preview["mappingStatus"] = row.mapping_status
             preview["mappingSource"] = row.mapping_source
+            preview["externalIdentifiers"] = row.external_identifiers
 
     selected_rows = [row for row in rows if row.selected]
     database_symbols = {
@@ -83,6 +84,12 @@ def _refresh_preview_and_counts(result, rows):
     summary["unverifiedSymbolCount"] = len(unverified_symbols)
     summary["normalizedCount"] = len(normalized)
     summary["unmappedCount"] = len(unmapped)
+    summary["stableIdentifierCount"] = len({
+        (identifier.get("namespace"), identifier.get("identifier"))
+        for row in selected_rows
+        for identifier in row.external_identifiers
+        if identifier.get("namespace") and identifier.get("identifier")
+    })
 
     validation = result.setdefault("validation", {})
     reference_targets = validation.get("referenceTargets", [])
@@ -177,6 +184,27 @@ def run_opt_in_reactome(task, result, row_results):
             row.mapping_status = ProteomicsRowResult.MappingStatus.EXTERNAL
             row.normalized_symbol = match["symbol"]
             row.mapping_source = f"mygene.info:{mapping_version}"
+            if match.get("entrezGeneId"):
+                row.external_identifiers = [
+                    *row.external_identifiers,
+                    {
+                        "namespace": "entrezgene",
+                        "identifier": str(match["entrezGeneId"]),
+                        "source": "mygene-info",
+                        "sourceVersion": mapping_version,
+                        "sourceReleaseId": mapping_release.pk,
+                    },
+                ]
+                unique_identifiers = {}
+                for identifier in row.external_identifiers:
+                    key = (
+                        identifier.get("namespace"),
+                        identifier.get("identifier"),
+                        identifier.get("source"),
+                        identifier.get("sourceVersion"),
+                    )
+                    unique_identifiers.setdefault(key, identifier)
+                row.external_identifiers = list(unique_identifiers.values())
         elif key in ambiguous_labels:
             row.mapping_status = ProteomicsRowResult.MappingStatus.AMBIGUOUS
             row.normalized_symbol = ""
