@@ -13,7 +13,7 @@
         <a class="brand" href="/">岐黄 <span>研究平台</span></a>
         <nav aria-label="主导航">
           <a href="/api/v1/">API</a>
-          <a href="/admin/">管理后台</a>
+          <a href="/django-admin/">管理后台</a>
           {% if user.is_authenticated %}
             <span class="user-label">{{ user.get_username }}</span>
             <form action="{% url 'logout' %}" method="post">

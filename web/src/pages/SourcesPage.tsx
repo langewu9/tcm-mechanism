@@ -157,7 +157,7 @@ export function SourcesPage() {
         <span><strong>远志 AI Scientist</strong><small>平台管理</small></span>
       </Link>
       <nav className="workspace-module-nav" aria-label="研究模块"><Link to="/dashboard">研究总览</Link>
-        <Link to="/cases">医案管理</Link><Link to="/datasets">研究数据集</Link><Link to="/proteomics">蛋白组学</Link><Link to="/network-pharmacology">网络药理</Link><Link to="/research">知识检索</Link><Link to="/assistant">科研助手</Link><Link to="/admin/sources" aria-current="page">数据源同步</Link><Link to="/admin/integrations">API 接入监测</Link>
+        <Link to="/cases">医案管理</Link><Link to="/datasets">研究数据集</Link><Link to="/proteomics">蛋白组学</Link><Link to="/network-pharmacology">网络药理</Link><Link to="/research">知识检索</Link><Link to="/assistant">科研助手</Link><Link to="/admin" >系统总览</Link><Link to="/admin/sources" aria-current="page">数据源同步</Link><Link to="/admin/integrations">API 接入监测</Link>
       </nav>
       <div className="workspace-nav-actions"><span className="workspace-user">{user.username} · 平台管理员</span>
         <button className="btn btn-secondary" type="button" onClick={() => void signOut()}>退出</button></div>
@@ -191,7 +191,7 @@ export function SourcesPage() {
                     {busy === source.id ? <RefreshCw size={15} className="spin" /> : <Database size={15} />}
                     {busy === source.id ? "正在提交…" : source.connector_type === "uniprot-human-catalog" ? "预览 UniProt 目录" : source.connector_type === "pubchem-compound-catalog" ? "预览 PubChem 属性" : source.connector_type === "string-human-identifier-crosswalk" ? "预览 STRING 标识映射" : "检查目录变更"}
                   </button>
-                  {source.connector_type === "pubchem-compound-catalog" && <a className="btn btn-secondary" href="/admin/core/datasource/">配置 CID 映射</a>}
+                  {source.connector_type === "pubchem-compound-catalog" && <a className="btn btn-secondary" href="/django-admin/core/datasource/">配置 CID 映射</a>}
                   {source.documentation_url && <a className="btn btn-secondary" href={source.documentation_url} target="_blank" rel="noreferrer">接口与来源说明</a>}
                 </div>
                 <p className="section-help">{source.license_note}</p>

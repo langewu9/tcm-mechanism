@@ -20,6 +20,7 @@ class IntegrationMonitorApiTests(APITestCase):
         self.test_url = reverse("admin-integration-test")
 
     def test_status_and_test_require_platform_superuser(self):
+        self.assertEqual(reverse("admin:index"), "/django-admin/")
         self.assertEqual(self.client.get(self.status_url).status_code, 401)
         self.client.force_authenticate(self.researcher)
         self.assertEqual(self.client.get(self.status_url).status_code, 403)
@@ -79,4 +80,3 @@ class IntegrationMonitorApiTests(APITestCase):
         self.assertFalse(response.data["result"]["ok"])
         self.assertEqual(response.data["result"]["status"], 501)
         self.assertIn("Excel/SQLite", response.data["result"]["error"])
-

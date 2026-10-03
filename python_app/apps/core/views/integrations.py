@@ -12,13 +12,14 @@ from django.conf import settings
 from django.db import DatabaseError, connection
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema
-from rest_framework import permissions, serializers
+from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from apps.core.models import DataSource
+from apps.core.permissions import IsPlatformAdministrator
 from apps.core.services.case_analysis import (
     MAX_MODEL_RESPONSE_BYTES,
     _NoRedirect,
@@ -33,13 +34,6 @@ from apps.core.services.network_pharmacology import build_network_pharmacology
 
 
 INTEGRATION_TARGETS = ("qwen", "disease", "herb", "component", "chembl", "intersection", "compare", "scientist")
-
-
-class IsPlatformAdministrator(permissions.BasePermission):
-    message = "只有平台超级管理员可以检查服务连接。"
-
-    def has_permission(self, request, view):
-        return bool(request.user and request.user.is_authenticated and request.user.is_superuser)
 
 
 class IntegrationTestRequestSerializer(serializers.Serializer):

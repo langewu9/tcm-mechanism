@@ -47,7 +47,7 @@ pnpm install
 pnpm dev
 ```
 
-打开 Vite 地址（通常为 `http://127.0.0.1:5173/`）。开发服务器会把 `/api/`、`/admin/` 和 `/accounts/` 代理给 Django 的 `8020` 端口。前后端尚未配置公网反向代理，不能据此直接部署。
+打开 Vite 地址（通常为 `http://127.0.0.1:5173/`）。开发服务器会把 `/api/`、`/django-admin/` 和 `/accounts/` 代理给 Django 的 `8020` 端口；`/admin/` 保留给 React 管理页面。前后端尚未配置公网反向代理，不能据此直接部署。
 
 检查 Django：
 
