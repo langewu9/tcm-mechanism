@@ -358,6 +358,8 @@ class NetworkPharmacologyResponseSerializer(serializers.Serializer):
     taskId = serializers.IntegerField()
     summary = serializers.JSONField()
     targets = serializers.ListField(child=serializers.JSONField())
+    raw = serializers.JSONField()
+    rawLimits = serializers.JSONField()
     network = serializers.JSONField()
     charts = serializers.JSONField()
     limits = serializers.JSONField()

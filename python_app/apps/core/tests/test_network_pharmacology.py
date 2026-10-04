@@ -4,6 +4,7 @@ from rest_framework.test import APITestCase
 
 from apps.core.models import AnalysisTask, DataSource, EvidenceRelation, KnowledgeEntity, MedicalCase, MedicalCaseCandidate, SourceRelease
 from apps.core.services.case_analysis import case_input_sha256
+from apps.core.services.network_pharmacology import RAW_EVIDENCE_VERSION, build_network_pharmacology
 
 
 class NetworkPharmacologyApiTests(APITestCase):
@@ -144,6 +145,94 @@ class NetworkPharmacologyApiTests(APITestCase):
         self.assertEqual(response.data["targets"], [])
         self.assertEqual(response.data["summary"]["unmatchedHerbs"], ["不存在的中药"])
         self.assertEqual(response.data["summary"]["matchedDiseases"], [])
+        self.assertEqual(response.data["raw"], {
+            "herbLinks": [], "diseaseTargets": [], "diseaseHerbLinks": [], "directDiseaseHerbLinks": [],
+        })
+        self.assertFalse(any(response.data["rawLimits"]["tablesTruncated"].values()))
+
+    def test_raw_tables_keep_non_candidate_evidence_and_both_source_records(self):
+        herb_only = self.entity("protein", "protein:herb-only", "HERB_ONLY")
+        disease_only = self.entity("protein", "protein:disease-only", "DISEASE_ONLY")
+        other_herb = self.entity("herb", "herb:other", "另一味中药")
+        self.relation("targets", self.compound, herb_only, "herb-only:1")
+        self.relation("disease_target", self.disease, disease_only, "disease-only:1")
+        self.relation("disease_herb_target", self.disease, disease_only, "other-herb:1", {
+            "herbStableId": other_herb.stable_id, "herbLabel": self.herb.label,
+        })
+        self.relation("disease_herb_target", self.disease, disease_only, "display-label-only:1", {
+            "herbLabel": self.herb.label,
+        })
+        second_release = SourceRelease.objects.create(
+            source=self.source, version="fixture-v2", checksum_sha256="a" * 64,
+        )
+        second_relation = EvidenceRelation.objects.create(
+            source_release=second_release, subject=self.compound, object=self.tp53,
+            source_record_id="cross-release:1", relation_type="targets", evidence_type="fixture-v2",
+        )
+        self.client.force_authenticate(self.owner)
+        response = self.client.post(reverse("network-pharmacology"), {
+            "herb": self.herb.label, "disease": self.disease.label,
+        }, format="json")
+        self.assertEqual(response.status_code, 200, response.data)
+        raw = response.data["raw"]
+        self.assertNotIn("HERB_ONLY", {item["target"] for item in response.data["targets"]})
+        self.assertNotIn("DISEASE_ONLY", {item["target"] for item in response.data["targets"]})
+        self.assertIn("HERB_ONLY", {item["target"] for item in raw["herbLinks"]})
+        self.assertIn("DISEASE_ONLY", {item["target"] for item in raw["diseaseTargets"]})
+        cross = next(item for item in raw["herbLinks"] if item["relationId"] == second_relation.pk)
+        self.assertEqual(cross["sourceVersion"], "fixture-v2")
+        self.assertEqual(cross["sourceChecksumSha256"], "a" * 64)
+        self.assertEqual(cross["herbSourceVersion"], "fixture-v1")
+        self.assertEqual(cross["herbSourceChecksumSha256"], "f" * 64)
+        self.assertEqual(cross["herbSourceRecordId"], "hct:1")
+        self.assertEqual(cross["herbStableId"], self.herb.stable_id)
+        self.assertEqual(cross["componentStableId"], self.compound.stable_id)
+        self.assertEqual(cross["targetStableId"], self.tp53.stable_id)
+        self.assertEqual([item["sourceRecordId"] for item in raw["directDiseaseHerbLinks"]], ["dht:1"])
+        other = next(item for item in raw["diseaseHerbLinks"] if item["sourceRecordId"] == "other-herb:1")
+        self.assertEqual(other["herb"], other_herb.label)
+        unresolved = next(item for item in raw["diseaseHerbLinks"] if item["sourceRecordId"] == "display-label-only:1")
+        self.assertEqual(unresolved["herb"], "")
+        self.assertEqual(unresolved["herbIdentityStatus"], "unresolved")
+        task = AnalysisTask.objects.get(pk=response.data["taskId"])
+        self.assertEqual(task.input_parameters["rawEvidenceVersion"], RAW_EVIDENCE_VERSION)
+        self.assertEqual(task.result["raw"], raw)
+        self.herb.label = "后来改名"
+        self.herb.save(update_fields=["label"])
+        saved = self.client.get(reverse("analysis-task-detail", args=[task.pk]))
+        self.assertEqual(saved.data["result"]["raw"], raw)
+        self.client.force_authenticate(self.other)
+        self.assertEqual(self.client.get(reverse("analysis-task-detail", args=[task.pk])).status_code, 404)
+
+    def test_raw_join_stops_at_export_cap_with_separate_source_provenance(self):
+        for index in range(25):
+            self.relation("contains", self.herb, self.compound, f"join-herb:{index}")
+            self.relation("targets", self.compound, self.tp53, f"join-target:{index}")
+        self.client.force_authenticate(self.owner)
+        response = self.client.post(reverse("network-pharmacology"), {
+            "herb": self.herb.label, "disease": self.disease.label, "limit": 500,
+        }, format="json")
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(len(response.data["raw"]["herbLinks"]), 500)
+        limits = response.data["rawLimits"]
+        self.assertEqual(limits["rowLimit"], 500)
+        self.assertTrue(limits["tablesTruncated"]["herbLinks"])
+        self.assertFalse(any(limits["inputRelationsTruncated"].values()))
+        self.assertFalse(limits["tablesTruncated"]["directDiseaseHerbLinks"])
+        self.assertEqual(len({(row["relationId"], row["herbRelationId"])
+                              for row in response.data["raw"]["herbLinks"]}), 500)
+
+    def test_input_relation_sentinel_reports_partial_scope_without_changing_statistics(self):
+        result = build_network_pharmacology(
+            user=self.owner, herb_query=self.herb.label, disease_query=self.disease.label,
+            row_limit=2, persist=False,
+        )
+        self.assertTrue(result["rawLimits"]["inputRelationsTruncated"]["diseaseTargets"])
+        self.assertEqual(result["summary"]["diseaseTargetCount"], 2)
+        self.assertEqual(result["summary"]["directAssociationTargetCount"], 0)
+        self.assertEqual({row["sourceRecordId"] for row in result["raw"]["diseaseTargets"]}, {"dt:1", "dt:2"})
+        self.assertEqual(result["raw"]["directDiseaseHerbLinks"], [])
+        self.assertFalse(AnalysisTask.objects.exists())
 
     def test_network_search_hides_entities_from_disabled_sources(self):
         disabled_source = DataSource.objects.create(slug="disabled", name="停用来源", enabled=False)
@@ -201,6 +290,9 @@ class NetworkPharmacologyApiTests(APITestCase):
             for source in target["sources"]
         }
         self.assertNotIn("enabled-edge-hidden-target", source_record_ids)
+        raw = enabled_search.data["raw"]
+        self.assertNotIn("停用来源成分", {item["component"] for item in raw["herbLinks"]})
+        self.assertNotIn("enabled-edge-hidden-target", {item["sourceRecordId"] for item in raw["herbLinks"]})
 
     def test_batch_herb_and_compound_evidence_returns_versioned_edges(self):
         url = reverse("batch-herb-evidence")

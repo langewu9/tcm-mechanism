@@ -23,6 +23,8 @@ PATHWAY_TYPES = {
     "associatedwithpathway", "associated_with_pathway",
 }
 STATISTICS_VERSION = "main-078d374-candidate-statistics-v1"
+RAW_EVIDENCE_VERSION = "network-raw-evidence-v1"
+RAW_EXPORT_LIMIT = 4000
 
 
 class NetworkPharmacologyInputError(ValueError):
@@ -82,11 +84,108 @@ def _relation_query(*, subject_ids=None, object_ids=None, relation_types, limit)
     return list(queryset.order_by("id")[:limit])
 
 
+def _raw_relation_record(relation: EvidenceRelation, prefix: str = "") -> dict:
+    record = {
+        **_evidence_record(relation),
+        "relationId": relation.pk,
+        "sourceReleaseId": relation.source_release_id,
+        "sourceChecksumSha256": relation.source_release.checksum_sha256,
+    }
+    if not prefix:
+        return record
+    return {f"{prefix}{key[0].upper()}{key[1:]}": value for key, value in record.items()}
+
+
+def _raw_side_evidence(herb_relations, target_relations, disease_relations, *, herbs_by_stable_id, limit):
+    """Project read catalogue edges, including evidence outside the candidate set.
+
+    A herb row is a pair of real edges, so both source records are retained.
+    The join stops after one sentinel row instead of materializing a Cartesian product.
+    """
+    herbs_by_compound = defaultdict(list)
+    for relation in herb_relations:
+        herbs_by_compound[relation.object_id].append(relation)
+    herb_rows = []
+    herb_truncated = False
+    for target_relation in target_relations:
+        for herb_relation in herbs_by_compound[target_relation.subject_id]:
+            if len(herb_rows) == limit:
+                herb_truncated = True
+                break
+            herb_rows.append({
+                "herb": herb_relation.subject.label,
+                "herbStableId": herb_relation.subject.stable_id,
+                "component": target_relation.subject.label,
+                "componentStableId": target_relation.subject.stable_id,
+                "target": target_relation.object.label,
+                "targetStableId": target_relation.object.stable_id,
+                **_raw_relation_record(target_relation),
+                **_raw_relation_record(herb_relation, "herb"),
+            })
+        if herb_truncated:
+            break
+    disease_rows, triple_rows, direct_rows = [], [], []
+    selected_herb_ids = set(herbs_by_stable_id)
+    # Unselected herbs in disease-side triples are resolved only by active,
+    # canonical IDs. Display-only herbLabel metadata never establishes identity.
+    triple_herb_ids = {
+        (relation.metadata or {}).get("herbStableId") for relation in disease_relations
+        if relation.relation_type == "disease_herb_target"
+        and isinstance((relation.metadata or {}).get("herbStableId"), str)
+    }
+    canonical_herbs = dict(KnowledgeEntity.objects.filter(
+        entity_type=KnowledgeEntity.EntityType.HERB, stable_id__in=triple_herb_ids, is_active=True,
+    ).filter(
+        Q(source_release__isnull=True) | Q(source_release__source__enabled=True)
+    ).values_list("stable_id", "label")) if triple_herb_ids else {}
+    for relation in disease_relations:
+        row = {
+            "disease": relation.subject.label,
+            "diseaseStableId": relation.subject.stable_id,
+            "target": relation.object.label,
+            "targetStableId": relation.object.stable_id,
+            **_raw_relation_record(relation),
+        }
+        if relation.relation_type == "disease_target":
+            if len(disease_rows) <= limit:
+                disease_rows.append(row)
+            continue
+        herb_id = (relation.metadata or {}).get("herbStableId")
+        herb_id = herb_id if isinstance(herb_id, str) else ""
+        row.update({
+            "herbStableId": herb_id,
+            "herb": canonical_herbs.get(herb_id, ""),
+            "herbIdentityStatus": "resolved" if herb_id in canonical_herbs else "unresolved",
+        })
+        if len(triple_rows) <= limit:
+            triple_rows.append(row)
+        if herb_id in selected_herb_ids and len(direct_rows) <= limit:
+            direct_rows.append(row)
+    return {
+        "herbLinks": herb_rows,
+        "diseaseTargets": disease_rows[:limit],
+        "diseaseHerbLinks": triple_rows[:limit],
+        "directDiseaseHerbLinks": direct_rows[:limit],
+    }, {
+        "herbLinks": herb_truncated,
+        "diseaseTargets": len(disease_rows) > limit,
+        "diseaseHerbLinks": len(triple_rows) > limit,
+        "directDiseaseHerbLinks": len(direct_rows) > limit,
+    }
+
+
 def build_network_pharmacology(
     *, user, herb_query: str, disease_query: str, row_limit: int = 12000,
     source_case_candidate: MedicalCaseCandidate | None = None,
     persist: bool = True,
 ) -> dict:
+    relation_limits = {}
+
+    def read_relations(stage, **kwargs):
+        rows = _relation_query(**kwargs, limit=row_limit + 1)
+        relation_limits[stage] = len(rows) > row_limit
+        return rows[:row_limit]
+
     requested_names = parse_herb_names(herb_query)
     requested_herbs, matched_herb_names = _entity_matches(KnowledgeEntity.EntityType.HERB, requested_names)
     if source_case_candidate:
@@ -99,10 +198,10 @@ def build_network_pharmacology(
         formulas, matched_formula_names = _entity_matches(KnowledgeEntity.EntityType.FORMULA, requested_names)
     if source_case_candidate and source_case_candidate.entity_id not in {item.pk for item in formulas}:
         raise NetworkPharmacologyInputError("已确认方剂未包含在本次查询中，或其来源记录当前不可用。")
-    formula_herb_relations = _relation_query(
+    formula_herb_relations = read_relations(
+        "formulaHerbs",
         subject_ids={item.pk for item in formulas},
         relation_types=FORMULA_HERB_TYPES,
-        limit=row_limit,
     ) if formulas else []
     formula_herb_relations = [
         relation for relation in formula_herb_relations
@@ -119,15 +218,15 @@ def build_network_pharmacology(
     disease_ids = {item.pk for item in diseases}
     selected_herbs_by_stable_id = {item.stable_id: item.label for item in herbs}
 
-    herb_compound_relations = _relation_query(
-        subject_ids=herb_ids, relation_types=HERB_COMPOUND_TYPES, limit=row_limit,
+    herb_compound_relations = read_relations(
+        "herbCompounds", subject_ids=herb_ids, relation_types=HERB_COMPOUND_TYPES,
     ) if herbs else []
     compound_ids = {item.object_id for item in herb_compound_relations}
-    compound_target_relations = _relation_query(
-        subject_ids=compound_ids, relation_types=COMPOUND_TARGET_TYPES, limit=row_limit,
+    compound_target_relations = read_relations(
+        "compoundTargets", subject_ids=compound_ids, relation_types=COMPOUND_TARGET_TYPES,
     ) if compound_ids else []
-    disease_target_relations = _relation_query(
-        subject_ids=disease_ids, relation_types=DISEASE_TARGET_TYPES, limit=row_limit,
+    disease_target_relations = read_relations(
+        "diseaseTargets", subject_ids=disease_ids, relation_types=DISEASE_TARGET_TYPES,
     ) if diseases else []
     compound_by_id = {relation.object_id: relation.object for relation in herb_compound_relations}
     compound_target_counts: dict[int, set[int]] = defaultdict(set)
@@ -190,8 +289,8 @@ def build_network_pharmacology(
     # Main annotates every candidate, including a direct-only disease/herb
     # target. Resolve those annotations from real, enabled catalogue evidence
     # rather than limiting them to targets reached through compounds.
-    pathway_relations = _relation_query(
-        subject_ids=set(target_entities), relation_types=PATHWAY_TYPES, limit=row_limit,
+    pathway_relations = read_relations(
+        "pathways", subject_ids=set(target_entities), relation_types=PATHWAY_TYPES,
     ) if target_entities else []
     pathway_by_target: dict[int, set[str]] = defaultdict(set)
     pathway_sources_by_target: dict[int, list[dict]] = defaultdict(list)
@@ -291,9 +390,21 @@ def build_network_pharmacology(
             "sourceSlug": relation.source_release.source.slug,
         })
 
+    raw_limit = min(row_limit, RAW_EXPORT_LIMIT)
+    raw, raw_truncated = _raw_side_evidence(
+        herb_compound_relations, compound_target_relations, disease_target_relations,
+        herbs_by_stable_id=selected_herbs_by_stable_id, limit=raw_limit,
+    )
     result = {
         "summary": summary,
         "targets": targets[:1000],
+        "raw": raw,
+        "rawLimits": {
+            "formatVersion": RAW_EVIDENCE_VERSION,
+            "rowLimit": raw_limit,
+            "tablesTruncated": raw_truncated,
+            "inputRelationsTruncated": relation_limits,
+        },
         "network": {"nodes": list(nodes.values())[:2000], "links": links[:4000]},
         "charts": {
             "overlap": [
@@ -329,6 +440,7 @@ def build_network_pharmacology(
             "disease": disease_query.strip(),
             "rowLimit": row_limit,
             "statisticsVersion": STATISTICS_VERSION,
+            "rawEvidenceVersion": RAW_EVIDENCE_VERSION,
         }
         if source_case_candidate:
             medical_case = MedicalCase.objects.select_for_update().get(pk=source_case_candidate.medical_case_id)

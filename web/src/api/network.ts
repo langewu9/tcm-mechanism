@@ -1,6 +1,8 @@
 import { apiRequest } from "./client";
 import type { AnalysisTask } from "./datasets";
 
+export type NetworkRawTable = "herbLinks" | "diseaseTargets" | "diseaseHerbLinks" | "directDiseaseHerbLinks";
+
 export type NetworkPharmacologyResult = {
   taskId: number;
   summary: {
@@ -38,6 +40,13 @@ export type NetworkPharmacologyResult = {
     directEvidenceCount: number;
     sources: Array<{ source: string; sourceSlug: string; sourceVersion: string; evidenceType: string; sourceRecordId: string; relationType: string; score: number | null }>;
   }>;
+  raw?: Record<NetworkRawTable, Array<Record<string, string | number | null>>>;
+  rawLimits?: {
+    formatVersion: string;
+    rowLimit: number;
+    tablesTruncated: Record<NetworkRawTable, boolean>;
+    inputRelationsTruncated: Partial<Record<"formulaHerbs" | "herbCompounds" | "compoundTargets" | "diseaseTargets" | "pathways", boolean>>;
+  };
   network: { nodes: Array<{ id: string; label: string; type: string }>; links: Array<{ source: string; target: string; relation: string; sourceRecordId: string; sourceSlug: string }> };
   charts: { overlap: Array<{ name: string; value: number }>; components: Array<{ name: string; targets: number }>; pathways: Array<{ name: string; targets: number }> };
   limits: { targetsTruncated: boolean; linksTruncated: boolean };
