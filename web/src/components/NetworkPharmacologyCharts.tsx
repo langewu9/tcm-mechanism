@@ -1,7 +1,7 @@
 import { useState } from "react";
-import type { NetworkPharmacologyResult } from "../api/network";
+import type { NetworkPharmacologyResult, ReactomeEnrichmentResult } from "../api/network";
 
-type CountDatum = { name: string; value: number };
+type CountDatum = { name: string; value: number; fdr?: number; stableId?: string };
 const COLORS = ["#9c2b22", "#c89b3c", "#b7682f", "#9b6b34"];
 
 function count(value: number) {
@@ -13,11 +13,13 @@ function shortened(label: string) {
 }
 
 // Adapted from main's query-scoped overview and component/pathway bar charts.
-function CountChart({ panel, title, caption, data }: {
+function CountChart({ panel, title, caption, data, unit = "靶点", emptyMessage = "本次查询暂无可展示的数据。" }: {
   panel: string;
   title: string;
   caption: string;
   data: CountDatum[];
+  unit?: string;
+  emptyMessage?: string;
 }) {
   const [selected, setSelected] = useState<number | null>(null);
   const maximum = Math.max(...data.map((row) => row.value), 1);
@@ -28,10 +30,12 @@ function CountChart({ panel, title, caption, data }: {
   const height = Math.max(data.length * rowHeight + 50, 140);
   const selectedRow = selected === null ? null : data[selected];
   const ticks = [...new Set([0, 0.25, 0.5, 0.75, 1].map((position) => Math.round(maximum * position)))];
+  const hasFdr = data.some((row) => row.fdr !== undefined);
+  const describe = (row: CountDatum) => `${row.name}：${count(row.value)} 个${unit}${row.fdr === undefined ? "" : ` · FDR ${row.fdr.toExponential(2)}`}${row.stableId ? ` · ${row.stableId}` : ""}`;
 
   return <section className="figure-card" style={{ marginTop: "1rem" }}>
     <div className="figure-heading"><span>{panel}</span><div><h2>{title}</h2><p>{caption}</p></div></div>
-    {!data.length ? <div className="empty-state" style={{ minHeight: "9rem" }}>本次查询暂无可展示的数据。</div> : <>
+    {!data.length ? <div className="empty-state" style={{ minHeight: "9rem" }}>{emptyMessage}</div> : <>
       <svg viewBox={`0 0 ${width} ${height}`} role="group" aria-label={title} style={{ display: "block", width: "100%" }}>
         {ticks.map((value) => <g key={value}>
           <line x1={labelWidth + plotWidth * value / maximum} x2={labelWidth + plotWidth * value / maximum} y1={8} y2={height - 31} stroke="#ded3c2" strokeDasharray="3 3" />
@@ -39,10 +43,10 @@ function CountChart({ panel, title, caption, data }: {
         </g>)}
         {data.map((row, index) => {
           const y = 12 + index * rowHeight;
-          return <g key={`${row.name}-${index}`} tabIndex={0} role="button" aria-label={`${row.name}：${count(row.value)} 个靶点`} aria-pressed={selected === index}
+          return <g key={`${row.name}-${index}`} tabIndex={0} role="button" aria-label={describe(row)} aria-pressed={selected === index}
             onMouseEnter={() => setSelected(index)} onFocus={() => setSelected(index)} onClick={() => setSelected(index)}
             onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelected(index); } }}>
-            <title>{`${row.name}：${count(row.value)} 个靶点`}</title>
+            <title>{describe(row)}</title>
             <rect x={0} y={y - 4} width={width} height={rowHeight} rx={4} fill={selected === index ? "rgba(139,37,0,.06)" : "transparent"} />
             <text x={labelWidth - 12} y={y + 18} textAnchor="end" fontSize={13} fill="#2c1810">{shortened(row.name)}</text>
             <rect x={labelWidth} y={y} width={plotWidth * row.value / maximum} height={24} rx={4} fill={COLORS[index % COLORS.length]} />
@@ -50,16 +54,19 @@ function CountChart({ panel, title, caption, data }: {
           </g>;
         })}
       </svg>
-      <p className="section-help" aria-live="polite" style={{ minHeight: "1.5rem", overflowWrap: "anywhere" }}>{selectedRow ? `${selectedRow.name}：${count(selectedRow.value)} 个靶点` : "指向、点击或用键盘选择条形，可查看完整名称与计数。"}</p>
-      <details style={{ marginTop: ".4rem" }}><summary className="section-help">查看图表数据表</summary><div className="table-scroll"><table className="data-table"><thead><tr><th>名称</th><th>靶点数</th></tr></thead><tbody>{data.map((row, index) => <tr key={`${row.name}-${index}`}><td>{row.name}</td><td>{count(row.value)}</td></tr>)}</tbody></table></div></details>
+      <p className="section-help" aria-live="polite" style={{ minHeight: "1.5rem", overflowWrap: "anywhere" }}>{selectedRow ? describe(selectedRow) : "指向、点击或用键盘选择条形，可查看完整名称与计数。"}</p>
+      <details style={{ marginTop: ".4rem" }}><summary className="section-help">查看图表数据表</summary><div className="table-scroll"><table className="data-table"><thead><tr><th>名称</th><th>{unit}数</th>{hasFdr && <th>FDR</th>}</tr></thead><tbody>{data.map((row, index) => <tr key={`${row.name}-${index}`}><td>{row.name}</td><td>{count(row.value)}</td>{hasFdr && <td>{row.fdr?.toExponential(2) ?? "—"}</td>}</tr>)}</tbody></table></div></details>
     </>}
   </section>;
 }
 
-export function NetworkPharmacologyCharts({ result }: { result: NetworkPharmacologyResult }) {
+export function NetworkPharmacologyCharts({ result, reactome = null }: { result: NetworkPharmacologyResult; reactome?: ReactomeEnrichmentResult | null }) {
   return <section aria-label="本次查询统计图">
     <CountChart panel="Prep A" title="靶点比对概览" caption="中药侧、疾病侧、严格交集和直接关联分别计数；各条形用于比较，不相加作为总数。" data={result.charts.overlap} />
     <CountChart panel="Prep C" title="关联成分 Top 20" caption="当前查询关联成分的靶点覆盖数，按覆盖数排序；同一靶点可被多个成分关联。" data={result.charts.components.slice(0, 20).map((row) => ({ name: row.name, value: row.targets }))} />
-    <CountChart panel="Prep D" title="候选靶点的本地通路注释" caption="当前候选靶点在已导入目录中的通路覆盖数；这是本地注释统计，Reactome 外部富集结果另列于下方。" data={result.charts.pathways.slice(0, 20).map((row) => ({ name: row.name, value: row.targets }))} />
+    {reactome ? <CountChart key={`reactome-${reactome.retrievedAt}`} panel="Prep D" title="Reactome 富集通路" caption="按 FDR 升序展示前 12 条查询级统计富集结果，条形表示 Reactome 返回的命中实体数；本地目录图统计的是已登记通路的靶点覆盖数，全部富集结果可在下方导出。"
+      unit="命中实体" emptyMessage="本次 Reactome 分析已完成，没有返回符合当前筛选阈值的显著通路。"
+      data={[...reactome.pathways].sort((left, right) => left.fdr - right.fdr).slice(0, 12).map((row) => ({ name: row.name, value: row.matchedEntities, fdr: row.fdr, stableId: row.stableId }))} />
+      : <CountChart key="local-pathways" panel="Prep D" title="候选靶点的本地通路注释" caption="当前候选靶点在已导入目录中的通路覆盖数；这是本地目录注释统计，Reactome 成功完成后的统计富集结果将在此展示。" data={result.charts.pathways.slice(0, 20).map((row) => ({ name: row.name, value: row.targets }))} />}
   </section>;
 }

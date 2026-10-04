@@ -33,14 +33,14 @@
 .case-list-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; margin-bottom: 0.9rem; border-bottom: 1px solid var(--color-border); padding: 0.5rem 0 0.85rem; }
 .case-list-heading .section-title-sm { margin-top: 0.25rem; font-size: 1.35rem; }
 .case-list-items { display: grid; gap: 0.85rem; }
-.case-record { min-width: 0; padding: 1.1rem 1.2rem; }
+.case-record { min-width: 0; }
 .case-record-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.8rem; }
 .proteomics-export-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.4rem; }
 .case-record-top h3 { font-family: var(--font-heading); font-size: 1.12rem; font-weight: 900; line-height: 1.45; }
 .case-record-top time { display: block; margin-top: 0.25rem; color: var(--color-ink-faint); font-size: 0.67rem; }
 .case-delete { flex: none; }
 .case-summary { margin-top: 0.8rem; color: var(--color-ink-soft); font-size: 0.82rem; line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; }
-.case-record-meta { grid-template-columns: repeat(2, minmax(0, 1fr)); overflow-wrap: anywhere; }
+.case-record-meta { overflow-wrap: anywhere; }
 .case-analysis-panel { display: grid; gap: 0.75rem; margin-top: 0.85rem; padding: 1rem; }
 .case-analysis-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.7rem; }
 .case-analysis-heading h4, .case-analysis-section h5 { color: var(--color-ink); font-size: 0.9rem; font-weight: 850; }

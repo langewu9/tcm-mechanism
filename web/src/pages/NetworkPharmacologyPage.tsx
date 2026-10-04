@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Activity, ArrowLeft, Network, RefreshCw } from "lucide-react";
 import { getAnalysisTask, type AnalysisTask } from "../api/datasets";
@@ -7,6 +7,9 @@ import { ApiError } from "../api/client";
 import { KnowledgeNetworkGraph } from "../components/KnowledgeNetworkGraph";
 import { NetworkPharmacologyCharts } from "../components/NetworkPharmacologyCharts";
 import { NetworkResultDownloads } from "../components/NetworkResultDownloads";
+import { ReactomeEnrichmentResult, readReactomeEnrichment } from "../components/ReactomeEnrichmentResult";
+
+type QueryTask = { sourceTaskId: number; task: AnalysisTask };
 
 function errorMessage(error: unknown) {
   return error instanceof ApiError ? error.message : "请求未完成，请稍后重试。";
@@ -17,15 +20,37 @@ export function NetworkPharmacologyPage() {
   const [herb, setHerb] = useState("");
   const [disease, setDisease] = useState("");
   const [result, setResult] = useState<NetworkPharmacologyResult | null>(null);
-  const [pathwayTask, setPathwayTask] = useState<AnalysisTask | null>(null);
-  const [stringTask, setStringTask] = useState<AnalysisTask | null>(null);
-  const [visualizationTask, setVisualizationTask] = useState<AnalysisTask | null>(null);
+  const [pathwayBinding, setPathwayBinding] = useState<QueryTask | null>(null);
+  const [stringBinding, setStringBinding] = useState<QueryTask | null>(null);
+  const [visualizationBinding, setVisualizationBinding] = useState<QueryTask | null>(null);
   const [shareWithReactome, setShareWithReactome] = useState(false);
   const [shareWithString, setShareWithString] = useState(false);
   const [requiredScore, setRequiredScore] = useState(700);
   const [busy, setBusy] = useState(false);
+  const [pathwaySubmitting, setPathwaySubmitting] = useState(false);
+  const [stringSubmitting, setStringSubmitting] = useState(false);
+  const [visualizationSubmitting, setVisualizationSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pollingError, setPollingError] = useState<string | null>(null);
   const [caseContext, setCaseContext] = useState<{ caseId: number; candidateId: number } | null>(null);
+  const mounted = useRef(false);
+  const localSubmissionInFlight = useRef(false);
+  const queryGeneration = useRef(0);
+  const currentSourceTaskId = useRef<number | null>(null);
+  const submittingGeneration = useRef<{ pathway: number | null; string: number | null; visualization: number | null }>({ pathway: null, string: null, visualization: null });
+  const pathwayTask = pathwayBinding?.sourceTaskId === result?.taskId ? pathwayBinding?.task ?? null : null;
+  const stringTask = stringBinding?.sourceTaskId === result?.taskId ? stringBinding?.task ?? null : null;
+  const visualizationTask = visualizationBinding?.sourceTaskId === result?.taskId ? visualizationBinding?.task ?? null : null;
+  const reactomeResult = readReactomeEnrichment(pathwayTask);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; queryGeneration.current += 1; currentSourceTaskId.current = null; };
+  }, []);
+
+  function isCurrentQuery(generation: number, sourceTaskId: number) {
+    return mounted.current && queryGeneration.current === generation && currentSourceTaskId.current === sourceTaskId;
+  }
 
   useEffect(() => {
     if (!location.state || typeof location.state !== "object") return;
@@ -40,68 +65,136 @@ export function NetworkPharmacologyPage() {
   }, [location.key, location.state]);
 
   useEffect(() => {
-    const pending = [pathwayTask, stringTask, visualizationTask].filter((task): task is AnalysisTask => Boolean(task && ["queued", "running"].includes(task.status)));
-    if (!pending.length) return;
-    const timer = window.setTimeout(() => {
-      for (const task of pending) {
-        void getAnalysisTask(task.id).then((latest) => {
-          if (latest.input_parameters.analysisKind === "reactome_enrichment") setPathwayTask(latest);
-          if (latest.input_parameters.analysisKind === "string_ppi") setStringTask(latest);
-          if (latest.input_parameters.analysisKind === "r_visualization") setVisualizationTask(latest);
-        }).catch((cause: unknown) => setError(errorMessage(cause)));
-      }
-    }, 1500);
-    return () => window.clearTimeout(timer);
-  }, [pathwayTask, stringTask, visualizationTask]);
+    const generation = queryGeneration.current;
+    let active = true;
+    const pending = [
+      { binding: pathwayBinding, update: setPathwayBinding, kind: "reactome_enrichment" },
+      { binding: stringBinding, update: setStringBinding, kind: "string_ppi" },
+      { binding: visualizationBinding, update: setVisualizationBinding, kind: "r_visualization" },
+    ].filter(({ binding }) => binding && binding.sourceTaskId === result?.taskId && ["queued", "running"].includes(binding.task.status));
+    if (!pending.length) { setPollingError(null); return; }
+    let timer: number;
+    async function poll() {
+      const reads = await Promise.allSettled(pending.map(async ({ binding, update, kind }) => {
+        if (!binding || !active || !isCurrentQuery(generation, binding.sourceTaskId)) return false;
+        try {
+          const latest = await getAnalysisTask(binding.task.id);
+          if (!active || !isCurrentQuery(generation, binding.sourceTaskId) || latest.id !== binding.task.id || latest.input_parameters.analysisKind !== kind) return false;
+          update((current) => current?.sourceTaskId === binding.sourceTaskId && current.task.id === latest.id ? { sourceTaskId: binding.sourceTaskId, task: latest } : current);
+          return true;
+        } catch (cause) {
+          if (active && isCurrentQuery(generation, binding.sourceTaskId)) setPollingError(`${errorMessage(cause)} 正在重试读取已有任务。`);
+          return false;
+        }
+      }));
+      if (active && mounted.current && queryGeneration.current === generation && reads.every((read) => read.status === "fulfilled" && read.value)) setPollingError(null);
+      // A transient read failure must keep polling the existing task, without resubmitting it.
+      if (active && mounted.current && queryGeneration.current === generation) timer = window.setTimeout(() => void poll(), 1500);
+    }
+    timer = window.setTimeout(() => void poll(), 1500);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [pathwayBinding, stringBinding, visualizationBinding, result?.taskId]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (localSubmissionInFlight.current) return;
+    localSubmissionInFlight.current = true;
+    const generation = ++queryGeneration.current;
+    currentSourceTaskId.current = null;
+    submittingGeneration.current = { pathway: null, string: null, visualization: null };
     setBusy(true);
     setError(null);
+    setPollingError(null);
     setResult(null);
-    setPathwayTask(null);
-    setStringTask(null);
-    setVisualizationTask(null);
+    setPathwayBinding(null);
+    setStringBinding(null);
+    setVisualizationBinding(null);
+    setPathwaySubmitting(false);
+    setStringSubmitting(false);
+    setVisualizationSubmitting(false);
+    setShareWithReactome(false);
+    setShareWithString(false);
     try {
-      setResult(await runNetworkPharmacology({
+      const latest = await runNetworkPharmacology({
         herb,
         disease,
         ...(caseContext ? { source_case_id: caseContext.caseId, source_candidate_id: caseContext.candidateId } : {}),
-      }));
+      });
+      if (mounted.current && queryGeneration.current === generation) {
+        currentSourceTaskId.current = latest.taskId;
+        setResult(latest);
+      }
     } catch (cause) {
-      setError(errorMessage(cause));
+      if (mounted.current && queryGeneration.current === generation) setError(errorMessage(cause));
     } finally {
-      setBusy(false);
+      localSubmissionInFlight.current = false;
+      if (mounted.current && queryGeneration.current === generation) setBusy(false);
     }
   }
 
   async function requestPathways() {
-    if (!result || !shareWithReactome) return;
+    if (!result || !shareWithReactome || pathwaySubmitting || result.targets.length > 500 || result.limits.targetsTruncated || Boolean(pathwayTask && ["queued", "running"].includes(pathwayTask.status))) return;
+    const generation = queryGeneration.current;
+    const sourceTaskId = result.taskId;
+    if (!isCurrentQuery(generation, sourceTaskId) || submittingGeneration.current.pathway === generation) return;
+    submittingGeneration.current.pathway = generation;
     setError(null);
+    setPathwaySubmitting(true);
+    setShareWithReactome(false);
+    setPathwayBinding(null);
     try {
-      setPathwayTask(await runReactomeEnrichment(result.targets.map((item) => item.target)));
-    } catch (cause) { setError(errorMessage(cause)); }
+      const task = await runReactomeEnrichment(result.targets.map((item) => item.target));
+      if (isCurrentQuery(generation, sourceTaskId)) setPathwayBinding({ sourceTaskId, task });
+    } catch (cause) { if (isCurrentQuery(generation, sourceTaskId)) setError(errorMessage(cause)); }
+    finally {
+      if (submittingGeneration.current.pathway === generation) submittingGeneration.current.pathway = null;
+      if (isCurrentQuery(generation, sourceTaskId)) setPathwaySubmitting(false);
+    }
   }
 
   async function requestString() {
-    if (!result || !shareWithString) return;
+    if (!result || !shareWithString || stringSubmitting || result.targets.length > 200 || result.limits.targetsTruncated || Boolean(stringTask && ["queued", "running"].includes(stringTask.status))) return;
+    const generation = queryGeneration.current;
+    const sourceTaskId = result.taskId;
+    if (!isCurrentQuery(generation, sourceTaskId) || submittingGeneration.current.string === generation) return;
+    submittingGeneration.current.string = generation;
     setError(null);
+    setStringSubmitting(true);
+    setShareWithString(false);
+    setStringBinding(null);
     try {
-      setStringTask(await runStringNetwork(result.targets.map((item) => item.target), requiredScore));
-    } catch (cause) { setError(errorMessage(cause)); }
+      const task = await runStringNetwork(result.targets.map((item) => item.target), requiredScore);
+      if (isCurrentQuery(generation, sourceTaskId)) setStringBinding({ sourceTaskId, task });
+    } catch (cause) { if (isCurrentQuery(generation, sourceTaskId)) setError(errorMessage(cause)); }
+    finally {
+      if (submittingGeneration.current.string === generation) submittingGeneration.current.string = null;
+      if (isCurrentQuery(generation, sourceTaskId)) setStringSubmitting(false);
+    }
   }
 
   async function requestVisualization() {
-    if (!result) return;
+    if (!result || visualizationSubmitting || Boolean(visualizationTask && ["queued", "running"].includes(visualizationTask.status))) return;
+    const generation = queryGeneration.current;
+    const sourceTaskId = result.taskId;
+    if (!isCurrentQuery(generation, sourceTaskId) || submittingGeneration.current.visualization === generation) return;
+    submittingGeneration.current.visualization = generation;
     setError(null);
-    try { setVisualizationTask(await createVisualization(result.taskId, "overlap")); }
-    catch (cause) { setError(errorMessage(cause)); }
+    setVisualizationSubmitting(true);
+    try {
+      const task = await createVisualization(sourceTaskId, "overlap");
+      if (isCurrentQuery(generation, sourceTaskId)) setVisualizationBinding({ sourceTaskId, task });
+    } catch (cause) { if (isCurrentQuery(generation, sourceTaskId)) setError(errorMessage(cause)); }
+    finally {
+      if (submittingGeneration.current.visualization === generation) submittingGeneration.current.visualization = null;
+      if (isCurrentQuery(generation, sourceTaskId)) setVisualizationSubmitting(false);
+    }
   }
 
   return <>
 
       <div className="page-heading"><div className="page-heading-copy"><p className="page-kicker">Network pharmacology</p><h1 className="page-title">中药—疾病靶点交集</h1><p className="page-description">在已导入的本地知识目录中匹配中药成分靶点和疾病靶点，展示关系证据与来源版本。</p></div><Link to="/" className="btn btn-secondary"><ArrowLeft size={16} />返回首页</Link></div>
       {error && <div className="notice-error workspace-notice" role="alert">{error}</div>}
+      {pollingError && <div className="notice-error workspace-notice" role="status">{pollingError}</div>}
       <div className="case-workspace-grid">
         <form className="panel case-form" onSubmit={(event) => void submit(event)}>
           <div className="panel-header"><div><h2 className="section-title-sm">设置查询条件</h2><p className="section-help">最多输入 12 味中药或方剂；名称需与已导入目录匹配，方剂会沿带来源版本的组成关系展开。</p></div><span className="page-heading-icon"><Network size={19} /></span></div>
@@ -115,7 +208,7 @@ export function NetworkPharmacologyPage() {
           {!result ? <div className="panel empty-state"><Network size={27} /><strong>等待查询条件</strong><p>数据会在本地知识目录中检索，不会调用外部服务。</p></div> : <>
             <div className="case-list-heading"><div><p className="page-kicker">Evidence-backed result</p><h2 className="section-title-sm">分析任务 #{result.taskId}</h2></div><span className="status-badge status-success">已保存，可在任务记录中追溯</span></div>
             <div className="panel proteomics-result-panel">
-              <div className="source-record-actions"><button className="btn btn-secondary" type="button" disabled={Boolean(visualizationTask && ["queued", "running"].includes(visualizationTask.status))} onClick={() => void requestVisualization()}>生成 R 图表</button></div>
+              <div className="source-record-actions"><button className="btn btn-secondary" type="button" disabled={visualizationSubmitting || Boolean(visualizationTask && ["queued", "running"].includes(visualizationTask.status))} onClick={() => void requestVisualization()}>生成 R 图表</button></div>
               {visualizationTask && <VisualizationResult task={visualizationTask} />}
               <div className="proteomics-metrics">
                 <Metric label="匹配中药靶点" value={result.summary.herbTargetCount} />
@@ -126,7 +219,7 @@ export function NetworkPharmacologyPage() {
                 <Metric label="关联成分" value={result.summary.componentCount} />
               </div>
               <NetworkResultDownloads result={result} />
-              <NetworkPharmacologyCharts key={result.taskId} result={result} />
+              <NetworkPharmacologyCharts key={result.taskId} result={result} reactome={reactomeResult} />
               <KnowledgeNetworkGraph network={result.network} knownTruncated={result.limits.linksTruncated || result.limits.targetsTruncated} />
               {(result.summary.unmatchedHerbs.length > 0 || result.summary.unmatchedDiseases.length > 0 || Boolean(result.summary.unresolvedFormulas?.length)) && <div className="notice-error" role="status">{result.summary.unmatchedHerbs.length > 0 ? `未匹配中药或方剂：${result.summary.unmatchedHerbs.join("、")}。` : ""}{result.summary.unmatchedDiseases.length > 0 ? `未匹配疾病：${result.summary.unmatchedDiseases.join("、")}。` : ""}{result.summary.unresolvedFormulas?.length ? `已匹配方剂但本地没有带来源版本的组成关系：${result.summary.unresolvedFormulas.join("、")}。` : ""}当前按知识目录中的精确名称匹配，请检查数据源导入结果和实体名称。</div>}
               {result.summary.matchedFormulas?.length ? <p className="section-help">方剂 {result.summary.matchedFormulas.join("、")} 已按本地组成关系展开为中药：{result.summary.matchedHerbs.join("、") || "暂无可追溯组成"}。</p> : null}
@@ -138,12 +231,12 @@ export function NetworkPharmacologyPage() {
               {(result.limits.targetsTruncated || result.limits.linksTruncated) && <p className="section-help">结果过大，页面仅展示了部分网络节点或靶点。</p>}
               {result.targets.length >= 2 && <section className="case-form-fields external-analysis-options" aria-label="可选外部分析">
                 <label className="proteomics-consent"><input type="checkbox" checked={shareWithReactome} onChange={(event) => setShareWithReactome(event.target.checked)} /><span><strong>同意提交基因标识到 MyGene.info 与 Reactome</strong><small>仅提交当前页面列出的候选靶点，最多 500 个；不提交医案或完整数据文件。</small></span></label>
-                <div className="source-record-actions"><button className="btn btn-secondary" type="button" disabled={!shareWithReactome || result.targets.length > 500 || result.limits.targetsTruncated || Boolean(pathwayTask && ["queued", "running"].includes(pathwayTask.status))} onClick={() => void requestPathways()}>Reactome 通路富集</button>{result.targets.length > 500 || result.limits.targetsTruncated ? <span className="section-help">Reactome 最多接收 500 个完整显示的靶点；当前结果过多，请缩小范围。</span> : null}</div>
-                {pathwayTask && <ExternalTaskResult task={pathwayTask} kind="reactome_enrichment" />}
+                <div className="source-record-actions"><button className="btn btn-secondary" type="button" disabled={!shareWithReactome || pathwaySubmitting || result.targets.length > 500 || result.limits.targetsTruncated || Boolean(pathwayTask && ["queued", "running"].includes(pathwayTask.status))} onClick={() => void requestPathways()}>{pathwaySubmitting ? "正在创建 Reactome 任务…" : "Reactome 通路富集"}</button>{result.targets.length > 500 || result.limits.targetsTruncated ? <span className="section-help">Reactome 最多接收 500 个完整显示的靶点；当前结果过多，请缩小范围。</span> : null}</div>
+                {pathwayTask && <ReactomeEnrichmentResult task={pathwayTask} source={result} />}
                 <label className="proteomics-consent"><input type="checkbox" checked={shareWithString} onChange={(event) => setShareWithString(event.target.checked)} /><span><strong>同意提交基因标识到 STRING</strong><small>仅提交当前页面列出的候选靶点；STRING 物理互作网络可能与功能关联网络不同。</small></span></label>
                 <label className="form-label">最低置信度<select className="field" value={requiredScore} onChange={(event) => setRequiredScore(Number(event.target.value))}><option value={400}>中等（400）</option><option value={700}>高（700）</option><option value={900}>最高（900）</option></select></label>
-                <div className="source-record-actions"><button className="btn btn-secondary" type="button" disabled={!shareWithString || result.targets.length > 200 || result.limits.targetsTruncated || Boolean(stringTask && ["queued", "running"].includes(stringTask.status))} onClick={() => void requestString()}>STRING PPI 网络</button>{result.targets.length > 200 || result.limits.targetsTruncated ? <span className="section-help">STRING 最多接收 200 个完整显示的靶点；当前结果过多，请缩小范围。</span> : null}</div>
-                {stringTask && <ExternalTaskResult task={stringTask} kind="string_ppi" />}
+                <div className="source-record-actions"><button className="btn btn-secondary" type="button" disabled={!shareWithString || stringSubmitting || result.targets.length > 200 || result.limits.targetsTruncated || Boolean(stringTask && ["queued", "running"].includes(stringTask.status))} onClick={() => void requestString()}>{stringSubmitting ? "正在创建 STRING 任务…" : "STRING PPI 网络"}</button>{result.targets.length > 200 || result.limits.targetsTruncated ? <span className="section-help">STRING 最多接收 200 个完整显示的靶点；当前结果过多，请缩小范围。</span> : null}</div>
+                {stringTask && <StringTaskResult task={stringTask} />}
               </section>}
             </div>
           </>}
@@ -157,16 +250,11 @@ function Metric({ label, value }: { label: string; value: number }) {
   return <div className="proteomics-metric"><span>{label}</span><strong>{value.toLocaleString("zh-CN")}</strong></div>;
 }
 
-function ExternalTaskResult({ task, kind }: { task: AnalysisTask; kind: "reactome_enrichment" | "string_ppi" }) {
-  if (["queued", "running"].includes(task.status)) return <p className="section-help">{kind === "reactome_enrichment" ? "Reactome" : "STRING"} 任务 #{task.id} 正在后台执行（{task.progress}%）。</p>;
+function StringTaskResult({ task }: { task: AnalysisTask }) {
+  if (["queued", "running"].includes(task.status)) return <p className="section-help">STRING 任务 #{task.id} 正在后台执行（{task.progress}%）。</p>;
   if (task.status === "failed") return <div className="notice-error" role="alert">外部分析任务 #{task.id} 失败：{task.error_summary}</div>;
+  if (task.status === "cancelled") return <p className="section-help" role="status">STRING 任务 #{task.id} 已取消。</p>;
   const value = task.result as Record<string, unknown>;
-  if (kind === "reactome_enrichment") {
-    const pathways = Array.isArray(value.pathways) ? value.pathways as Array<Record<string, unknown>> : [];
-    return <div className="panel source-record"><h3>Reactome 富集结果 · {String(value.sourceVersion ?? "来源版本未返回")}</h3><p className="section-help">映射 {String(value.mappedCount ?? 0)} 个标识 · 未识别 {String(value.identifiersNotFound ?? 0)} 个</p>
-      {pathways.length ? <ul className="proteomics-pathways">{pathways.slice(0, 20).map((item, index) => <li key={`${String(item.stableId)}-${index}`}><strong>{String(item.name)}</strong><span>{String(item.stableId)} · FDR {String(item.fdr)}</span></li>)}</ul> : <p className="section-help">此输入未返回符合当前筛选阈值的通路。</p>}
-    </div>;
-  }
   const edges = Array.isArray(value.edges) ? value.edges as Array<Record<string, unknown>> : [];
   const nodes = Array.isArray(value.nodes) ? value.nodes as Array<Record<string, unknown>> : [];
   return <div className="panel source-record"><h3>STRING 网络 · {String(value.sourceVersion ?? "版本未配置")}</h3><p className="section-help">互作 {String(value.interactionCount ?? 0)} 条 · 阈值 {String(value.requiredScore ?? 0)}</p>
@@ -180,6 +268,7 @@ function ExternalTaskResult({ task, kind }: { task: AnalysisTask; kind: "reactom
 function VisualizationResult({ task }: { task: AnalysisTask }) {
   if (["queued", "running"].includes(task.status)) return <p className="section-help">R 图表任务 #{task.id} 正在后台执行（{task.progress}%）。</p>;
   if (task.status === "failed") return <div className="notice-error" role="alert">R 图表生成失败：{task.error_summary}</div>;
+  if (task.status === "cancelled") return <p className="section-help" role="status">R 图表任务 #{task.id} 已取消。</p>;
   const value = task.result as { rendererVersion?: string; artifacts?: Array<{ id: number; format: string; filename: string; downloadUrl: string; rendererVersion: string }> };
   const artifacts = value.artifacts ?? [];
   const svg = artifacts.find((artifact) => artifact.format === "svg");

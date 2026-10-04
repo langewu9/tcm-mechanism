@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useOutletContext } from "react-router-dom";
-import { ArrowLeft, BookOpen, FileHeart, Plus, Sparkles, Trash2 } from "lucide-react";
+import { ArrowLeft, FileHeart, Save, Sparkles, Stethoscope, Trash2 } from "lucide-react";
 import { approveMedicalCase, createMedicalCase, deleteMedicalCase, getMedicalCaseAnalysis, getMedicalCaseAudit, getMedicalCases, reviewMedicalCaseCandidate, startMedicalCaseAnalysis, type CaseAuditEvent, type CaseEvidence, type CaseKnowledgeEvidence, type MedicalCase, type MedicalCaseCandidate, type MedicalCaseAnalysis, type Page } from "../api/cases";
 import { getAnalysisTask, type AnalysisTask } from "../api/datasets";
 import { type Session } from "../api/auth";
@@ -65,6 +65,11 @@ function taskStatusLabel(task: AnalysisTask | null) {
 
 export function CasesPage() {
   const user = useOutletContext<NonNullable<Session["user"]>>();
+  const mounted = useRef(false);
+  const mutationInFlight = useRef(false);
+  const casesRequestSequence = useRef(0);
+  const auditRequestSequence = useRef(0);
+  const activeAuditCaseId = useRef<number | null>(null);
   const analysisRequestSequence = useRef(0);
   const [page, setPage] = useState<Page<MedicalCase> | null>(null);
   const [pageNumber, setPageNumber] = useState(1);
@@ -74,6 +79,8 @@ export function CasesPage() {
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [auditCaseId, setAuditCaseId] = useState<number | null>(null);
   const [auditEvents, setAuditEvents] = useState<CaseAuditEvent[]>([]);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditError, setAuditError] = useState<string | null>(null);
   const [reviewingId, setReviewingId] = useState<number | null>(null);
   const [analysisCaseId, setAnalysisCaseId] = useState<number | null>(null);
   const [analysisTask, setAnalysisTask] = useState<AnalysisTask | null>(null);
@@ -84,22 +91,41 @@ export function CasesPage() {
   const [analysisPollFailures, setAnalysisPollFailures] = useState(0);
   const [analysisConsent, setAnalysisConsent] = useState(false);
   const [candidateReviewId, setCandidateReviewId] = useState<number | null>(null);
+  const [listError, setListError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      casesRequestSequence.current += 1;
+      auditRequestSequence.current += 1;
+      analysisRequestSequence.current += 1;
+    };
+  }, []);
+
   const loadCases = useCallback(async () => {
+    const requestSequence = ++casesRequestSequence.current;
     setLoading(true);
-    setError(null);
+    setListError(null);
     try {
-      setPage(await getMedicalCases(pageNumber));
+      const response = await getMedicalCases(pageNumber);
+      if (!mounted.current || requestSequence !== casesRequestSequence.current) return;
+      setPage(response);
     } catch (cause) {
-      setError(errorMessage(cause));
+      if (!mounted.current || requestSequence !== casesRequestSequence.current) return;
+      setListError(errorMessage(cause));
     } finally {
+      if (!mounted.current || requestSequence !== casesRequestSequence.current) return;
       setLoading(false);
     }
   }, [pageNumber]);
 
-  useEffect(() => { void loadCases(); }, [loadCases, refresh]);
+  useEffect(() => {
+    void loadCases();
+    return () => { casesRequestSequence.current += 1; };
+  }, [loadCases, refresh]);
 
   useEffect(() => {
     if (analysisCaseId === null || !analysisTask || !["queued", "running"].includes(analysisTask.status)) return;
@@ -129,6 +155,8 @@ export function CasesPage() {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (mutationInFlight.current) return;
+    mutationInFlight.current = true;
     const formElement = event.currentTarget;
     setSaving(true);
     setError(null);
@@ -147,65 +175,92 @@ export function CasesPage() {
         source_reference: text("source_reference"),
         research_notes: text("research_notes"),
       });
+      if (!mounted.current) return;
       formElement.reset();
       setNotice("医案已保存，来源和提交账号已记录。");
       if (pageNumber !== 1) setPageNumber(1);
       else setRefresh((value) => value + 1);
     } catch (cause) {
-      setError(errorMessage(cause));
+      if (mounted.current) setError(errorMessage(cause));
     } finally {
-      setSaving(false);
+      mutationInFlight.current = false;
+      if (mounted.current) setSaving(false);
     }
   }
 
   async function removeCase(item: MedicalCase) {
+    if (mutationInFlight.current) return;
     if (!window.confirm(`确定删除“${item.title}”吗？`)) return;
+    mutationInFlight.current = true;
     setDeletingId(item.id);
     setError(null);
     setNotice(null);
     try {
       await deleteMedicalCase(item.id);
+      if (!mounted.current) return;
       setNotice("医案已删除。");
       if (pageNumber > 1 && page?.results.length === 1) setPageNumber((value) => value - 1);
       else setRefresh((value) => value + 1);
     } catch (cause) {
-      setError(errorMessage(cause));
+      if (mounted.current) setError(errorMessage(cause));
     } finally {
-      setDeletingId(null);
+      mutationInFlight.current = false;
+      if (mounted.current) setDeletingId(null);
+    }
+  }
+
+  async function loadAudit(caseId: number) {
+    const requestSequence = ++auditRequestSequence.current;
+    setAuditLoading(true);
+    setAuditError(null);
+    try {
+      const response = await getMedicalCaseAudit(caseId);
+      if (!mounted.current || requestSequence !== auditRequestSequence.current || activeAuditCaseId.current !== caseId) return;
+      setAuditEvents(response.results);
+    } catch (cause) {
+      if (!mounted.current || requestSequence !== auditRequestSequence.current || activeAuditCaseId.current !== caseId) return;
+      setAuditError(errorMessage(cause));
+    } finally {
+      if (mounted.current && requestSequence === auditRequestSequence.current && activeAuditCaseId.current === caseId) setAuditLoading(false);
     }
   }
 
   async function toggleAudit(item: MedicalCase) {
-    if (auditCaseId === item.id) {
+    if (activeAuditCaseId.current === item.id) {
+      auditRequestSequence.current += 1;
+      activeAuditCaseId.current = null;
       setAuditCaseId(null);
       setAuditEvents([]);
+      setAuditLoading(false);
+      setAuditError(null);
       return;
     }
+    activeAuditCaseId.current = item.id;
     setAuditCaseId(item.id);
+    setAuditEvents([]);
     setError(null);
-    try {
-      const response = await getMedicalCaseAudit(item.id);
-      setAuditEvents(response.results);
-    } catch (cause) {
-      setAuditCaseId(null);
-      setError(errorMessage(cause));
-    }
+    await loadAudit(item.id);
   }
 
   async function approveCase(item: MedicalCase) {
+    if (mutationInFlight.current) return;
     if (!window.confirm(`确认审核通过“${item.title}”？这会记录审核账号和时间。`)) return;
+    mutationInFlight.current = true;
     setReviewingId(item.id);
     setError(null);
     setNotice(null);
     try {
       await approveMedicalCase(item.id);
+      if (!mounted.current) return;
       setNotice("医案已审核，审核账号和时间已写入审计记录。");
       setRefresh((value) => value + 1);
-      if (auditCaseId === item.id) setAuditEvents((await getMedicalCaseAudit(item.id)).results);
+      if (activeAuditCaseId.current === item.id) await loadAudit(item.id);
     } catch (cause) {
+      if (!mounted.current) return;
       setError(errorMessage(cause));
     } finally {
-      setReviewingId(null);
+      mutationInFlight.current = false;
+      if (mounted.current) setReviewingId(null);
     }
   }
 
@@ -291,71 +346,90 @@ export function CasesPage() {
     }
   }
 
-  return <>
+  const mutating = saving || deletingId !== null || reviewingId !== null;
 
-      <div className="page-heading"><div className="page-heading-copy"><p className="page-kicker">Medical cases</p><h1 className="page-title">结构化医案库</h1>
-        <p className="page-description">记录去标识化后的症状、舌脉、诊断与资料来源。每条记录都关联当前账号，普通研究者只能查看自己的医案。</p></div>
-        <Link to="/" className="btn btn-secondary"><ArrowLeft size={16} />返回首页</Link>
+  return <>
+      <div className="page-heading">
+        <div className="page-heading-copy">
+          <p className="page-kicker">Medical cases</p>
+          <div className="flex items-center gap-3"><span className="page-heading-icon"><FileHeart size={20} /></span><h1 className="page-title">结构化医案库</h1></div>
+          <p className="page-description">沉淀症状、舌脉、诊断与来源，为证候和网络药理分析提供上下文。</p>
+        </div>
+        <div className="page-heading-action"><span className="status-badge status-success">{loading ? "…" : listError ? "—" : page?.count ?? "—"} 条医案</span></div>
       </div>
 
       {error && <div className="notice-error workspace-notice" role="alert">{error}</div>}
       {notice && <div className="notice-success workspace-notice" role="status">{notice}</div>}
 
-      <div className="case-workspace-grid">
-        <form className="panel case-form" onSubmit={submit} aria-label="新增医案">
-          <div className="panel-header"><div><h2 className="section-title-sm">新增医案</h2><p className="section-help">来源和提交账号将随记录保存，便于后续核查。</p></div><span className="page-heading-icon"><Plus size={19} /></span></div>
-          <div className="case-form-fields">
-            <label className="form-label" htmlFor="case-title">医案标题<input className="field" id="case-title" name="title" maxLength={200} placeholder="例如：麦门冬汤干预肺纤维化研究医案" required /></label>
-            <label className="form-label" htmlFor="case-patient">脱敏患者信息<input className="field" id="case-patient" name="patient_info" placeholder="例如：年龄段、性别；请勿填写姓名、电话、证件号" /></label>
-            <label className="form-label" htmlFor="case-symptoms">症状与主诉<textarea className="field case-textarea" id="case-symptoms" name="symptoms" placeholder="记录去标识化后的症状、现病史与伴随表现" required /></label>
-            <label className="form-label" htmlFor="case-tongue-pulse">舌象与脉象<input className="field" id="case-tongue-pulse" name="tongue_pulse" placeholder="舌质、舌苔、脉象" /></label>
-            <label className="form-label" htmlFor="case-diagnosis">诊断或证候<input className="field" id="case-diagnosis" name="diagnosis" placeholder="中医证候或西医诊断" /></label>
-            <label className="form-label" htmlFor="case-source">资料来源<input className="field" id="case-source" name="source_reference" maxLength={500} placeholder="文献题名、病例集编号或其他可核查出处" /></label>
-            <label className="form-label" htmlFor="case-notes">研究备注<textarea className="field case-textarea case-textarea-short" id="case-notes" name="research_notes" placeholder="补充研究背景、数据处理说明等" /></label>
-          </div>
-          <div className="case-form-footer"><p>请仅提交已去标识化的研究资料。</p><button className="btn btn-primary" type="submit" disabled={saving}><BookOpen size={16} />{saving ? "正在保存…" : "保存医案"}</button></div>
+      <div className="grid gap-5 xl:grid-cols-[420px_minmax(0,1fr)]">
+        <form className="panel space-y-3 p-5" onSubmit={submit} aria-label="新增医案">
+          <div><h2 className="section-title-sm">新增医案</h2><p className="section-help">录入结构化医案，后续可直接用于智能分析。</p></div>
+          <label className="form-label" htmlFor="case-title">医案标题<input className="field mt-2" id="case-title" name="title" maxLength={200} placeholder="例如：麦门冬汤干预肺纤维化研究医案" required /></label>
+          <label className="form-label" htmlFor="case-patient">患者信息<input className="field mt-2" id="case-patient" name="patient_info" placeholder="年龄、性别等脱敏信息" /></label>
+          <label className="form-label" htmlFor="case-symptoms">症状与主诉<textarea className="field mt-2 min-h-24" id="case-symptoms" name="symptoms" placeholder="主要症状、现病史与伴随表现" required /></label>
+          <label className="form-label" htmlFor="case-tongue-pulse">舌脉<input className="field mt-2" id="case-tongue-pulse" name="tongue_pulse" placeholder="舌质、舌苔、脉象" /></label>
+          <label className="form-label" htmlFor="case-diagnosis">诊断或证候<input className="field mt-2" id="case-diagnosis" name="diagnosis" placeholder="中医证候或西医诊断" /></label>
+          <label className="form-label" htmlFor="case-source">资料来源<input className="field mt-2" id="case-source" name="source_reference" maxLength={500} placeholder="病例集、文献或门诊记录" /></label>
+          <p className="section-help">请仅提交已去标识化的研究资料，勿填写姓名、电话或证件号。来源和提交账号将随记录保存，普通研究者只能查看自己的医案。</p>
+          <details>
+            <summary className="section-help">补充研究备注</summary>
+            <div className="mt-3"><label className="form-label" htmlFor="case-notes">研究备注<textarea className="field mt-2 min-h-24" id="case-notes" name="research_notes" placeholder="补充研究背景、数据处理说明等" /></label></div>
+          </details>
+          <button className="btn btn-primary" type="submit" disabled={mutating}><Save size={17} />{saving ? "正在保存…" : "保存医案"}</button>
         </form>
 
-        <section className="case-list" aria-labelledby="case-list-heading">
-          <div className="case-list-heading"><div><p className="page-kicker">Research records</p><h2 id="case-list-heading" className="section-title-sm">已保存医案</h2></div>
-            <span className="status-badge status-success">{page?.count ?? 0} 条记录</span></div>
+        <section className="space-y-4" aria-label="已保存医案">
           {loading ? <div className="panel empty-state" role="status">正在读取医案…</div>
-            : page?.results.length ? <div className="case-list-items">{page.results.map((item) => <article key={item.id} className="case-record panel">
-              <div className="case-record-top"><div><h3>{item.title}</h3><time dateTime={item.updated_at}>更新于 {new Date(item.updated_at).toLocaleString("zh-CN")}</time></div>
-                <button className="icon-button case-delete" type="button" onClick={() => void removeCase(item)} disabled={deletingId === item.id} aria-label={`删除医案：${item.title}`} title="删除医案"><Trash2 size={17} /></button></div>
-              <p><span className={`status-badge ${item.review_status === "reviewed" ? "status-success" : "status-warning"}`}>{item.review_status === "reviewed" ? `已审核 · ${item.reviewed_by_username ?? "平台管理员"}` : "待审核"}</span></p>
-              <p className="case-summary">{item.deidentified_text}</p>
-              <div className="case-record-meta"><p><span>脱敏信息</span>{valueOf(item.structured_data, "patient_info")}</p><p><span>舌象与脉象</span>{valueOf(item.structured_data, "tongue_pulse")}</p>
-                <p><span>诊断或证候</span>{valueOf(item.structured_data, "diagnosis")}</p><p><span>资料来源</span>{item.source_reference || "未填写"}</p>
-                <p><span>提交研究者</span>{item.owner_username}</p></div>
-              {item.research_notes && <details className="case-notes"><summary>研究备注</summary><p>{item.research_notes}</p></details>}
-              <div className="source-record-actions">
-                <button className="btn btn-secondary" type="button" onClick={() => void toggleAudit(item)}>{auditCaseId === item.id ? "收起审计记录" : "查看审计记录"}</button>
-                <button className="btn btn-secondary" type="button" onClick={() => void toggleCaseAnalysis(item)}>{analysisCaseId === item.id ? "收起分析" : "证候与方剂分析"}</button>
-                {user.isSuperuser && item.review_status !== "reviewed" && <button className="btn btn-primary" type="button" onClick={() => void approveCase(item)} disabled={reviewingId === item.id}>{reviewingId === item.id ? "正在审核…" : "审核通过"}</button>}
+            : listError ? <div className="panel empty-state" role="alert"><FileHeart size={26} /><strong>医案读取失败</strong><p>{listError}</p><button className="btn btn-secondary" type="button" onClick={() => setRefresh((value) => value + 1)} disabled={mutating}>重新读取</button></div>
+            : page?.results.length ? page.results.map((item) => <article key={item.id} className="case-record panel p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div><h2 className="text-lg font-black">{item.title}</h2><p className="mt-2 text-sm leading-6 text-ink/65">{item.deidentified_text}</p></div>
+                <button className="btn btn-secondary px-2 py-1 text-xs text-cinnabar" type="button" onClick={() => void removeCase(item)} disabled={mutating} aria-label={`删除医案：${item.title}`} title="删除"><Trash2 size={14} />{deletingId === item.id ? "处理中" : "删除"}</button>
               </div>
-              {analysisCaseId === item.id && <CaseAnalysisPanel
-                task={analysisTask}
-                candidates={analysisCandidates}
-                stale={analysisStale}
-                modelConfiguration={analysisModelConfiguration}
-                caseId={item.id}
-                disease={valueOf(item.structured_data, "diagnosis") === "未填写" ? "" : valueOf(item.structured_data, "diagnosis")}
-                loading={analysisLoadingId === item.id}
-                consent={analysisConsent}
-                reviewingCandidateId={candidateReviewId}
-                onConsentChange={setAnalysisConsent}
-                onAnalyze={() => void runCaseAnalysis(item)}
-                onDecision={(candidate, decision) => void decideCandidate(item, candidate, decision)}
-              />}
-              {auditCaseId === item.id && <div className="panel case-audit-history"><h4>操作记录</h4>{auditEvents.length ? <ul className="proteomics-pathways">{auditEvents.map((event) => <li key={event.id}><strong>{event.actor_username ?? "账号已删除"} · {event.action === "created" ? "创建" : event.action === "updated" ? "修改" : event.action === "reviewed" ? "审核" : event.action === "candidate" ? "候选审核" : event.action === "analyzed" ? "启动分析" : "删除"}</strong><span>{new Date(event.created_at).toLocaleString("zh-CN")} · {event.changed_fields.join("、") || "无字段变化"}</span></li>)}</ul> : <p className="section-help">尚无操作记录。</p>}</div>}
-            </article>)}</div>
-            : <div className="panel empty-state"><FileHeart size={27} /><strong>暂无医案</strong><p>可以在左侧录入第一条去标识化医案，并填写可核查的数据来源。</p></div>}
-          {page && page.count > 0 && <div className="case-pagination"><button className="btn btn-secondary" type="button" disabled={!page.previous || loading} onClick={() => setPageNumber((value) => Math.max(1, value - 1))}>上一页</button>
-            <span>第 {pageNumber} 页</span><button className="btn btn-secondary" type="button" disabled={!page.next || loading} onClick={() => setPageNumber((value) => value + 1)}>下一页</button></div>}
+              <div className="case-record-meta">
+                <p><span>舌脉</span>{valueOf(item.structured_data, "tongue_pulse")}</p>
+                <p><span>诊断</span>{valueOf(item.structured_data, "diagnosis")}</p>
+                <p><span>来源</span>{item.source_reference || "未填写"}</p>
+              </div>
+              <details className="case-notes">
+                <summary>研究详情、审核与分析</summary>
+                <div className="mt-3 space-y-3">
+                  <p><span className={`status-badge ${item.review_status === "reviewed" ? "status-success" : "status-warning"}`}>{item.review_status === "reviewed" ? `已审核 · ${item.reviewed_by_username ?? "平台管理员"}` : "待审核"}</span></p>
+                  <p>脱敏患者信息：{valueOf(item.structured_data, "patient_info")}</p>
+                  <p>提交研究者：{item.owner_username}</p>
+                  <p><time dateTime={item.updated_at}>更新于 {new Date(item.updated_at).toLocaleString("zh-CN")}</time></p>
+                  {item.reviewed_at && <p><time dateTime={item.reviewed_at}>审核于 {new Date(item.reviewed_at).toLocaleString("zh-CN")}</time></p>}
+                  {item.research_notes && <div><h3 className="section-title-sm">研究备注</h3><p>{item.research_notes}</p></div>}
+                  <div className="source-record-actions">
+                    <button className="btn btn-secondary" type="button" onClick={() => void toggleAudit(item)} disabled={mutating}>{auditCaseId === item.id ? "收起审计记录" : "查看审计记录"}</button>
+                    <button className="btn btn-secondary" type="button" onClick={() => void toggleCaseAnalysis(item)} disabled={mutating}>{analysisCaseId === item.id ? "收起分析" : "证候与方剂分析"}</button>
+                    {user.isSuperuser && item.review_status !== "reviewed" && <button className="btn btn-primary" type="button" onClick={() => void approveCase(item)} disabled={mutating}>{reviewingId === item.id ? "正在审核…" : "审核通过"}</button>}
+                  </div>
+                  {analysisCaseId === item.id && <fieldset disabled={mutating} className="min-w-0"><CaseAnalysisPanel
+                    task={analysisTask}
+                    candidates={analysisCandidates}
+                    stale={analysisStale}
+                    modelConfiguration={analysisModelConfiguration}
+                    caseId={item.id}
+                    disease={valueOf(item.structured_data, "diagnosis") === "未填写" ? "" : valueOf(item.structured_data, "diagnosis")}
+                    loading={analysisLoadingId === item.id}
+                    consent={analysisConsent}
+                    reviewingCandidateId={candidateReviewId}
+                    onConsentChange={setAnalysisConsent}
+                    onAnalyze={() => void runCaseAnalysis(item)}
+                    onDecision={(candidate, decision) => void decideCandidate(item, candidate, decision)}
+                  /></fieldset>}
+                  {auditCaseId === item.id && <div className="panel case-audit-history"><h4>操作记录</h4>{auditLoading ? <p className="section-help" role="status">正在读取操作记录…</p> : auditError ? <div className="notice-error" role="alert"><p>{auditError}</p><button className="btn btn-secondary" type="button" onClick={() => void loadAudit(item.id)} disabled={mutating}>重新读取</button></div> : auditEvents.length ? <ul className="proteomics-pathways">{auditEvents.map((event) => <li key={event.id}><strong>{event.actor_username ?? "账号已删除"} · {event.action === "created" ? "创建" : event.action === "updated" ? "修改" : event.action === "reviewed" ? "审核" : event.action === "candidate" ? "候选审核" : event.action === "analyzed" ? "启动分析" : "删除"}</strong><span>{new Date(event.created_at).toLocaleString("zh-CN")} · {event.changed_fields.join("、") || "无字段变化"}</span></li>)}</ul> : <p className="section-help">尚无操作记录。</p>}</div>}
+                </div>
+              </details>
+            </article>)
+            : page?.count === 0 ? <div className="panel empty-state"><Stethoscope size={26} /><strong>暂无医案</strong><p>录入第一条脱敏医案后，可在智能分析中选择。证据关联依赖真实目录记录，模型候选需可用服务并由研究者逐条确认。</p></div>
+            : <div className="panel empty-state"><Stethoscope size={26} /><strong>本页暂无医案</strong><p>请返回上一页或重新读取医案。</p><button className="btn btn-secondary" type="button" onClick={() => { setPageNumber(1); setRefresh((value) => value + 1); }} disabled={mutating}>返回第一页</button></div>}
+          {page && page.count > 0 && !listError && <div className="case-pagination"><button className="btn btn-secondary" type="button" disabled={!page.previous || loading || mutating} onClick={() => setPageNumber((value) => Math.max(1, value - 1))}>上一页</button>
+            <span>第 {pageNumber} 页</span><button className="btn btn-secondary" type="button" disabled={!page.next || loading || mutating} onClick={() => setPageNumber((value) => value + 1)}>下一页</button></div>}
         </section>
       </div>
-
+      <div className="workspace-actions mt-6"><Link to="/" className="btn btn-secondary"><ArrowLeft size={16} />返回首页</Link></div>
   </>;
 }
 

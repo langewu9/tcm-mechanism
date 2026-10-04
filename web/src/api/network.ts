@@ -43,6 +43,35 @@ export type NetworkPharmacologyResult = {
   limits: { targetsTruncated: boolean; linksTruncated: boolean };
 };
 
+export type ReactomePathway = {
+  stableId: string;
+  name: string;
+  species: string;
+  matchedEntities: number;
+  totalEntities: number | null;
+  coverage: number | null;
+  pValue: number | null;
+  fdr: number;
+};
+
+export type ReactomeEnrichmentResult = {
+  analysisKind: "reactome_enrichment";
+  organism: string;
+  inputCount: number;
+  mappedCount: number;
+  mappings: Array<Record<string, unknown>>;
+  ambiguous: string[];
+  unmapped: string[];
+  rejected: string[];
+  truncatedCount: number;
+  source: string;
+  sourceVersion: string | null;
+  sourceToken: string | null;
+  identifiersNotFound: number;
+  pathways: ReactomePathway[];
+  retrievedAt: string;
+};
+
 export const runNetworkPharmacology = (input: { herb: string; disease: string; source_case_id?: number; source_candidate_id?: number }) =>
   apiRequest<NetworkPharmacologyResult>("/api/v1/analysis/network-pharmacology/", { method: "POST", body: input });
 
