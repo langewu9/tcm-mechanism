@@ -1,8 +1,6 @@
-import { WorkspaceModuleNav } from "../components/WorkspaceModuleNav";
 import { useEffect, useState, type FormEvent } from "react";
-import { Link, useLocation, useNavigate, useOutletContext } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { Activity, ArrowLeft, Network, RefreshCw } from "lucide-react";
-import { logout, type Session } from "../api/auth";
 import { getAnalysisTask, type AnalysisTask } from "../api/datasets";
 import { createVisualization, runNetworkPharmacology, runReactomeEnrichment, runStringNetwork, type NetworkPharmacologyResult } from "../api/network";
 import { ApiError } from "../api/client";
@@ -15,9 +13,7 @@ function errorMessage(error: unknown) {
 }
 
 export function NetworkPharmacologyPage() {
-  const user = useOutletContext<NonNullable<Session["user"]>>();
   const location = useLocation();
-  const navigate = useNavigate();
   const [herb, setHerb] = useState("");
   const [disease, setDisease] = useState("");
   const [result, setResult] = useState<NetworkPharmacologyResult | null>(null);
@@ -102,18 +98,8 @@ export function NetworkPharmacologyPage() {
     catch (cause) { setError(errorMessage(cause)); }
   }
 
-  async function signOut() {
-    try { await logout(); navigate("/login", { replace: true }); }
-    catch (cause) { setError(errorMessage(cause)); }
-  }
+  return <>
 
-  return <main className="workspace-page">
-    <header className="workspace-nav">
-      <Link to="/" className="site-brand" aria-label="远志 AI Scientist 首页"><img src="/images/yuanzhi-mark.png" alt="" width={42} height={42} className="brand-mark" /><span><strong>远志 AI Scientist</strong><small>研究者工作区</small></span></Link>
-      <WorkspaceModuleNav isSuperuser={user.isSuperuser} />
-      <div className="workspace-nav-actions"><span className="workspace-user">{user.username}{user.isSuperuser ? " · 平台管理员" : " · 研究者"}</span><button className="btn btn-secondary" type="button" onClick={() => void signOut()}>退出</button></div>
-    </header>
-    <div className="app-main workspace-main"><div className="app-main-inner">
       <div className="page-heading"><div className="page-heading-copy"><p className="page-kicker">Network pharmacology</p><h1 className="page-title">中药—疾病靶点交集</h1><p className="page-description">在已导入的本地知识目录中匹配中药成分靶点和疾病靶点，展示关系证据与来源版本。</p></div><Link to="/" className="btn btn-secondary"><ArrowLeft size={16} />返回首页</Link></div>
       {error && <div className="notice-error workspace-notice" role="alert">{error}</div>}
       <div className="case-workspace-grid">
@@ -144,7 +130,7 @@ export function NetworkPharmacologyPage() {
               <KnowledgeNetworkGraph network={result.network} knownTruncated={result.limits.linksTruncated || result.limits.targetsTruncated} />
               {(result.summary.unmatchedHerbs.length > 0 || result.summary.unmatchedDiseases.length > 0 || Boolean(result.summary.unresolvedFormulas?.length)) && <div className="notice-error" role="status">{result.summary.unmatchedHerbs.length > 0 ? `未匹配中药或方剂：${result.summary.unmatchedHerbs.join("、")}。` : ""}{result.summary.unmatchedDiseases.length > 0 ? `未匹配疾病：${result.summary.unmatchedDiseases.join("、")}。` : ""}{result.summary.unresolvedFormulas?.length ? `已匹配方剂但本地没有带来源版本的组成关系：${result.summary.unresolvedFormulas.join("、")}。` : ""}当前按知识目录中的精确名称匹配，请检查数据源导入结果和实体名称。</div>}
               {result.summary.matchedFormulas?.length ? <p className="section-help">方剂 {result.summary.matchedFormulas.join("、")} 已按本地组成关系展开为中药：{result.summary.matchedHerbs.join("、") || "暂无可追溯组成"}。</p> : null}
-              {result.targets.length ? <div className="case-list-items">{result.targets.map((target) => <article className="panel source-record" key={target.normalizedTarget}>
+              {result.targets.length ? <div className="case-list-items">{result.targets.map((target, index) => <article className="panel source-record" key={`${target.normalizedTarget}-${index}`}>
                 <div className="case-record-top"><div><h3>{target.target} <span className="status-badge status-warning">{target.matchType}</span></h3><p className="section-help">成分：{target.components.join("、") || "无中药成分证据"} · 通路：{target.pathways.join("、") || "无通路注释"}</p></div></div>
                 <p className="section-help">中药证据 {target.herbEvidenceCount} 条 · 疾病证据 {target.diseaseEvidenceCount} 条 · 直接关联 {target.directEvidenceCount} 条</p>
                 <ul className="proteomics-pathways">{target.sources.slice(0, 8).map((source, index) => <li key={`${source.sourceRecordId}-${index}`}><strong>{source.source} · {source.sourceVersion}</strong><span>{source.relationType} / {source.evidenceType} / {source.sourceRecordId}</span></li>)}</ul>
@@ -163,8 +149,8 @@ export function NetworkPharmacologyPage() {
           </>}
         </section>
       </div>
-    </div></div>
-  </main>;
+
+  </>;
 }
 
 function Metric({ label, value }: { label: string; value: number }) {

@@ -6,6 +6,8 @@
 
 ## 迁移规则
 
+2026-10-04 复刻收尾：已恢复 main 公共侧栏/顶栏、原五项移动导航、检索标签布局、文本分析正文及首页三张卷轴 PNG，并修正网络候选统计和直接关联候选的中药字段。实际 Django + 构建静态前端已通过合成数据 HTTP 联调；浏览器实际渲染、真实研究样例和旧数据导入仍未验收。详见 [UI 与结果复刻核验](main-ui-and-result-parity.md)。
+
 - React 组件和 CSS 可以复用交互与视觉结构，但 `next/navigation`、Next.js Server Actions、Prisma 查询必须改为 React Router、Django API 和当前设计系统。
 - 领域算法优先复用并迁到 Python 业务服务，需建立输入/输出样例并与 main 结果对照后才能替换旧路径。
 - 旧版数据使用 Prisma/SQLite，Django 使用 PostgreSQL 和新表结构。只迁字段含义，不直接复制 SQLite 表或未经盘点的数据。

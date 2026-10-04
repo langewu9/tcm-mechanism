@@ -134,6 +134,8 @@ class EmailDeliveryUnavailable(APIException):
 class SessionUserSerializer(serializers.Serializer):
     id = serializers.IntegerField()
     username = serializers.CharField()
+    name = serializers.CharField()
+    email = serializers.EmailField(allow_blank=True)
     isSuperuser = serializers.BooleanField()
 
 
@@ -238,6 +240,8 @@ class SessionView(APIView):
                 "user": {
                     "id": request.user.pk,
                     "username": request.user.get_username(),
+                    "name": request.user.get_full_name() or request.user.get_username(),
+                    "email": request.user.email,
                     "isSuperuser": request.user.is_superuser,
                 },
             }
@@ -260,6 +264,8 @@ class SessionView(APIView):
                 "user": {
                     "id": user.pk,
                     "username": user.get_username(),
+                    "name": user.get_full_name() or user.get_username(),
+                    "email": user.email,
                     "isSuperuser": user.is_superuser,
                 },
             }

@@ -774,7 +774,10 @@ class ApiErrorContractTests(APITestCase):
     def test_react_session_login_uses_csrf_and_creates_server_session(self):
         from django.test import Client, override_settings
 
-        user = get_user_model().objects.create_user(username="researcher", password="test-password-123")
+        user = get_user_model().objects.create_user(
+            username="researcher", password="test-password-123",
+            first_name="Test", last_name="Researcher", email="reader@example.test",
+        )
         client = Client(enforce_csrf_checks=True)
         with override_settings(CSRF_TRUSTED_ORIGINS=["http://127.0.0.1:5173", "http://localhost:5173"]):
             csrf_response = client.get("/api/v1/auth/csrf/", HTTP_HOST="127.0.0.1:8020")
@@ -792,6 +795,9 @@ class ApiErrorContractTests(APITestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["user"]["id"], user.pk)
+        self.assertEqual(response.json()["user"]["name"], "Test Researcher")
+        self.assertEqual(response.json()["user"]["email"], "reader@example.test")
+        self.assertEqual(session_response.json()["user"], response.json()["user"])
         self.assertTrue(session_response.json()["authenticated"])
 
 

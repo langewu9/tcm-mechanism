@@ -1,5 +1,5 @@
 import { apiRequest } from "./client";
-export type Session = { authenticated: boolean; user?: { id: number; username: string; isSuperuser: boolean } };
+export type Session = { authenticated: boolean; user?: { id: number; username: string; name?: string; email?: string; isSuperuser: boolean } };
 export type RegistrationResult = { status: "pending_verification"; message: string };
 export type EmailVerificationResult = { status: "verified" | "already_verified"; accountActive: boolean; message: string };
 export const getSession = () => apiRequest<Session>("/api/v1/auth/session/");

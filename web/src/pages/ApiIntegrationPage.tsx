@@ -1,8 +1,7 @@
-import { WorkspaceModuleNav } from "../components/WorkspaceModuleNav";
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useOutletContext } from "react-router-dom";
-import { Activity, Bot, CheckCircle2, DatabaseZap, FlaskConical, LogOut, Network, Play, RefreshCw, Search, XCircle } from "lucide-react";
-import { logout, type Session } from "../api/auth";
+import { Link, useOutletContext } from "react-router-dom";
+import { Activity, Bot, CheckCircle2, DatabaseZap, FlaskConical, Network, Play, RefreshCw, Search, XCircle } from "lucide-react";
+import { type Session } from "../api/auth";
 import { ApiError } from "../api/client";
 import { getIntegrationStatus, testIntegration, type IntegrationResult, type IntegrationStatus, type IntegrationTarget } from "../api/integrations";
 
@@ -45,7 +44,6 @@ function summarize(value: unknown) {
 
 export function ApiIntegrationPage() {
   const user = useOutletContext<NonNullable<Session["user"]>>();
-  const navigate = useNavigate();
   const [status, setStatus] = useState<IntegrationStatus | null>(null);
   const [results, setResults] = useState<Partial<Record<IntegrationTarget, IntegrationResult>>>({});
   const [activeTarget, setActiveTarget] = useState<IntegrationTarget>("disease");
@@ -93,22 +91,12 @@ export function ApiIntegrationPage() {
     }
   }
 
-  async function signOut() {
-    try { await logout(); navigate("/login", { replace: true }); }
-    catch (cause) { setError(errorMessage(cause)); }
-  }
-
-  if (!user.isSuperuser) return <main className="workspace-page"><section className="panel empty-state"><strong>仅平台管理员可查看此页面</strong><Link className="btn btn-secondary" to="/dashboard">返回研究总览</Link></section></main>;
+  if (!user.isSuperuser) return <><section className="panel empty-state"><strong>仅平台管理员可查看此页面</strong><Link className="btn btn-secondary" to="/dashboard">返回研究总览</Link></section></>;
 
   const currentResult = results[activeTarget];
 
-  return <main className="workspace-page">
-    <header className="workspace-nav">
-      <Link to="/" className="site-brand" aria-label="远志 AI Scientist 首页"><img src="/images/yuanzhi-mark.png" alt="" width={42} height={42} className="brand-mark" /><span><strong>远志 AI Scientist</strong><small>平台管理</small></span></Link>
-      <WorkspaceModuleNav isSuperuser={user.isSuperuser} />
-      <div className="workspace-nav-actions"><span className="workspace-user">{user.username} · 平台管理员</span><button className="btn btn-secondary" type="button" onClick={() => void signOut()}><LogOut size={16} />退出</button></div>
-    </header>
-    <div className="app-main workspace-main"><div className="app-main-inner">
+  return <>
+
       <div className="page-heading"><div className="page-heading-copy"><p className="page-kicker">Integration health</p><h1 className="page-title">API 接入监测</h1><p className="page-description">检查从旧版主分支迁入的服务调用链路。状态摘要只读取当前配置；外部服务和模型测试需要逐次同意。</p></div><span className="status-badge status-success">管理员功能</span></div>
       {error && <div className="notice-error workspace-notice" role="alert">{error}</div>}
       <section className="panel integration-overview">
@@ -131,6 +119,6 @@ export function ApiIntegrationPage() {
         })}</div>
       </section>
       {currentResult && <section className="panel integration-detail"><h2 className="section-title-sm">当前结果：{checks.find((item) => item.id === activeTarget)?.title}</h2><JsonBlock value={currentResult} /></section>}
-    </div></div>
-  </main>;
+
+  </>;
 }

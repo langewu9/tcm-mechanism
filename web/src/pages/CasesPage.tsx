@@ -1,10 +1,9 @@
-import { WorkspaceModuleNav } from "../components/WorkspaceModuleNav";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { Link, useNavigate, useOutletContext } from "react-router-dom";
-import { ArrowLeft, BookOpen, FileHeart, LogOut, Plus, Sparkles, Trash2 } from "lucide-react";
+import { Link, useOutletContext } from "react-router-dom";
+import { ArrowLeft, BookOpen, FileHeart, Plus, Sparkles, Trash2 } from "lucide-react";
 import { approveMedicalCase, createMedicalCase, deleteMedicalCase, getMedicalCaseAnalysis, getMedicalCaseAudit, getMedicalCases, reviewMedicalCaseCandidate, startMedicalCaseAnalysis, type CaseAuditEvent, type CaseEvidence, type CaseKnowledgeEvidence, type MedicalCase, type MedicalCaseCandidate, type MedicalCaseAnalysis, type Page } from "../api/cases";
 import { getAnalysisTask, type AnalysisTask } from "../api/datasets";
-import { logout, type Session } from "../api/auth";
+import { type Session } from "../api/auth";
 import { ApiError } from "../api/client";
 
 function valueOf(data: Record<string, unknown>, key: string) {
@@ -66,7 +65,6 @@ function taskStatusLabel(task: AnalysisTask | null) {
 
 export function CasesPage() {
   const user = useOutletContext<NonNullable<Session["user"]>>();
-  const navigate = useNavigate();
   const analysisRequestSequence = useRef(0);
   const [page, setPage] = useState<Page<MedicalCase> | null>(null);
   const [pageNumber, setPageNumber] = useState(1);
@@ -293,29 +291,8 @@ export function CasesPage() {
     }
   }
 
-  async function signOut() {
-    setError(null);
-    try {
-      await logout();
-      navigate("/login", { replace: true });
-    } catch (cause) {
-      setError(errorMessage(cause));
-    }
-  }
+  return <>
 
-  return <main className="workspace-page">
-    <header className="workspace-nav">
-      <Link to="/" className="site-brand" aria-label="远志 AI Scientist 首页">
-        <img src="/images/yuanzhi-mark.png" alt="" width={42} height={42} className="brand-mark" />
-        <span><strong>远志 AI Scientist</strong><small>研究者工作区</small></span>
-      </Link>
-      <WorkspaceModuleNav isSuperuser={user.isSuperuser} />
-      <div className="workspace-nav-actions"><span className="workspace-user">{user.username}{user.isSuperuser ? " · 平台管理员" : " · 研究者"}</span>
-        <button className="btn btn-secondary" type="button" onClick={signOut}><LogOut size={16} />退出</button>
-      </div>
-    </header>
-
-    <div className="app-main workspace-main"><div className="app-main-inner">
       <div className="page-heading"><div className="page-heading-copy"><p className="page-kicker">Medical cases</p><h1 className="page-title">结构化医案库</h1>
         <p className="page-description">记录去标识化后的症状、舌脉、诊断与资料来源。每条记录都关联当前账号，普通研究者只能查看自己的医案。</p></div>
         <Link to="/" className="btn btn-secondary"><ArrowLeft size={16} />返回首页</Link>
@@ -378,8 +355,8 @@ export function CasesPage() {
             <span>第 {pageNumber} 页</span><button className="btn btn-secondary" type="button" disabled={!page.next || loading} onClick={() => setPageNumber((value) => value + 1)}>下一页</button></div>}
         </section>
       </div>
-    </div></div>
-  </main>;
+
+  </>;
 }
 
 function CaseAnalysisPanel({

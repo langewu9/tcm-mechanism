@@ -1,9 +1,7 @@
-import { WorkspaceModuleNav } from "../components/WorkspaceModuleNav";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Link, useNavigate, useOutletContext } from "react-router-dom";
-import { ArrowLeft, Database, Download, LogOut, Trash2, Upload } from "lucide-react";
+import { Link } from "react-router-dom";
+import { ArrowLeft, Database, Download, Trash2, Upload } from "lucide-react";
 import { deleteDataset, getDatasets, uploadDataset, type DatasetPage, type ResearchDataset } from "../api/datasets";
-import { logout, type Session } from "../api/auth";
 import { ApiError } from "../api/client";
 
 function errorMessage(error: unknown) {
@@ -17,8 +15,6 @@ function formatBytes(bytes: number) {
 }
 
 export function DatasetsPage() {
-  const user = useOutletContext<NonNullable<Session["user"]>>();
-  const navigate = useNavigate();
   const [page, setPage] = useState<DatasetPage | null>(null);
   const [pageNumber, setPageNumber] = useState(1);
   const [refresh, setRefresh] = useState(0);
@@ -68,24 +64,8 @@ export function DatasetsPage() {
     finally { setDeletingId(null); }
   }
 
-  async function signOut() {
-    setError(null);
-    try { await logout(); navigate("/login", { replace: true }); }
-    catch (cause) { setError(errorMessage(cause)); }
-  }
+  return <>
 
-  return <main className="workspace-page">
-    <header className="workspace-nav">
-      <Link to="/" className="site-brand" aria-label="远志 AI Scientist 首页">
-        <img src="/images/yuanzhi-mark.png" alt="" width={42} height={42} className="brand-mark" />
-        <span><strong>远志 AI Scientist</strong><small>研究者工作区</small></span>
-      </Link>
-      <WorkspaceModuleNav isSuperuser={user.isSuperuser} />
-      <div className="workspace-nav-actions"><span className="workspace-user">{user.username}{user.isSuperuser ? " · 平台管理员" : " · 研究者"}</span>
-        <button className="btn btn-secondary" type="button" onClick={signOut}><LogOut size={16} />退出</button></div>
-    </header>
-
-    <div className="app-main workspace-main"><div className="app-main-inner">
       <div className="page-heading"><div className="page-heading-copy"><p className="page-kicker">Research datasets</p><h1 className="page-title">研究数据资产</h1>
         <p className="page-description">上传的原始文件保存在服务器私有存储中，并记录提交者、文件大小和 SHA-256 校验值。研究者只能访问自己的数据集。</p></div>
         <Link to="/cases" className="btn btn-secondary"><ArrowLeft size={16} />医案管理</Link>
@@ -123,6 +103,6 @@ export function DatasetsPage() {
             <span>第 {pageNumber} 页</span><button className="btn btn-secondary" type="button" disabled={!page.next || loading} onClick={() => setPageNumber((value) => value + 1)}>下一页</button></div>}
         </section>
       </div>
-    </div></div>
-  </main>;
+
+  </>;
 }

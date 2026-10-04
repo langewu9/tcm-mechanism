@@ -1,7 +1,6 @@
-import { WorkspaceModuleNav } from "../components/WorkspaceModuleNav";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { Link, useNavigate, useOutletContext } from "react-router-dom";
-import { Activity, ArrowLeft, Download, LogOut, Play, RefreshCw } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Activity, ArrowLeft, Download, Play, RefreshCw } from "lucide-react";
 import {
   getAnalysisTask,
   getAnalysisTasks,
@@ -14,7 +13,6 @@ import {
   type ProteomicsRowPage,
   type ResearchDataset,
 } from "../api/datasets";
-import { logout, type Session } from "../api/auth";
 import { ApiError } from "../api/client";
 import { createVisualization } from "../api/network";
 
@@ -138,8 +136,6 @@ function downloadBlob(filename: string, blob: Blob) {
 }
 
 export function ProteomicsPage() {
-  const user = useOutletContext<NonNullable<Session["user"]>>();
-  const navigate = useNavigate();
   const [datasets, setDatasets] = useState<ResearchDataset[]>([]);
   const [datasetId, setDatasetId] = useState<number | "">("");
   const [task, setTask] = useState<AnalysisTask | null>(null);
@@ -361,12 +357,6 @@ export function ProteomicsPage() {
     }
   }
 
-  async function signOut() {
-    setError(null);
-    try { await logout(); navigate("/login", { replace: true }); }
-    catch (cause) { setError(errorMessage(cause)); }
-  }
-
   async function exportRows(format: "csv" | "xlsx" | "pdf") {
     if (!task) return;
     setError(null);
@@ -404,18 +394,8 @@ export function ProteomicsPage() {
     }
   }
 
-  return <main className="workspace-page">
-    <header className="workspace-nav">
-      <Link to="/" className="site-brand" aria-label="远志 AI Scientist 首页">
-        <img src="/images/yuanzhi-mark.png" alt="" width={42} height={42} className="brand-mark" />
-        <span><strong>远志 AI Scientist</strong><small>研究者工作区</small></span>
-      </Link>
-      <WorkspaceModuleNav isSuperuser={user.isSuperuser} />
-      <div className="workspace-nav-actions"><span className="workspace-user">{user.username}{user.isSuperuser ? " · 平台管理员" : " · 研究者"}</span>
-        <button className="btn btn-secondary" type="button" onClick={signOut}><LogOut size={16} />退出</button></div>
-    </header>
+  return <>
 
-    <div className="app-main workspace-main"><div className="app-main-inner">
       <div className="page-heading"><div className="page-heading-copy"><p className="page-kicker">Proteomics analysis</p><h1 className="page-title">差异蛋白组学分析</h1>
         <p className="page-description">复用 main 分支的差异蛋白筛选和本地网络逻辑；逐行保留筛选、映射和排除原因，未验证的符号会明确标出。</p></div>
         <Link to="/datasets" className="btn btn-secondary"><ArrowLeft size={16} />数据集管理</Link>
@@ -525,8 +505,8 @@ export function ProteomicsPage() {
             </article>}
         </section>
       </div>
-    </div></div>
-  </main>;
+
+  </>;
 }
 
 function Metric({ label, value, note }: { label: string; value: string | number; note?: string }) {

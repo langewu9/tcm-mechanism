@@ -1,8 +1,7 @@
-import { WorkspaceModuleNav } from "../components/WorkspaceModuleNav";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link, Navigate, useOutletContext } from "react-router-dom";
 import { ArrowLeft, CheckCircle2, Database, RefreshCw, Trash2 } from "lucide-react";
-import { logout, type Session } from "../api/auth";
+import { type Session } from "../api/auth";
 import {
   getAdminDataSources,
   getSyncRuns,
@@ -91,11 +90,6 @@ export function SourcesPage() {
 
   if (!user.isSuperuser) return <Navigate to="/cases" replace />;
 
-  async function signOut() {
-    try { await logout(); window.location.assign("/login"); }
-    catch (cause) { setError(errorMessage(cause)); }
-  }
-
   async function startPreview(source: AdminDataSource) {
     setBusy(source.id);
     setError(null);
@@ -171,18 +165,8 @@ export function SourcesPage() {
     finally { setDeletingSourceId(null); }
   }
 
-  return <main className="workspace-page">
-    <header className="workspace-nav">
-      <Link to="/" className="site-brand" aria-label="远志 AI Scientist 首页">
-        <img src="/images/yuanzhi-mark.png" alt="" width={42} height={42} className="brand-mark" />
-        <span><strong>远志 AI Scientist</strong><small>平台管理</small></span>
-      </Link>
-      <WorkspaceModuleNav isSuperuser={user.isSuperuser} />
-      <div className="workspace-nav-actions"><span className="workspace-user">{user.username} · 平台管理员</span>
-        <button className="btn btn-secondary" type="button" onClick={() => void signOut()}>退出</button></div>
-    </header>
+  return <>
 
-    <div className="app-main workspace-main"><div className="app-main-inner">
       <div className="page-heading"><div className="page-heading-copy"><p className="page-kicker">Source catalogue</p><h1 className="page-title">数据源同步</h1>
         <p className="page-description">先试运行并检查差异，确认后再应用到本地知识目录。每次操作都会记录管理员、来源版本和文件校验值。</p></div>
         <Link to="/proteomics" className="btn btn-secondary"><ArrowLeft size={16} />返回研究工作区</Link>
@@ -342,8 +326,8 @@ export function SourcesPage() {
           </div> : <div className="panel empty-state"><Database size={26} /><strong>暂无同步记录</strong><p>点击“检查目录变更”创建一次只读预览。</p></div>}
         </div>
       </section>
-    </div></div>
-  </main>;
+
+  </>;
 }
 
 function Metric({ label, value }: { label: string; value: number }) {

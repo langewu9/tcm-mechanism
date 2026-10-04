@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { Link, Navigate, useNavigate, useOutletContext } from "react-router-dom";
-import { Database, LogOut, ShieldCheck, Users } from "lucide-react";
-import { logout, type Session } from "../api/auth";
+import { Link, Navigate, useOutletContext } from "react-router-dom";
+import { Database, ShieldCheck, Users } from "lucide-react";
+import { type Session } from "../api/auth";
 import { getAdminOverview, type AdminOverview, type AdminOverviewTask } from "../api/admin";
 import { ApiError } from "../api/client";
 
@@ -38,7 +38,6 @@ function AdminSummary({ title, kind, items, loading }: {
 
 export function AdminOverviewPage() {
   const user = useOutletContext<NonNullable<Session["user"]>>();
-  const navigate = useNavigate();
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -51,11 +50,6 @@ export function AdminOverviewPage() {
     return () => { active = false; };
   }, []);
 
-  async function signOut() {
-    try { await logout(); navigate("/login", { replace: true }); }
-    catch (cause) { setError(errorMessage(cause)); }
-  }
-
   if (!user.isSuperuser) return <Navigate to="/dashboard" replace />;
 
   const users = overview?.users ?? [];
@@ -66,14 +60,9 @@ export function AdminOverviewPage() {
     { label: "研究者", value: users.length - adminCount, icon: Database },
   ];
 
-  return <main className="workspace-page">
-    <header className="workspace-nav">
-      <Link to="/" className="site-brand" aria-label="远志 AI Scientist 首页"><img src="/images/yuanzhi-mark.png" alt="" width={42} height={42} className="brand-mark" /><span><strong>远志 AI Scientist</strong><small>平台管理</small></span></Link>
-      <nav className="workspace-module-nav" aria-label="平台管理"><Link to="/admin" aria-current="page">系统总览</Link><Link to="/admin/sources">数据源同步</Link><Link to="/admin/integrations">API 接入监测</Link></nav>
-      <div className="workspace-nav-actions"><span className="workspace-user">{user.username} · 平台管理员</span><button className="btn btn-secondary" type="button" onClick={() => void signOut()}><LogOut size={16} />退出</button></div>
-    </header>
-    <div className="app-main workspace-main"><div className="app-main-inner">
-      <div className="page-heading"><div className="page-heading-copy"><p className="page-kicker">Platform administration</p><h1 className="page-title">系统总览</h1><p className="page-description">查看平台账号及近期研究数据集、分析任务。此页面仅平台超级管理员可访问。</p></div><span className="status-badge status-success">管理员</span></div>
+  return <>
+
+      <div className="page-heading"><div className="page-heading-copy"><p className="page-kicker">Platform administration</p><h1 className="page-title">系统总览</h1><p className="page-description">查看平台账号及近期研究数据集、分析任务。此页面仅平台超级管理员可访问。</p></div><div className="flex flex-wrap items-center gap-3"><span className="status-badge status-success">管理员</span><Link className="btn btn-secondary" to="/admin/sources">管理知识源</Link></div></div>
       {error && <div className="notice-error workspace-notice" role="alert">{error}</div>}
       <div className="dashboard-stat-grid" aria-label="平台用户统计">
         {metrics.map((item) => <article className="stat-card" key={item.label}><span className="stat-card-icon"><item.icon size={20} /></span><div><p>{item.label}</p><strong>{loading ? "…" : item.value.toLocaleString("zh-CN")}</strong></div></article>)}
@@ -90,6 +79,6 @@ export function AdminOverviewPage() {
         </div> : <div className="empty-state"><strong>暂无用户</strong><p>注册账号将在这里显示。</p></div>}
       </section>
       <div className="dashboard-detail-grid"><AdminSummary title="数据集" kind="datasets" items={overview?.datasets ?? []} loading={loading} /><AdminSummary title="分析任务" kind="tasks" items={overview?.tasks ?? []} loading={loading} /></div>
-    </div></div>
-  </main>;
+
+  </>;
 }

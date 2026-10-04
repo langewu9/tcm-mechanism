@@ -1,8 +1,7 @@
-import { WorkspaceModuleNav } from "../components/WorkspaceModuleNav";
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useOutletContext } from "react-router-dom";
-import { Activity, ArrowRight, BookOpenCheck, Database, FileSearch, FileText, FlaskConical, Leaf, LogOut, Network, Pill, Route, Upload } from "lucide-react";
-import { logout, type Session } from "../api/auth";
+import { Link, useOutletContext } from "react-router-dom";
+import { Activity, ArrowRight, BookOpenCheck, Database, FileSearch, FileText, FlaskConical, Leaf, Network, Pill, Route, Upload } from "lucide-react";
+import { type Session } from "../api/auth";
 import { ApiError } from "../api/client";
 import { getResearchDashboard, type DashboardTask, type ResearchDashboard } from "../api/catalog";
 
@@ -39,7 +38,6 @@ function taskStatusClass(status: DashboardTask["status"]) {
 
 export function DashboardPage() {
   const user = useOutletContext<NonNullable<Session["user"]>>();
-  const navigate = useNavigate();
   const [dashboard, setDashboard] = useState<ResearchDashboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -55,15 +53,6 @@ export function DashboardPage() {
     });
     return () => { active = false; };
   }, []);
-
-  async function signOut() {
-    try {
-      await logout();
-      navigate("/login", { replace: true });
-    } catch (cause) {
-      setError(errorMessage(cause));
-    }
-  }
 
   const stats = dashboard?.stats;
   const metricCards = [
@@ -84,18 +73,8 @@ export function DashboardPage() {
     { href: "/cases", title: "管理医案记录", description: "录入脱敏医案并查看候选证据", icon: BookOpenCheck },
   ];
 
-  return <main className="workspace-page">
-    <header className="workspace-nav">
-      <Link to="/" className="site-brand" aria-label="远志 AI Scientist 首页">
-        <img src="/images/yuanzhi-mark.png" alt="" width={42} height={42} className="brand-mark" />
-        <span><strong>远志 AI Scientist</strong><small>研究者工作区</small></span>
-      </Link>
-      <WorkspaceModuleNav isSuperuser={user.isSuperuser} />
-      <div className="workspace-nav-actions"><span className="workspace-user">{user.username}{user.isSuperuser ? " · 平台管理员" : " · 研究者"}</span>
-        <button className="btn btn-secondary" type="button" onClick={() => void signOut()}><LogOut size={16} />退出</button></div>
-    </header>
+  return <>
 
-    <div className="app-main workspace-main"><div className="app-main-inner">
       <div className="page-heading"><div className="page-heading-copy"><p className="page-kicker">Workspace overview</p><h1 className="page-title">{user.username}，欢迎回来</h1>
         <p className="page-description">查看研究资产、知识库规模与近期任务，然后继续研究工作。</p></div><span className="status-badge status-success">本地知识目录</span>
       </div>
@@ -126,6 +105,6 @@ export function DashboardPage() {
           {knowledge.map((item) => <dl className="knowledge-stat" key={item.label}><span><item.icon size={16} /></span><dt>{item.label}</dt><dd>{formatCount(item.value, loading)}</dd></dl>)}
         </section>
       </div>
-    </div></div>
-  </main>;
+
+  </>;
 }
