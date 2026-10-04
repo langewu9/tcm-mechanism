@@ -1,6 +1,6 @@
 // Tabs, query/result layout and labels adapted from origin/main@078d374:
 // src/components/ResearchWorkbench.tsx. Data and consent stay on the Django APIs.
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { Activity, Beaker, Database, Download, FileJson, GitCompareArrows, Leaf, Route, Search, Sparkles, Table2 } from "lucide-react";
 import { ApiError } from "../api/client";
@@ -67,31 +67,67 @@ export function ResearchToolTabs() {
   const [detailBusy, setDetailBusy] = useState(false);
   const requestId = useRef(0);
   const detailRequest = useRef(0);
+  const requestLock = useRef<number | null>(null);
+  const detailLock = useRef<number | null>(null);
+  const mounted = useRef(true);
+  const consentCurrent = useRef(false);
+  const toolGeneration = useRef(0);
+  const generation = toolGeneration.current;
+  const displayedRequest = requestId.current;
   const selectedTool = tools.find((tool) => tool.id === active)!;
   const hasResult = Boolean(evidence || chembl || comparison || pathways || network || diseaseEvidence || entityPage);
 
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      requestId.current += 1; detailRequest.current += 1;
+      requestLock.current = null; detailLock.current = null;
+    };
+  }, []);
+
+  const currentTool = () => mounted.current && toolGeneration.current === generation;
+  const currentRequest = (id: number) => mounted.current && requestId.current === id;
+  const currentDetail = (id: number) => mounted.current && detailRequest.current === id;
+
+  function updateConsent(value: boolean) {
+    consentCurrent.current = value; setConsent(value);
+  }
+
+  function resetDetails() {
+    detailRequest.current += 1; detailLock.current = null;
+    setSelected(null); setNeighborhood(null); setChemblActivity(null);
+    setChemblBusyId(null); setDetailBusy(false);
+  }
+
   function resetResults() {
-    setEvidence(null); setChembl(null); setChemblActivity(null); setComparison(null); setPathways(null); setNetwork(null); setDiseaseEvidence(null); setEntityPage(null); setSelected(null); setNeighborhood(null);
-    setChemblBusyId(null); setDetailBusy(false); detailRequest.current += 1;
+    setEvidence(null); setChembl(null); setComparison(null); setPathways(null); setNetwork(null); setDiseaseEvidence(null); setEntityPage(null);
+    resetDetails();
   }
 
   function changeTool(action: Action) {
-    requestId.current += 1;
-    setActive(action); setError(null); setBusy(false); resetResults();
+    toolGeneration.current += 1; requestId.current += 1; requestLock.current = null;
+    setActive(action); updateConsent(false); setError(null); setBusy(false); resetResults();
     if (examples[action] !== undefined) setQuery(examples[action]!);
   }
 
   async function run<T>(request: () => Promise<T>, receive: (data: T) => void) {
+    if (!currentTool() || requestLock.current !== null) return;
     const id = ++requestId.current;
+    requestLock.current = id;
     setBusy(true); setError(null);
-    try { const data = await request(); if (requestId.current === id) receive(data); }
-    catch (cause) { if (requestId.current === id) setError(errorMessage(cause)); }
-    finally { if (requestId.current === id) setBusy(false); }
+    try { const data = await request(); if (currentRequest(id)) receive(data); }
+    catch (cause) { if (currentRequest(id)) setError(errorMessage(cause)); }
+    finally {
+      if (requestLock.current === id) requestLock.current = null;
+      if (currentRequest(id)) setBusy(false);
+    }
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (active === "chembl" && !consent) { setError("请先阅读并勾选外部查询同意项。"); return; }
+    if (!currentTool() || requestLock.current !== null) return;
+    if (active === "chembl" && !consentCurrent.current) { setError("请先阅读并勾选外部查询同意项。"); return; }
     if ((active === "herb" || active === "component")) {
       const queries = [...new Set(query.split(/[,，、;；|/\n\r]+/).map((name) => name.trim()).filter(Boolean))];
       if (!queries.length || queries.length > maxBatchItems) { setError(queries.length ? `每次最多查询 ${maxBatchItems} 个名称。` : "请输入至少一个名称。"); return; }
@@ -99,7 +135,7 @@ export function ResearchToolTabs() {
       resetResults();
       await run(() => searchHerbComponentEvidence(active === "herb" ? "herb" : "compound", queries), setEvidence);
     } else if (active === "chembl") {
-      resetResults(); await run(() => searchChemblMolecules(query.trim(), true), setChembl);
+      updateConsent(false); resetResults(); await run(() => searchChemblMolecules(query.trim(), true), setChembl);
     } else if (active === "compare") {
       resetResults(); await run(() => compareComponents(detected, reference), setComparison);
     } else if (active === "pathway") {
@@ -116,24 +152,40 @@ export function ResearchToolTabs() {
   }
 
   async function loadEntities(page: number) {
+    if (!currentTool() || requestId.current !== displayedRequest || requestLock.current !== null) return;
+    resetDetails();
     await run(() => searchCatalogEntities(activeQuery, activeType, page), (data) => { setEntityPage(data); setPageNumber(page); });
   }
 
   async function selectEntity(entity: KnowledgeEntity) {
+    if (!currentTool() || requestId.current !== displayedRequest || requestLock.current !== null) return;
     const id = ++detailRequest.current;
     setSelected(entity); setNeighborhood(null); setDetailBusy(true); setError(null);
-    try { const data = await getEntityNeighborhood(entity.id); if (detailRequest.current === id) setNeighborhood(data); }
-    catch (cause) { if (detailRequest.current === id) setError(errorMessage(cause)); }
-    finally { if (detailRequest.current === id) setDetailBusy(false); }
+    try {
+      const data = await getEntityNeighborhood(entity.id);
+      if (data.entity.id !== entity.id) throw new ApiError("来源证据与所选实体不一致，请重新加载。", "EVIDENCE_SOURCE_MISMATCH", null, null, 502);
+      if (currentDetail(id)) setNeighborhood(data);
+    }
+    catch (cause) { if (currentDetail(id)) setError(errorMessage(cause)); }
+    finally { if (currentDetail(id)) setDetailBusy(false); }
   }
 
   async function loadChemblActivities(chemblId: string) {
-    if (!consent) { setError("请先勾选同意项，再查询该化合物的活性数据。"); return; }
+    if (!currentTool() || requestId.current !== displayedRequest || requestLock.current !== null || detailLock.current !== null) return;
+    if (!consentCurrent.current) { setError("请先勾选同意项，再查询该化合物的活性数据。"); return; }
     const id = ++detailRequest.current;
+    detailLock.current = id; updateConsent(false);
     setChemblBusyId(chemblId); setChemblActivity(null); setError(null);
-    try { const data = await searchChemblActivities(chemblId, true); if (detailRequest.current === id) setChemblActivity(data); }
-    catch (cause) { if (detailRequest.current === id) setError(errorMessage(cause)); }
-    finally { if (detailRequest.current === id) setChemblBusyId(null); }
+    try {
+      const data = await searchChemblActivities(chemblId, true);
+      if (data.chemblId !== chemblId) throw new ApiError("活性数据与所选 ChEMBL 化合物不一致，请重新查询。", "EVIDENCE_SOURCE_MISMATCH", null, null, 502);
+      if (currentDetail(id)) setChemblActivity(data);
+    }
+    catch (cause) { if (currentDetail(id)) setError(errorMessage(cause)); }
+    finally {
+      if (detailLock.current === id) detailLock.current = null;
+      if (currentDetail(id)) setChemblBusyId(null);
+    }
   }
 
   return <div className="space-y-5 research-workbench">
@@ -158,9 +210,9 @@ export function ResearchToolTabs() {
           </> : active === "compare" ? <>
             <label className="form-label" htmlFor="detected-components">检测成分（中文 / 英文 / 拉丁，可多个）<textarea id="detected-components" className="field" value={detected} maxLength={6000} onChange={(event) => setDetected(event.target.value)} required /></label>
             <label className="form-label" htmlFor="reference-components">参考成分（中文 / 英文 / 拉丁，可多个）<textarea id="reference-components" className="field" value={reference} maxLength={6000} onChange={(event) => setReference(event.target.value)} required /></label>
-          </> : active === "herb" ? <label className="form-label" htmlFor="research-query">中药名称（可输入多个）<textarea id="research-query" className="field" value={query} maxLength={maxBatchQueryLength} onChange={(event) => setQuery(event.target.value)} placeholder="例如：麦冬、半夏、人参、大枣、甘草、粳米" required /></label> : active === "component" ? <label className="form-label" htmlFor="research-query">成分名称（中文 / 英文 / 拉丁）<input id="research-query" className="field" value={query} maxLength={maxBatchQueryLength} onChange={(event) => setQuery(event.target.value)} placeholder="例如：甘草酸 / Glycyrrhizic acid" required /></label> : <label className="form-label" htmlFor="research-query">{active === "chembl" ? "分子名称（中文 / 英文 / 拉丁 / ChEMBL 规范名）" : active === "pathway" ? "通路名称或稳定 ID" : "检索词"}<input id="research-query" className="field" value={query} maxLength={active === "pathway" ? 160 : 120} onChange={(event) => setQuery(event.target.value)} placeholder={active === "pathway" ? "例如：Interleukin 或 R-HSA-449147" : active === "chembl" ? "例如：甘草酸 / Glycyrrhizic acid" : `例如：${examples[active] || "肺纤维化、麦冬、TP53"}`} required={active !== "pathway"} /></label>}
+          </> : active === "herb" ? <label className="form-label" htmlFor="research-query">中药名称（可输入多个）<textarea id="research-query" className="field" value={query} maxLength={maxBatchQueryLength} onChange={(event) => setQuery(event.target.value)} placeholder="例如：麦冬、半夏、人参、大枣、甘草、粳米" required /></label> : active === "component" ? <label className="form-label" htmlFor="research-query">成分名称（中文 / 英文 / 拉丁）<input id="research-query" className="field" value={query} maxLength={maxBatchQueryLength} onChange={(event) => setQuery(event.target.value)} placeholder="例如：甘草酸 / Glycyrrhizic acid" required /></label> : <label className="form-label" htmlFor="research-query">{active === "chembl" ? "分子名称（中文 / 英文 / 拉丁 / ChEMBL 规范名）" : active === "pathway" ? "通路名称或稳定 ID" : "检索词"}<input id="research-query" className="field" value={query} maxLength={active === "pathway" ? 160 : 120} onChange={(event) => { setQuery(event.target.value); if (active === "chembl") updateConsent(false); }} placeholder={active === "pathway" ? "例如：Interleukin 或 R-HSA-449147" : active === "chembl" ? "例如：甘草酸 / Glycyrrhizic acid" : `例如：${examples[active] || "肺纤维化、麦冬、TP53"}`} required={active !== "pathway"} /></label>}
           {active === "catalogue" && <label className="form-label" htmlFor="catalog-type">实体类型<select className="field" id="catalog-type" value={entityType} onChange={(event) => setEntityType(event.target.value)}>{entityTypes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>}
-          {active === "chembl" && <label className="chembl-consent"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} /><span>我同意将输入的查询词、main 内置别名展开的检索词，以及选中的 ChEMBL 编号发送到 ChEMBL 官方服务。不会发送医案正文、上传文件或账号标识。</span></label>}
+          {active === "chembl" && <label className="chembl-consent"><input type="checkbox" checked={consent} onChange={(event) => updateConsent(event.target.checked)} /><span>我同意将输入的查询词、main 内置别名展开的检索词，以及选中的 ChEMBL 编号发送到 ChEMBL 官方服务。不会发送医案正文、上传文件或账号标识。每次查询后同意项会清除；查看活性需重新勾选。</span></label>}
           {active === "herb" || active === "component" ? <p className="section-help">支持逗号、分号、顿号、竖线或换行分隔，每次最多 12 项。仅查询已导入且启用的目录，不连接旧电脑的 Excel / SQLite 文件。</p> : active === "compare" ? <p className="section-help">每侧最多 100 项，按 main 名称表进行标准化；同家族只标候选，不计入精确交集。不会向外部服务发送名称。</p> : active === "pathway" ? <p className="section-help">检索已同步的本地目录；输入为空时展示按名称排序的前 100 项。</p> : active === "disease" ? <p className="section-help">使用 main 疾病别名表扩展查询词，只返回已导入且当前启用来源中的实体与关联证据；别名不代表药理证据。</p> : active === "catalogue" ? <p className="section-help">只展示已导入目录和来源证据；未导入的名称会返回空结果，不生成推测记录。</p> : null}
           {error && <div className="notice-error" role="alert">{error}</div>}
           <button className="btn btn-primary" disabled={busy} type="submit"><Search size={17} />{busy ? "正在检索..." : "开始检索"}</button>
@@ -190,16 +242,21 @@ export function ResearchToolTabs() {
 }
 
 function EvidenceResults({ data }: { data: HerbEvidenceSearch }) {
-  const matches = data.results.flatMap((item) => item.matches);
-  const compounds = data.results.flatMap((item) => item.compounds);
-  const targets = data.results.flatMap((item) => item.targets);
+  const uniqueEntities = <T extends { id: number }>(items: T[]) => [...new Map(items.map((item) => [item.id, item])).values()];
+  const matches = uniqueEntities(data.results.flatMap((item) => item.matches));
+  const compounds = uniqueEntities(data.results.flatMap((item) => item.compounds));
+  const targets = uniqueEntities(data.results.flatMap((item) => item.targets));
   const relations = data.results.flatMap((item) => item.relations.map((row) => ({ query: item.query, ...row })));
-  const uniqueCount = (items: typeof matches) => new Set(items.map((item) => item.id)).size;
   const label = data.queryType === "herb" ? "中药检索结果" : "成分检索结果";
   return <>
     <div className="panel-header"><div><h3 className="section-title-sm">{label}</h3><p className="section-help">{data.results.map((item) => item.query).join("、")}</p></div><span className="status-badge status-success">查询完成</span></div>
     <div className="case-form-fields">
-      <div className="np-metrics"><div><span>{data.queryType === "herb" ? "匹配中药" : "命中成分"}</span><strong>{uniqueCount(matches)}</strong></div><div><span>关联成分</span><strong>{uniqueCount(compounds)}</strong></div><div><span>作用靶点</span><strong>{uniqueCount(targets)}</strong></div><div><span>返回关系记录</span><strong>{relations.length}</strong></div></div>
+      <div className="np-metrics"><div><span>{data.queryType === "herb" ? "匹配中药" : "命中成分"}</span><strong>{matches.length}</strong></div><div><span>关联成分</span><strong>{compounds.length}</strong></div><div><span>作用靶点</span><strong>{targets.length}</strong></div><div><span>返回关系记录</span><strong>{relations.length}</strong></div></div>
+      {data.queryType === "herb" && <div className="table-scroll"><table className="data-table" aria-label="逐项中药检索汇总">
+        <thead><tr><th>检索词</th><th>命中中药</th><th>成分数</th><th>靶点数</th><th>返回关系</th></tr></thead>
+        <tbody>{data.results.map((item) => <tr key={item.query}><td>{item.query}</td><td>{item.matches.map((entity) => entity.label).join("、") || "未匹配"}</td><td>{uniqueEntities(item.compounds).length}</td><td>{uniqueEntities(item.targets).length}</td><td>{item.relations.length}{item.truncated ? "+" : ""}</td></tr>)}</tbody>
+      </table></div>}
+      <p className="section-help">成分和靶点清单按实体 ID 去重，同名不同标识并列保留。关系表按检索词保留返回证据，完整 JSON 包含各项查询与截断状态。</p>
       <div className="download-panel">
         <button type="button" onClick={() => csvDownload("herb-component-evidence.csv", ["检索词", "来源库", "来源版本", "原始记录号", "主体", "主体类型", "关系", "客体", "客体类型", "证据类型", "分值"], relations.map((row) => [row.query, row.sourceSlug, row.sourceVersion, row.sourceRecordId, row.subject, row.subjectType, row.relationType, row.object, row.objectType, row.evidenceType, row.score]))}><Table2 size={15} />导出成分-靶点表</button>
         <button type="button" onClick={() => csvDownload("herb-components.csv", ["成分", "稳定 ID", "来源", "版本"], compounds.map((row) => [row.label, row.stableId, row.sourceSlug, row.sourceVersion]))}><Download size={15} />导出成分清单</button>
@@ -225,7 +282,7 @@ function ChemblResults({ data, activities, busyId, consent, onActivities }: { da
   return <>
     <div className="panel-header"><div><h3 className="section-title-sm">ChEMBL 检索结果</h3><p className="section-help">{data.results.length} / {data.totalCount} 条 · {data.source} {data.sourceVersion}</p></div><span className="status-badge status-success">查询完成</span></div>
     <div className="case-form-fields"><p className="knowledge-evidence-source">数据版本 {data.sourceVersion}{data.releaseDate ? `（${data.releaseDate}）` : ""} · 查询时间 {new Date(data.retrievedAt).toLocaleString()} · <a href="https://chembl.gitbook.io/chembl-interface-documentation/web-services/chembl-data-web-services" target="_blank" rel="noreferrer">官方 API 说明</a></p>{data.nameMatches.length > 0 && <p className="notice-info">项目内置名称对应：{data.nameMatches.map((item) => `${item.query} → ${item.english}${item.latin ? ` / ${item.latin}` : ""}（命中 ${item.hitCount}）`).join("；")}。别名源自 {data.aliasSource} @ {data.aliasSourceCommit}，只用于扩展检索词，尚未以当前项目的药物标准库核实。</p>}<p className="knowledge-evidence-source">发送到 ChEMBL 的检索词：{data.resolvedQueries.join("、") || "无"}{data.truncated ? ` · 结果已截断至 ${data.resultLimit} 条` : ""}</p>{data.failedQueries.length > 0 && <p className="notice-warning">部分别名查询未能连通，已展示成功返回的子查询：{data.failedQueries.join("、")}</p>}<div className="download-panel"><button type="button" onClick={() => jsonDownload(`chembl-molecules-${data.sourceVersion}.json`, data)}><FileJson size={15} />导出 JSON</button></div>
-      {!data.results.length ? <div className="empty-state"><strong>ChEMBL 没有返回匹配的化合物</strong><p>可以尝试英文通用名、其他别名或化合物编号。</p></div> : <div className="chembl-molecule-list">{data.results.map((molecule) => <article className="chembl-molecule-card" key={molecule.chemblId}><div className="chembl-molecule-copy"><h4>{molecule.preferredName || molecule.chemblId}</h4><p><a href={molecule.recordUrl} target="_blank" rel="noreferrer">{molecule.chemblId}</a>{molecule.moleculeType ? ` · ${molecule.moleculeType}` : ""}{molecule.maxPhase ? ` · 最高研发阶段 ${molecule.maxPhase}` : ""}{molecule.naturalProduct === 1 ? " · 天然产物" : molecule.naturalProduct === 0 ? " · 非天然产物" : " · 天然产物分类未标注"}</p>{molecule.canonicalSmiles && <details><summary>查看 canonical SMILES</summary><code>{molecule.canonicalSmiles}</code></details>}</div><button className="btn btn-secondary" type="button" disabled={busyId === molecule.chemblId || !consent} onClick={() => onActivities(molecule.chemblId)}>{busyId === molecule.chemblId ? "正在查询…" : "查看活性与靶点"}</button></article>)}</div>}
+      {!data.results.length ? <div className="empty-state"><strong>ChEMBL 没有返回匹配的化合物</strong><p>可以尝试英文通用名、其他别名或化合物编号。</p></div> : <div className="chembl-molecule-list">{data.results.map((molecule) => <article className="chembl-molecule-card" key={molecule.chemblId}><div className="chembl-molecule-copy"><h4>{molecule.preferredName || molecule.chemblId}</h4><p><a href={molecule.recordUrl} target="_blank" rel="noreferrer">{molecule.chemblId}</a>{molecule.moleculeType ? ` · ${molecule.moleculeType}` : ""}{molecule.maxPhase ? ` · 最高研发阶段 ${molecule.maxPhase}` : ""}{molecule.naturalProduct === 1 ? " · 天然产物" : molecule.naturalProduct === 0 ? " · 非天然产物" : " · 天然产物分类未标注"}</p>{molecule.canonicalSmiles && <details><summary>查看 canonical SMILES</summary><code>{molecule.canonicalSmiles}</code></details>}</div><button className="btn btn-secondary" type="button" disabled={busyId !== null || !consent} onClick={() => onActivities(molecule.chemblId)}>{busyId === molecule.chemblId ? "正在查询…" : "查看活性与靶点"}</button></article>)}</div>}
     </div>
     {activities && <section aria-live="polite"><div className="panel-header"><div><h3 className="section-title-sm">实验活性与靶点</h3><p className="section-help">{activities.chemblId} · {activities.sourceVersion} · {activities.results.length} / {activities.totalCount} 条</p></div><button className="btn btn-secondary" type="button" onClick={() => jsonDownload(`chembl-activities-${activities.chemblId}-${activities.sourceVersion}.json`, activities)}><Download size={15} />导出 JSON</button></div>{activities.results.length ? <PaginatedTable rows={activities.results} label="ChEMBL 活性" headers={["测定类型", "标准化结果", "pChEMBL", "靶点", "实验", "文献"]} rowKey={(row, index) => String(row.activityId ?? index)} renderCells={(row) => <><td>{row.standardType || "未标注"}</td><td>{row.relation} {row.value} {row.units}</td><td>{row.pchemblValue || "—"}</td><td>{row.targetName || "未标注"}{row.targetId && <small>{row.targetId}</small>}</td><td>{row.assayType || "—"} · {row.assayDescription || row.assayId || "未标注"}</td><td>{row.documentId || "—"}</td></>} /> : <div className="empty-state"><strong>没有可显示的实验活性记录</strong></div>}<div className="case-form-fields"><p className="knowledge-evidence-source">显示上限 {activities.resultLimit} 条 · 查询时间 {new Date(activities.retrievedAt).toLocaleString()} · 来源 <a href={`https://www.ebi.ac.uk/chembl/compound_report_card/${activities.chemblId}/`} target="_blank" rel="noreferrer">ChEMBL {activities.chemblId}</a></p>{activities.truncated && <p className="notice-warning">记录总数超过单次上限：先按 pChEMBL 值由高到低显示有该值的记录，再补充有标准化测量值的记录。</p>}<p className="notice-warning">活性值受实验条件、测定类型和靶点物种影响；这些记录不等于临床疗效，也不会自动推断为中药作用机制。</p></div></section>}
   </>;
