@@ -22,6 +22,7 @@ PATHWAY_TYPES = {
     "participatesin", "participates_in", "annotatedtopathway", "annotated_to_pathway",
     "associatedwithpathway", "associated_with_pathway",
 }
+STATISTICS_VERSION = "main-078d374-candidate-statistics-v1"
 
 
 class NetworkPharmacologyInputError(ValueError):
@@ -116,7 +117,7 @@ def build_network_pharmacology(
     diseases, matched_disease_names = _entity_matches(KnowledgeEntity.EntityType.DISEASE, [disease_query.strip()])
     herb_ids = {item.pk for item in herbs}
     disease_ids = {item.pk for item in diseases}
-    selected_herb_stable_ids = {item.stable_id for item in herbs}
+    selected_herbs_by_stable_id = {item.stable_id: item.label for item in herbs}
 
     herb_compound_relations = _relation_query(
         subject_ids=herb_ids, relation_types=HERB_COMPOUND_TYPES, limit=row_limit,
@@ -128,11 +129,6 @@ def build_network_pharmacology(
     disease_target_relations = _relation_query(
         subject_ids=disease_ids, relation_types=DISEASE_TARGET_TYPES, limit=row_limit,
     ) if diseases else []
-    pathway_relations = _relation_query(
-        subject_ids={relation.object_id for relation in compound_target_relations},
-        relation_types=PATHWAY_TYPES, limit=row_limit,
-    ) if compound_target_relations else []
-
     compound_by_id = {relation.object_id: relation.object for relation in herb_compound_relations}
     compound_target_counts: dict[int, set[int]] = defaultdict(set)
     compound_evidence: dict[int, dict] = defaultdict(lambda: {
@@ -160,7 +156,7 @@ def build_network_pharmacology(
         source_releases.add(relation.source_release_id)
 
     disease_evidence: dict[int, dict] = defaultdict(lambda: {
-        "diseases": set(), "sources": [], "count": 0, "directCount": 0,
+        "diseases": set(), "herbs": set(), "sources": [], "count": 0, "directCount": 0,
     })
     for relation in disease_target_relations:
         evidence = disease_evidence[relation.object_id]
@@ -168,21 +164,35 @@ def build_network_pharmacology(
         evidence["sources"].append(_evidence_record(relation))
         evidence["count"] += 1
         direct_herb = (relation.metadata or {}).get("herbStableId")
-        if direct_herb in selected_herb_stable_ids:
+        direct_herb_label = (
+            selected_herbs_by_stable_id.get(direct_herb) if isinstance(direct_herb, str) else None
+        )
+        if direct_herb_label is not None:
             evidence["directCount"] += 1
+            evidence["herbs"].add(direct_herb_label)
         source_releases.add(relation.source_release_id)
 
     strict_ids = set(herb_evidence) & set(disease_evidence)
     direct_ids = {
         entity_id for entity_id, evidence in disease_evidence.items()
-        if evidence["directCount"] and entity_id not in strict_ids
+        if evidence["directCount"]
     }
+    # Direct association and strict intersection describe independent evidence
+    # sets, so an overlapping target contributes to both summary counts. Their
+    # union still produces one target row, with strict intersection taking
+    # precedence in its displayed match type, as in main.
     target_ids = strict_ids | direct_ids
     target_entities = {
         item.pk: item for item in KnowledgeEntity.objects.filter(pk__in=target_ids, is_active=True).filter(
             Q(source_release__isnull=True) | Q(source_release__source__enabled=True)
         )
     }
+    # Main annotates every candidate, including a direct-only disease/herb
+    # target. Resolve those annotations from real, enabled catalogue evidence
+    # rather than limiting them to targets reached through compounds.
+    pathway_relations = _relation_query(
+        subject_ids=set(target_entities), relation_types=PATHWAY_TYPES, limit=row_limit,
+    ) if target_entities else []
     pathway_by_target: dict[int, set[str]] = defaultdict(set)
     pathway_sources_by_target: dict[int, list[dict]] = defaultdict(list)
     for relation in pathway_relations:
@@ -191,7 +201,9 @@ def build_network_pharmacology(
         source_releases.add(relation.source_release_id)
 
     targets = []
-    for entity_id in sorted(target_ids, key=lambda item: target_entities.get(item).label.casefold() if item in target_entities else ""):
+    for entity_id in sorted(target_ids, key=lambda item: (
+        target_entities[item].label.casefold(), target_entities[item].stable_id, item,
+    ) if item in target_entities else ("", "", item)):
         target = target_entities.get(entity_id)
         if target is None:
             continue
@@ -206,13 +218,32 @@ def build_network_pharmacology(
             "genes": (target.metadata or {}).get("symbol", target.label),
             "pathways": sorted(pathway_by_target.get(entity_id, set())),
             "components": sorted(herb_data.get("compounds", set())),
-            "herbs": sorted(herb_data.get("herbs", set())),
+            "herbs": sorted(set(herb_data.get("herbs", set())) | disease_data.get("herbs", set())),
             "diseaseNames": sorted(disease_data.get("diseases", set())),
             "herbEvidenceCount": herb_data.get("count", 0),
             "diseaseEvidenceCount": disease_data.get("count", 0),
             "directEvidenceCount": disease_data.get("directCount", 0),
             "sources": sources[:30],
         })
+
+    # Main builds both charts from candidate rows rather than every herb target.
+    # Keep stable entity identity for uniqueness here: catalogue entities with
+    # coincidentally equal labels must not be merged into one molecular target.
+    component_chart = sorted(
+        (
+            {
+                "name": compound_by_id[item].label,
+                "targets": len(compound_target_counts.get(item, set()) & target_ids),
+                "stableId": compound_by_id[item].stable_id,
+            }
+            for item in compound_ids
+            if item in compound_by_id and compound_target_counts.get(item, set()) & target_ids
+        ),
+        key=lambda item: (-item["targets"], item["name"], item["stableId"]),
+    )[:20]
+    candidate_pathways = {
+        name for entity_id, names in pathway_by_target.items() if entity_id in target_ids for name in names
+    }
 
     summary = {
         "herb": "、".join(requested_names),
@@ -235,7 +266,7 @@ def build_network_pharmacology(
         "directAssociationTargetCount": len(direct_ids),
         "candidateTargetCount": len(targets),
         "componentCount": len(compound_ids),
-        "pathwayCount": len({name for names in pathway_by_target.values() for name in names}),
+        "pathwayCount": len(candidate_pathways),
         "rowLimit": row_limit,
     }
 
@@ -271,14 +302,11 @@ def build_network_pharmacology(
                 {"name": "严格交集", "value": len(strict_ids)},
                 {"name": "直接关联", "value": len(direct_ids)},
             ],
-            "components": sorted(
-                ({"name": compound_by_id[item].label, "targets": len(compound_target_counts.get(item, set()))} for item in compound_ids if item in compound_by_id),
-                key=lambda item: (-item["targets"], item["name"]),
-            )[:20],
+            "components": [{"name": item["name"], "targets": item["targets"]} for item in component_chart],
             "pathways": sorted(
                 (
                     {"name": pathway, "targets": sum(pathway in values for entity_id, values in pathway_by_target.items() if entity_id in target_ids)}
-                    for pathway in {name for entity_id, values in pathway_by_target.items() if entity_id in target_ids for name in values}
+                    for pathway in candidate_pathways
                 ),
                 key=lambda item: (-item["targets"], item["name"]),
             )[:20],
@@ -300,6 +328,7 @@ def build_network_pharmacology(
             "formulas": [item.stable_id for item in formulas],
             "disease": disease_query.strip(),
             "rowLimit": row_limit,
+            "statisticsVersion": STATISTICS_VERSION,
         }
         if source_case_candidate:
             medical_case = MedicalCase.objects.select_for_update().get(pk=source_case_candidate.medical_case_id)
