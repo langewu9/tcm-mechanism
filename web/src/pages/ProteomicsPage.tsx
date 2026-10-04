@@ -15,6 +15,7 @@ import {
 } from "../api/datasets";
 import { ApiError } from "../api/client";
 import { createVisualization } from "../api/network";
+import { StringNetworkResult } from "../components/StringNetworkResult";
 
 const initialMapping = {
   geneColumn: "",
@@ -530,7 +531,6 @@ function ProteomicsResultView({
   onToggleRows: () => void;
   onRowPageChange: (page: number) => void;
 }) {
-  const externalStringNodes = new Map((result.externalString?.nodes ?? []).map((node) => [node.id, node.label]));
   return <div className="proteomics-result-content">
     <p className="section-help">原始文件 SHA-256：<code>{result.dataset.sha256}</code> · 算法版本：{result.algorithmVersion} · 来源版本数：{task.source_releases.length}</p>
     <div className="proteomics-metrics">
@@ -598,25 +598,7 @@ function ProteomicsResultView({
       {result.externalGProfiler.terms.some((term) => term.matchedIdentifiers.length > 0) && <details className="case-notes"><summary>查看命中标识</summary>{result.externalGProfiler.terms.filter((term) => term.matchedIdentifiers.length > 0).slice(0, 30).map((term) => <p key={`${term.source}:${term.termId}`}><strong>{term.name}</strong>：{term.matchedIdentifiers.join("、")}</p>)}</details>}
     </section>}
 
-    {result.externalString && <section className="proteomics-result-section">
-      <div className="case-list-heading"><div><h3 className="section-title-sm">STRING 物理互作网络</h3><p className="section-help">{result.externalString.organism} · {result.externalString.source}{result.externalString.sourceVersion ? ` ${result.externalString.sourceVersion}` : " · 数据库版本未配置"} · 最低置信度 {result.externalString.requiredScore}/1000</p></div>
-        <span className={`status-badge ${result.externalString.status === "succeeded" ? "status-success" : result.externalString.status === "unavailable" || result.externalString.status === "disabled" ? "status-warning" : ""}`}>{{ succeeded: "已返回互作", no_interactions: "没有满足阈值的互作", insufficient_identifiers: "可用标识不足", unavailable: "服务不可用", disabled: "服务已停用" }[result.externalString.status] ?? result.externalString.status}</span>
-      </div>
-      <p className="section-help">本次识别 {result.externalString.inputCount} 个标识，向 STRING 发送 {result.externalString.submittedIdentifierCount} 个；返回 {result.externalString.interactionCount} 条物理互作。分数是数据库证据，不代表因果结论。</p>
-      {result.externalString.edges.length > 0 ? <div className="table-scroll"><table className="data-table"><thead><tr><th>蛋白 A</th><th>蛋白 B</th><th>STRING 评分</th></tr></thead><tbody>
-        {result.externalString.edges.slice(0, 200).map((edge, index) => {
-          return <tr key={`${edge.source}:${edge.target}:${index}`}><td>{externalStringNodes.get(edge.source) ?? edge.source}</td><td>{externalStringNodes.get(edge.target) ?? edge.target}</td><td>{edge.scoreOutOf1000}/1000</td></tr>;
-        })}
-      </tbody></table></div> : <p className="section-help">本次没有可展示的物理互作边。</p>}
-      {result.externalString.nodes.length > 0 && <>
-        <h4 className="section-title-sm">STRING 网络中心性</h4>
-        <p className="section-help">degree 为互作邻居数；betweenness 是当前阈值网络中的无权最短路径中介中心性（归一化）。这些指标只描述网络结构，不代表因果作用。</p>
-        <div className="table-scroll"><table className="data-table"><thead><tr><th>蛋白</th><th>degree</th><th>betweenness</th></tr></thead><tbody>
-          {[...result.externalString.nodes].sort((left, right) => (right.betweenness ?? 0) - (left.betweenness ?? 0) || (right.degree ?? 0) - (left.degree ?? 0)).slice(0, 30).map((node) => <tr key={node.id}><td>{node.label}</td><td>{node.degree ?? "—"}</td><td>{node.betweenness == null ? "—" : node.betweenness.toPrecision(4)}</td></tr>)}
-        </tbody></table></div>
-      </>}
-      {result.externalString.truncatedIdentifierCount > 0 && <p className="section-help">超出每次 200 个标识的上限，未发送 {result.externalString.truncatedIdentifierCount} 个。</p>}
-    </section>}
+    {result.externalString && <StringNetworkResult result={result.externalString} task={task} />}
 
     <section className="proteomics-result-section">
       <div className="case-list-heading"><h3 className="section-title-sm">Top degree 候选蛋白</h3><span className="section-help">degree 表示本地已登记通路关联数，不代表因果结论。</span></div>

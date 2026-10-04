@@ -212,6 +212,7 @@ export type AnalysisTask = {
   status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
   dataset: number | null;
   medical_case: number | null;
+  parent_task: number | null;
   input_parameters: Record<string, unknown>;
   source_releases: number[];
   progress: number;

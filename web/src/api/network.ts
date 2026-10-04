@@ -84,11 +84,11 @@ export type ReactomeEnrichmentResult = {
 export const runNetworkPharmacology = (input: { herb: string; disease: string; source_case_id?: number; source_candidate_id?: number }) =>
   apiRequest<NetworkPharmacologyResult>("/api/v1/analysis/network-pharmacology/", { method: "POST", body: input });
 
-export const runReactomeEnrichment = (targets: string[]) =>
-  apiRequest<AnalysisTask>("/api/v1/analysis/pathway-enrichment/", { method: "POST", body: { targets, consent: true } });
+export const runReactomeEnrichment = (sourceTaskId: number) =>
+  apiRequest<AnalysisTask>("/api/v1/analysis/pathway-enrichment/", { method: "POST", body: { source_task_id: sourceTaskId, consent: true } });
 
-export const runStringNetwork = (targets: string[], required_score: number) =>
-  apiRequest<AnalysisTask>("/api/v1/analysis/string-network/", { method: "POST", body: { targets, required_score, consent: true } });
+export const runStringNetwork = (sourceTaskId: number, required_score: number) =>
+  apiRequest<AnalysisTask>("/api/v1/analysis/string-network/", { method: "POST", body: { source_task_id: sourceTaskId, required_score, consent: true } });
 
 export const createVisualization = (taskId: number, chartKey: string) =>
   apiRequest<AnalysisTask>(`/api/v1/research/analysis-tasks/${taskId}/visualizations/`, { method: "POST", body: { chartKey } });

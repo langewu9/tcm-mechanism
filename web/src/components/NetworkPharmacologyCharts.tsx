@@ -60,9 +60,42 @@ function CountChart({ panel, title, caption, data, unit = "靶点", emptyMessage
   </section>;
 }
 
+export function candidateComposition(result: NetworkPharmacologyResult) {
+  const { strictIntersectionCount: strict, directAssociationTargetCount: direct, candidateTargetCount: total } = result.summary;
+  if (result.limits?.targetsTruncated || ![strict, direct, total].every((value) => Number.isSafeInteger(value) && value >= 0)
+    || strict > total || direct > total || strict + direct < total) return null;
+  return { strict, directOnly: total - strict, overlap: strict + direct - total, total };
+}
+
+// main's Prep B donut is retained with mutually exclusive slices: a direct
+// association that is also a strict intersection must not be counted twice.
+function CandidateComposition({ result }: { result: NetworkPharmacologyResult }) {
+  const value = candidateComposition(result);
+  const radius = 74;
+  const circumference = 2 * Math.PI * radius;
+  return <section className="figure-card" style={{ marginTop: "1rem" }}>
+    <div className="figure-heading"><span>Prep B</span><div><h2>候选靶点构成</h2><p>区分严格交集与仅直接关联候选；同时具有两类证据的靶点归入严格交集，避免重复计数。</p></div></div>
+    {!value ? <div className="empty-state">候选集已截断或统计不完整，暂不绘制构成比例；原始计数仍保留在概览和导出中。</div>
+      : !value.total ? <div className="empty-state">本次查询没有候选靶点。</div> : <>
+        <svg viewBox="0 0 360 245" role="img" aria-label={`候选靶点 ${value.total} 个，严格交集 ${value.strict} 个，仅直接关联 ${value.directOnly} 个`} style={{ display: "block", width: "100%", maxHeight: "18rem" }}>
+          <title>{`候选靶点构成：严格交集 ${value.strict}，仅直接关联 ${value.directOnly}；重叠 ${value.overlap} 已归入严格交集。`}</title>
+          <circle cx={180} cy={115} r={radius} fill="none" stroke="#b94232" strokeWidth={36} />
+          <circle cx={180} cy={115} r={radius} fill="none" stroke="#9c2b22" strokeWidth={36}
+            strokeDasharray={`${circumference * value.strict / value.total} ${circumference}`} transform="rotate(-90 180 115)" />
+          <text x={180} y={113} textAnchor="middle" fill="#2c1810" fontSize={30} fontWeight={700}>{count(value.total)}</text>
+          <text x={180} y={135} textAnchor="middle" fill="#6b5344" fontSize={13}>去重候选靶点</text>
+          <rect x={52} y={221} width={11} height={11} fill="#9c2b22" /><text x={70} y={231} fill="#2c1810" fontSize={13}>严格交集 {count(value.strict)}</text>
+          <rect x={193} y={221} width={11} height={11} fill="#b94232" /><text x={211} y={231} fill="#2c1810" fontSize={13}>仅直接关联 {count(value.directOnly)}</text>
+        </svg>
+        <p className="section-help">直接关联共有 {count(result.summary.directAssociationTargetCount)} 个，其中 {count(value.overlap)} 个也属于严格交集。图中两部分合计 {count(value.total)} 个去重候选。</p>
+      </>}
+  </section>;
+}
+
 export function NetworkPharmacologyCharts({ result, reactome = null }: { result: NetworkPharmacologyResult; reactome?: ReactomeEnrichmentResult | null }) {
   return <section aria-label="本次查询统计图">
     <CountChart panel="Prep A" title="靶点比对概览" caption="中药侧、疾病侧、严格交集和直接关联分别计数；各条形用于比较，不相加作为总数。" data={result.charts.overlap} />
+    <CandidateComposition result={result} />
     <CountChart panel="Prep C" title="关联成分 Top 20" caption="当前查询关联成分的靶点覆盖数，按覆盖数排序；同一靶点可被多个成分关联。" data={result.charts.components.slice(0, 20).map((row) => ({ name: row.name, value: row.targets }))} />
     {reactome ? <CountChart key={`reactome-${reactome.retrievedAt}`} panel="Prep D" title="Reactome 富集通路" caption="按 FDR 升序展示前 12 条查询级统计富集结果，条形表示 Reactome 返回的命中实体数；本地目录图统计的是已登记通路的靶点覆盖数，全部富集结果可在下方导出。"
       unit="命中实体" emptyMessage="本次 Reactome 分析已完成，没有返回符合当前筛选阈值的显著通路。"

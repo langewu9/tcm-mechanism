@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "test:network": "node tests/reactome-results.cjs && node tests/network-requests.cjs && node tests/network-raw-exports.cjs",
+    "test:api": "node tests/api-contracts.cjs",
+    "test:network": "node tests/reactome-results.cjs && node tests/network-requests.cjs && node tests/network-raw-exports.cjs && node tests/string-results.cjs && node tests/network-composition.cjs",
     "preview": "vite preview"
   },
   "dependencies": {

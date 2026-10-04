@@ -303,6 +303,36 @@ class VisualizationWorkflowTests(APITestCase):
 
     @patch("apps.core.tasks.run_visualization_task.apply_async")
     @override_settings(R_VIZ_BASE_URL="http://r-viz:8001", R_VIZ_API_TOKEN="test-token")
+    def test_existing_volcano_page_request_is_accepted_and_queued_with_persisted_source(self, enqueue):
+        parent = AnalysisTask.objects.create(
+            owner=self.owner, task_type=AnalysisTask.TaskType.PROTEOMICS,
+            status=AnalysisTask.Status.SUCCEEDED,
+            result={"thresholds": {"log2FcMin": 1.0, "pValueMax": 0.05, "fdrMax": 0.05}},
+        )
+        ProteomicsRowResult.objects.create(
+            task=parent, row_index=0, original_label="TP53", normalized_symbol="TP53",
+            log2_fold_change=2.0, p_value=0.001, fdr=0.01, selected=True,
+        )
+        self.client.force_authenticate(self.owner)
+        response = self.client.post(
+            reverse("analysis-task-visualizations", args=[parent.pk]),
+            {"chartKey": "proteomics_volcano"}, format="json",
+        )
+        self.assertEqual(response.status_code, 202, response.data)
+        self.assertEqual(response.data["parent_task"], parent.pk)
+        job = AnalysisTask.objects.get(pk=response.data["id"])
+        self.assertEqual(job.input_parameters["chartKey"], "proteomics_volcano")
+        self.assertEqual(build_chart_payload(parent, "proteomics_volcano")["chartType"], "volcano")
+        enqueue.assert_called_once_with(args=[job.pk])
+        self.client.force_authenticate(self.other)
+        self.assertEqual(self.client.post(
+            reverse("analysis-task-visualizations", args=[parent.pk]),
+            {"chartKey": "proteomics_volcano"}, format="json",
+        ).status_code, 404)
+        self.assertEqual(AnalysisTask.objects.filter(parent_task=parent).count(), 1)
+
+    @patch("apps.core.tasks.run_visualization_task.apply_async")
+    @override_settings(R_VIZ_BASE_URL="http://r-viz:8001", R_VIZ_API_TOKEN="test-token")
     def test_worker_persists_bounded_private_artifacts_and_owner_gated_download(self, enqueue):
         self.client.force_authenticate(self.owner)
         response = self.client.post(

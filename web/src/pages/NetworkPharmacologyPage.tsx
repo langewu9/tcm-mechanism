@@ -8,11 +8,18 @@ import { KnowledgeNetworkGraph } from "../components/KnowledgeNetworkGraph";
 import { NetworkPharmacologyCharts } from "../components/NetworkPharmacologyCharts";
 import { NetworkResultDownloads } from "../components/NetworkResultDownloads";
 import { ReactomeEnrichmentResult, readReactomeEnrichment } from "../components/ReactomeEnrichmentResult";
+import { StringTaskResult } from "../components/StringNetworkResult";
 
 type QueryTask = { sourceTaskId: number; task: AnalysisTask };
 
 function errorMessage(error: unknown) {
   return error instanceof ApiError ? error.message : "请求未完成，请稍后重试。";
+}
+
+function verifyTaskSource(task: AnalysisTask, sourceTaskId: number, kind: string) {
+  if (task.parent_task !== sourceTaskId || task.input_parameters.analysisKind !== kind) {
+    throw new ApiError("分析任务与当前查询的来源关联不一致，暂不展示该结果。", "TASK_SOURCE_MISMATCH", null, null, 502);
+  }
 }
 
 export function NetworkPharmacologyPage() {
@@ -41,7 +48,7 @@ export function NetworkPharmacologyPage() {
   const pathwayTask = pathwayBinding?.sourceTaskId === result?.taskId ? pathwayBinding?.task ?? null : null;
   const stringTask = stringBinding?.sourceTaskId === result?.taskId ? stringBinding?.task ?? null : null;
   const visualizationTask = visualizationBinding?.sourceTaskId === result?.taskId ? visualizationBinding?.task ?? null : null;
-  const reactomeResult = readReactomeEnrichment(pathwayTask);
+  const reactomeResult = readReactomeEnrichment(pathwayTask, result?.taskId);
 
   useEffect(() => {
     mounted.current = true;
@@ -79,7 +86,8 @@ export function NetworkPharmacologyPage() {
         if (!binding || !active || !isCurrentQuery(generation, binding.sourceTaskId)) return false;
         try {
           const latest = await getAnalysisTask(binding.task.id);
-          if (!active || !isCurrentQuery(generation, binding.sourceTaskId) || latest.id !== binding.task.id || latest.input_parameters.analysisKind !== kind) return false;
+          if (!active || !isCurrentQuery(generation, binding.sourceTaskId) || latest.id !== binding.task.id) return false;
+          verifyTaskSource(latest, binding.sourceTaskId, kind);
           update((current) => current?.sourceTaskId === binding.sourceTaskId && current.task.id === latest.id ? { sourceTaskId: binding.sourceTaskId, task: latest } : current);
           return true;
         } catch (cause) {
@@ -143,7 +151,8 @@ export function NetworkPharmacologyPage() {
     setShareWithReactome(false);
     setPathwayBinding(null);
     try {
-      const task = await runReactomeEnrichment(result.targets.map((item) => item.target));
+      const task = await runReactomeEnrichment(sourceTaskId);
+      verifyTaskSource(task, sourceTaskId, "reactome_enrichment");
       if (isCurrentQuery(generation, sourceTaskId)) setPathwayBinding({ sourceTaskId, task });
     } catch (cause) { if (isCurrentQuery(generation, sourceTaskId)) setError(errorMessage(cause)); }
     finally {
@@ -163,7 +172,8 @@ export function NetworkPharmacologyPage() {
     setShareWithString(false);
     setStringBinding(null);
     try {
-      const task = await runStringNetwork(result.targets.map((item) => item.target), requiredScore);
+      const task = await runStringNetwork(sourceTaskId, requiredScore);
+      verifyTaskSource(task, sourceTaskId, "string_ppi");
       if (isCurrentQuery(generation, sourceTaskId)) setStringBinding({ sourceTaskId, task });
     } catch (cause) { if (isCurrentQuery(generation, sourceTaskId)) setError(errorMessage(cause)); }
     finally {
@@ -182,6 +192,7 @@ export function NetworkPharmacologyPage() {
     setVisualizationSubmitting(true);
     try {
       const task = await createVisualization(sourceTaskId, "overlap");
+      verifyTaskSource(task, sourceTaskId, "r_visualization");
       if (isCurrentQuery(generation, sourceTaskId)) setVisualizationBinding({ sourceTaskId, task });
     } catch (cause) { if (isCurrentQuery(generation, sourceTaskId)) setError(errorMessage(cause)); }
     finally {
@@ -236,7 +247,7 @@ export function NetworkPharmacologyPage() {
                 <label className="proteomics-consent"><input type="checkbox" checked={shareWithString} onChange={(event) => setShareWithString(event.target.checked)} /><span><strong>同意提交基因标识到 STRING</strong><small>仅提交当前页面列出的候选靶点；STRING 物理互作网络可能与功能关联网络不同。</small></span></label>
                 <label className="form-label">最低置信度<select className="field" value={requiredScore} onChange={(event) => setRequiredScore(Number(event.target.value))}><option value={400}>中等（400）</option><option value={700}>高（700）</option><option value={900}>最高（900）</option></select></label>
                 <div className="source-record-actions"><button className="btn btn-secondary" type="button" disabled={!shareWithString || stringSubmitting || result.targets.length > 200 || result.limits.targetsTruncated || Boolean(stringTask && ["queued", "running"].includes(stringTask.status))} onClick={() => void requestString()}>{stringSubmitting ? "正在创建 STRING 任务…" : "STRING PPI 网络"}</button>{result.targets.length > 200 || result.limits.targetsTruncated ? <span className="section-help">STRING 最多接收 200 个完整显示的靶点；当前结果过多，请缩小范围。</span> : null}</div>
-                {stringTask && <StringTaskResult task={stringTask} />}
+                {stringTask && <StringTaskResult task={stringTask} sourceTaskId={result.taskId} />}
               </section>}
             </div>
           </>}
@@ -248,21 +259,6 @@ export function NetworkPharmacologyPage() {
 
 function Metric({ label, value }: { label: string; value: number }) {
   return <div className="proteomics-metric"><span>{label}</span><strong>{value.toLocaleString("zh-CN")}</strong></div>;
-}
-
-function StringTaskResult({ task }: { task: AnalysisTask }) {
-  if (["queued", "running"].includes(task.status)) return <p className="section-help">STRING 任务 #{task.id} 正在后台执行（{task.progress}%）。</p>;
-  if (task.status === "failed") return <div className="notice-error" role="alert">外部分析任务 #{task.id} 失败：{task.error_summary}</div>;
-  if (task.status === "cancelled") return <p className="section-help" role="status">STRING 任务 #{task.id} 已取消。</p>;
-  const value = task.result as Record<string, unknown>;
-  const edges = Array.isArray(value.edges) ? value.edges as Array<Record<string, unknown>> : [];
-  const nodes = Array.isArray(value.nodes) ? value.nodes as Array<Record<string, unknown>> : [];
-  return <div className="panel source-record"><h3>STRING 网络 · {String(value.sourceVersion ?? "版本未配置")}</h3><p className="section-help">互作 {String(value.interactionCount ?? 0)} 条 · 阈值 {String(value.requiredScore ?? 0)}</p>
-    {nodes.length > 0 && <><p className="section-help">中心性按当前筛选物理互作图计算：degree 为邻居数；betweenness 为归一化无权 Brandes 最短路径中介中心性，不代表因果作用。</p><div className="table-scroll"><table className="data-table"><thead><tr><th>蛋白</th><th>degree</th><th>betweenness</th></tr></thead><tbody>
-      {[...nodes].sort((left, right) => (Number(right.betweenness) || 0) - (Number(left.betweenness) || 0) || (Number(right.degree) || 0) - (Number(left.degree) || 0)).slice(0, 30).map((node, index) => <tr key={`${String(node.id)}-${index}`}><td>{String(node.label ?? node.id ?? "")}</td><td>{String(node.degree ?? "—")}</td><td>{typeof node.betweenness === "number" ? node.betweenness.toPrecision(4) : "—"}</td></tr>)}
-    </tbody></table></div></>}
-    {edges.length ? <ul className="proteomics-pathways">{edges.slice(0, 30).map((item, index) => <li key={`${String(item.source)}-${String(item.target)}-${index}`}><strong>{String(item.source)} ↔ {String(item.target)}</strong><span>score {String(item.scoreOutOf1000)}/1000</span></li>)}</ul> : <p className="section-help">当前标识和置信度下没有返回互作边。</p>}
-  </div>;
 }
 
 function VisualizationResult({ task }: { task: AnalysisTask }) {

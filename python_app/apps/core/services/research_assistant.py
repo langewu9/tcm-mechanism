@@ -18,6 +18,7 @@ from .case_analysis import (
     MAX_MODEL_RESPONSE_BYTES,
     _NoRedirect,
     _is_local_or_private_host,
+    _model_json_object,
     case_model_configuration,
 )
 
@@ -161,12 +162,7 @@ def _validated_model_text(question: str, evidence: dict) -> tuple[dict, dict[str
         if len(raw) > MAX_MODEL_RESPONSE_BYTES:
             raise CaseModelUnavailable("本地模型响应超过安全大小限制。")
         response_data = json.loads(raw.decode("utf-8"))
-        content = response_data["choices"][0]["message"]["content"]
-        if not isinstance(content, str) or len(content.encode("utf-8")) > MAX_MODEL_RESPONSE_BYTES:
-            raise ValueError("invalid model content")
-        model_result = json.loads(content)
-        if not isinstance(model_result, dict):
-            raise ValueError("model content is not an object")
+        model_result = _model_json_object(response_data)
     except CaseModelUnavailable:
         raise
     except urllib.error.HTTPError as exc:
@@ -176,22 +172,21 @@ def _validated_model_text(question: str, evidence: dict) -> tuple[dict, dict[str
         logger.info("Research assistant model request failed or returned an invalid response")
         raise CaseModelUnavailable("科研模型连接失败或未返回符合格式的结果。") from None
 
+    answer = model_result.get("answer")
+    citations = model_result.get("citations")
+    uncertainties = model_result.get("uncertainties")
+    if not isinstance(answer, str) or not answer.strip() or not isinstance(citations, list) or not isinstance(uncertainties, list):
+        raise CaseModelUnavailable("科研模型结果缺少有效回答、引用数组或不确定性数组。")
+
     allowed_refs = {
         record["refId"]
         for record in [*evidence.get("entities", []), *evidence.get("relations", [])]
     }
-    citations = model_result.get("citations")
     valid_citations = list(dict.fromkeys(
         ref for ref in citations
-        if isinstance(citations, list) and isinstance(ref, str) and ref in allowed_refs
-    )) if isinstance(citations, list) else []
-    answer = model_result.get("answer")
-    if not isinstance(answer, str):
-        answer = ""
+        if isinstance(ref, str) and ref in allowed_refs
+    ))
     answer = answer.strip()[:8000]
-    uncertainties = model_result.get("uncertainties")
-    if not isinstance(uncertainties, list):
-        uncertainties = []
     uncertainties = [item.strip()[:500] for item in uncertainties if isinstance(item, str) and item.strip()][:8]
     if answer and not valid_citations:
         uncertainties.append("模型没有给出可核验的本地记录引用，请勿把回答当作已证实结论。")

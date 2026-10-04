@@ -1,6 +1,6 @@
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
-from rest_framework.exceptions import APIException, ValidationError
+from rest_framework.exceptions import APIException, NotFound, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
@@ -25,6 +25,19 @@ from ..services.external_analysis import (
 )
 from ..services.chembl import ChemblServiceError, molecule_activities, search_molecules
 from ..services.component_names import compare_components_multilingual
+from ..models import AnalysisTask
+
+
+def _owned_source_task(user, values):
+    source_task_id = values.get("source_task_id")
+    if source_task_id is None:
+        return None
+    try:
+        # Superusers can inspect all tasks, but cannot submit another
+        # researcher's private candidate identifiers to an external provider.
+        return AnalysisTask.objects.get(pk=source_task_id, owner=user)
+    except AnalysisTask.DoesNotExist as exc:
+        raise NotFound("没有找到当前账号下的来源任务。") from exc
 
 
 class ChemblUnavailable(APIException):
@@ -40,10 +53,14 @@ class ReactomeEnrichmentView(APIView):
     def post(self, request):
         serializer = ExternalGeneListRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        values = serializer.validated_data
+        source_task = _owned_source_task(request.user, values)
         try:
-            task = enqueue_reactome_enrichment(request.user, serializer.validated_data["targets"])
+            task = enqueue_reactome_enrichment(
+                request.user, values.get("targets"), source_task=source_task,
+            )
         except ValueError as exc:
-            raise ValidationError({"targets": str(exc)}) from exc
+            raise ValidationError({"source_task_id" if source_task else "targets": str(exc)}) from exc
         return Response(AnalysisTaskSerializer(task).data, status=status.HTTP_202_ACCEPTED)
 
 
@@ -55,10 +72,13 @@ class StringNetworkView(APIView):
         serializer = StringNetworkRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         values = serializer.validated_data
+        source_task = _owned_source_task(request.user, values)
         try:
-            task = enqueue_string_network(request.user, values["targets"], values["required_score"])
+            task = enqueue_string_network(
+                request.user, values.get("targets"), values["required_score"], source_task=source_task,
+            )
         except ValueError as exc:
-            raise ValidationError({"targets": str(exc)}) from exc
+            raise ValidationError({"source_task_id" if source_task else "targets": str(exc)}) from exc
         return Response(AnalysisTaskSerializer(task).data, status=status.HTTP_202_ACCEPTED)
 
 

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import hashlib
+from copy import deepcopy
 import re
 import time
 from collections import deque
@@ -11,10 +13,11 @@ from urllib.parse import urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from django.conf import settings
+from django.db import transaction
 from django.utils import timezone
 
 from apps.core.exceptions import TaskQueueUnavailable
-from apps.core.models import AnalysisTask, DataSource, SourceRelease
+from apps.core.models import AnalysisTask, DataSource, MedicalCase, ResearchDataset, SourceRelease
 from apps.proteomics.external_reactome import (
     ExternalEnrichmentError,
     analyze_reactome_human_pathways,
@@ -48,18 +51,131 @@ def _deduplicate_labels(labels: list[str]) -> list[str]:
     return list(dict.fromkeys(label.strip() for label in labels if label.strip()))
 
 
-def enqueue_reactome_enrichment(user, labels: list[str]) -> AnalysisTask:
-    unique_labels = _deduplicate_labels(labels)
-    if len(unique_labels) < 2:
-        raise ValueError("至少需要 2 个基因/蛋白标识。")
-    task = AnalysisTask.objects.create(
-        owner=user,
-        created_by=user,
-        task_type=AnalysisTask.TaskType.NETWORK,
-        status=AnalysisTask.Status.QUEUED,
-        input_parameters={
+def _snapshot_sha256(value) -> str:
+    canonical = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _network_candidate_labels(parent: AnalysisTask, user) -> list[str]:
+    parameters = parent.input_parameters
+    result = parent.result
+    if (
+        parent.owner_id != user.pk
+        or parent.task_type != AnalysisTask.TaskType.NETWORK
+        or parent.status != AnalysisTask.Status.SUCCEEDED
+        or not isinstance(parameters, dict)
+        or parameters.get("analysisKind")
+        or not isinstance(parameters.get("herbs"), list)
+        or not isinstance(parameters.get("disease"), str)
+        or not isinstance(result, dict)
+        or not isinstance(result.get("summary"), dict)
+        or not isinstance(result.get("targets"), list)
+        or not isinstance(result.get("network"), dict)
+    ):
+        raise ValueError("只能关联当前账号下已成功完成的本地网络药理查询。")
+    if (
+        parent.medical_case_id
+        and not MedicalCase.objects.filter(pk=parent.medical_case_id, owner=user).exists()
+    ) or (
+        parent.dataset_id
+        and not ResearchDataset.objects.filter(pk=parent.dataset_id, owner=user).exists()
+    ):
+        raise ValueError("来源任务的医案或数据集归属不一致，不能创建关联分析。")
+    rows = result["targets"]
+    limits = result.get("limits") or {}
+    candidate_count = result["summary"].get("candidateTargetCount", len(rows))
+    if (
+        not isinstance(limits, dict)
+        or limits.get("targetsTruncated")
+        or not isinstance(candidate_count, int)
+        or isinstance(candidate_count, bool)
+        or candidate_count != len(rows)
+    ):
+        raise ValueError("来源任务的候选靶点结果不完整；请使用完整候选集创建分析。")
+    if any(
+        not isinstance(row, dict)
+        or not isinstance(row.get("target"), str)
+        or not row["target"].strip()
+        or len(row["target"].strip()) > 120
+        for row in rows
+    ):
+        raise ValueError("来源任务的候选靶点标识格式无效。")
+    return _deduplicate_labels([row["target"] for row in rows])
+
+
+def _create_external_task(*, user, labels, source_task, parameters, max_identifiers) -> AnalysisTask:
+    # Lock the parent while freezing the input and provenance. Historical tasks
+    # remain unassociated; a new standalone request never infers a parent.
+    with transaction.atomic():
+        parent = None
+        releases = []
+        if source_task is not None:
+            try:
+                parent = AnalysisTask.objects.select_for_update().get(pk=source_task.pk, owner=user)
+            except AnalysisTask.DoesNotExist as exc:
+                raise ValueError("没有找到当前账号下的来源任务。") from exc
+            unique_labels = _network_candidate_labels(parent, user)
+            if labels is not None and set(_deduplicate_labels(labels)) != set(unique_labels):
+                raise ValueError("提交的靶点必须与来源任务保存的完整候选集一致。")
+            releases = list(parent.source_releases.select_related("source").order_by("pk"))
+            parent_parameters = parent.input_parameters
+            parameters["sourceTaskId"] = parent.pk
+            parameters["parentProvenance"] = {
+                "taskId": parent.pk,
+                "ownerId": parent.owner_id,
+                "datasetId": parent.dataset_id,
+                "medicalCaseId": parent.medical_case_id,
+                "inputParameters": deepcopy({
+                    key: parent_parameters[key]
+                    for key in (
+                        "herbs", "requestedNames", "formulas", "disease", "rowLimit",
+                        "statisticsVersion", "rawEvidenceVersion", "sourceCaseId",
+                        "sourceCandidateId", "caseContentSha256", "sourceFormulaStableId",
+                    ) if key in parent_parameters
+                }),
+                "inputParametersSha256": _snapshot_sha256(parent_parameters),
+                "resultSha256": _snapshot_sha256(parent.result),
+                "rawTargetsSha256": _snapshot_sha256(unique_labels),
+                "candidateCount": len(parent.result["targets"]),
+                "uniqueTargetCount": len(unique_labels),
+                "finishedAt": parent.finished_at.isoformat() if parent.finished_at else None,
+                "sourceReleases": [{
+                    "id": release.pk,
+                    "sourceId": release.source_id,
+                    "sourceSlug": release.source.slug,
+                    "version": release.version,
+                    "checksumSha256": release.checksum_sha256,
+                } for release in releases],
+            }
+        else:
+            unique_labels = _deduplicate_labels(labels or [])
+        if len(unique_labels) < 2:
+            raise ValueError("至少需要 2 个不同的基因/蛋白标识。")
+        if len(unique_labels) > max_identifiers:
+            raise ValueError(f"本次外部分析最多接收 {max_identifiers} 个标识；不会自动截断来源候选集。")
+        parameters["rawTargets"] = unique_labels
+        task = AnalysisTask.objects.create(
+            owner=user,
+            created_by=user,
+            task_type=AnalysisTask.TaskType.NETWORK,
+            status=AnalysisTask.Status.QUEUED,
+            parent_task=parent,
+            dataset_id=parent.dataset_id if parent else None,
+            medical_case_id=parent.medical_case_id if parent else None,
+            input_parameters=parameters,
+        )
+        if releases:
+            task.source_releases.set(releases)
+    return task
+
+
+def enqueue_reactome_enrichment(
+    user, labels: list[str] | None = None, *, source_task: AnalysisTask | None = None
+) -> AnalysisTask:
+    task = _create_external_task(
+        user=user, labels=labels, source_task=source_task, max_identifiers=500,
+        parameters={
             "analysisKind": "reactome_enrichment",
-            "rawTargets": unique_labels[:500],
             "maxExternalIdentifiers": 500,
             "consentRecorded": True,
         },
@@ -67,20 +183,15 @@ def enqueue_reactome_enrichment(user, labels: list[str]) -> AnalysisTask:
     return _enqueue(task)
 
 
-def enqueue_string_network(user, labels: list[str], required_score: int) -> AnalysisTask:
-    unique_labels = _deduplicate_labels(labels)
-    if len(unique_labels) < 2:
-        raise ValueError("至少需要 2 个基因/蛋白标识。")
-    if len(unique_labels) > MAX_STRING_IDENTIFIERS:
-        raise ValueError(f"STRING 单次最多接收 {MAX_STRING_IDENTIFIERS} 个标识。")
-    task = AnalysisTask.objects.create(
-        owner=user,
-        created_by=user,
-        task_type=AnalysisTask.TaskType.NETWORK,
-        status=AnalysisTask.Status.QUEUED,
-        input_parameters={
+def enqueue_string_network(
+    user, labels: list[str] | None, required_score: int, *, source_task: AnalysisTask | None = None
+) -> AnalysisTask:
+    if not 0 <= required_score <= 1000:
+        raise ValueError("STRING 置信度阈值必须介于 0 到 1000。")
+    task = _create_external_task(
+        user=user, labels=labels, source_task=source_task, max_identifiers=MAX_STRING_IDENTIFIERS,
+        parameters={
             "analysisKind": "string_ppi",
-            "rawTargets": unique_labels,
             "organism": "Homo sapiens",
             "taxonId": 9606,
             "requiredScore": required_score,
@@ -359,6 +470,19 @@ def execute_external_analysis(task: AnalysisTask) -> dict:
     kind = params.get("analysisKind")
     labels = params.get("rawTargets", [])
     try:
+        if task.parent_task_id is not None:
+            snapshot = params.get("parentProvenance")
+            if (
+                not isinstance(snapshot, dict)
+                or snapshot.get("taskId") != task.parent_task_id
+                or params.get("sourceTaskId") != task.parent_task_id
+                or snapshot.get("ownerId") != task.owner_id
+                or task.parent_task.owner_id != task.owner_id
+                or snapshot.get("datasetId") != task.dataset_id
+                or snapshot.get("medicalCaseId") != task.medical_case_id
+                or snapshot.get("rawTargetsSha256") != _snapshot_sha256(labels)
+            ):
+                raise ExternalAnalysisError("关联任务的输入或溯源信息不一致，已停止外部提交。")
         if kind == "reactome_enrichment":
             result, version = _run_reactome(labels)
             _attach_source_release(task, "reactome", version)
@@ -378,6 +502,11 @@ def execute_external_analysis(task: AnalysisTask) -> dict:
             )
         else:
             raise ExternalAnalysisError("不支持的外部分析类型。")
+        if task.parent_task_id is not None:
+            result["inputProvenance"] = {
+                "sourceTaskId": task.parent_task_id,
+                "parentProvenance": deepcopy(params["parentProvenance"]),
+            }
         task.status = AnalysisTask.Status.SUCCEEDED
         task.progress = 100
         task.result = result

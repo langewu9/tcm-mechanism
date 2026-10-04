@@ -33,6 +33,7 @@ moduleUnderTest.require = name => {
   if (name === '../components/NetworkPharmacologyCharts') return {NetworkPharmacologyCharts:'Charts'};
   if (name === '../components/NetworkResultDownloads') return {NetworkResultDownloads:'Downloads'};
   if (name === '../components/ReactomeEnrichmentResult') return {ReactomeEnrichmentResult:'ReactomeResult',readReactomeEnrichment:task=>task?.status==='succeeded'?task.result:null};
+  if (name === '../components/StringNetworkResult') return {StringTaskResult:'StringResult'};
   throw new Error('Unexpected import: '+name);
 };
 moduleUnderTest._compile(ts.transpileModule(fs.readFileSync(filename,'utf8'), {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText, filename);
@@ -45,7 +46,7 @@ const button = label => find(node=>node.type==='button' && text(node).includes(l
 const submit = () => {find(node=>node.type==='form').props.onSubmit({preventDefault(){}}); render();};
 const consent = () => {find(node=>node.type==='input' && node.props.type==='checkbox').props.onChange({target:{checked:true}}); render();};
 const source = taskId => ({taskId, summary:{herb:'H'+taskId,disease:'D'+taskId,herbTargetCount:2,diseaseTargetCount:2,strictIntersectionCount:2,directAssociationTargetCount:0,candidateTargetCount:2,componentCount:0,unmatchedHerbs:[],unmatchedDiseases:[]}, targets:['AKT1','IL6'].map(target=>({target,normalizedTarget:target,matchType:'交集',components:[],pathways:[],sources:[],herbEvidenceCount:1,diseaseEvidenceCount:1,directEvidenceCount:0})), charts:{overlap:[],components:[],pathways:[]},network:{nodes:[],links:[]},limits:{linksTruncated:false,targetsTruncated:false}});
-const task = (id,status='queued') => ({id,status,input_parameters:{analysisKind:'reactome_enrichment'},progress:0,result:{analysisKind:'reactome_enrichment',pathways:[]}});
+const task = (id,status='queued',parent_task=2) => ({id,status,parent_task,input_parameters:{analysisKind:'reactome_enrichment'},progress:0,result:{analysisKind:'reactome_enrichment',pathways:[]}});
 const flush = async () => {for(let index=0;index<8;index++) await Promise.resolve(); render();};
 const tick = () => {const callbacks=[...timers.values()]; timers.clear(); for(const fn of callbacks) fn();};
 (async()=> {
@@ -56,12 +57,13 @@ const tick = () => {const callbacks=[...timers.values()]; timers.clear(); for(co
   localCalls[0].resolve(source(1)); await flush();
   consent(); const firstClick = button('Reactome 通路富集').props.onClick; firstClick(); firstClick(); render();
   assert.equal(externalCalls.length,1,'Synchronous duplicate POST blocked');
+  assert.deepEqual(externalCalls[0].args,[1],'External task uses the persisted query ID, not page target labels');
   assert.equal(find(node=>node.type==='input'&&node.props.type==='checkbox').props.checked,false);
   submit(); localCalls[1].resolve(source(2)); await flush();
   firstClick(); assert.equal(externalCalls.length,1,'Stale query handler cannot submit another external task');
   consent(); const secondClick = button('Reactome 通路富集').props.onClick; secondClick(); secondClick(); render();
   assert.equal(externalCalls.length,2);
-  externalCalls[0].resolve(task(101,'succeeded')); await flush(); secondClick();
+  externalCalls[0].resolve(task(101,'succeeded',1)); await flush(); secondClick();
   assert.equal(externalCalls.length,2,'Old request completion did not release new query lock');
   assert.equal(find(node=>node.type==='Charts').props.result.taskId,2);
   assert.equal(find(node=>node.type==='Charts').props.reactome,null);
@@ -83,9 +85,14 @@ const tick = () => {const callbacks=[...timers.values()]; timers.clear(); for(co
   submit(); assert.equal(localCalls.length,5,'Local query lock released after failure');
   localCalls[4].resolve(source(4)); await flush();
   consent(); button('Reactome 通路富集').props.onClick(); render();
+  externalCalls[2].resolve(task(103,'succeeded',999)); await flush();
+  assert.ok(!nodes(tree).some(node=>node.type==='ReactomeResult'),'A task bound to another query is not displayed');
+  assert.ok(nodes(tree).some(node=>node.props?.role==='alert' && text(node).includes('来源关联不一致')));
+  consent(); button('Reactome 通路富集').props.onClick(); render();
+  assert.equal(externalCalls.length,4,'A rejected association releases the submit lock');
   for (const hook of hooks) hook?.cleanup?.();
   const previousWrites=writes;
-  externalCalls[2].resolve(task(103,'succeeded')); for(let index=0;index<8;index++) await Promise.resolve();
+  externalCalls[3].resolve(task(104,'succeeded',4)); for(let index=0;index<8;index++) await Promise.resolve();
   assert.equal(writes,previousWrites);
   console.log('PASS: synchronous duplicate submission; cross-query request lock; old POST and polling suppression; transient read retries without resubmission; recovery clears notice; per-request consent; unmount guard.');
 })().catch(error=>{console.error(error.stack); process.exitCode=1;});

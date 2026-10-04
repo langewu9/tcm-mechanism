@@ -129,6 +129,36 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+def _model_json_object(response_payload) -> dict:
+    """Validate a completed OpenAI-compatible JSON answer without storing raw output.
+
+    Older local adapters may omit finish_reason/refusal. Explicit truncation,
+    refusal, or tool-only responses must never become successful analyses.
+    """
+    try:
+        choice = response_payload["choices"][0]
+        message = choice["message"]
+        if not isinstance(choice, dict) or not isinstance(message, dict):
+            raise TypeError("invalid model envelope")
+        if choice.get("finish_reason") not in {None, "stop"} or message.get("refusal"):
+            raise CaseModelUnavailable("本地模型未完整完成回答或拒绝了请求，请检查模型状态后重试。")
+        content = message["content"]
+        if not isinstance(content, str) or len(content.encode("utf-8")) > MAX_MODEL_RESPONSE_BYTES:
+            raise ValueError("invalid model content")
+
+        def reject_constant(value):
+            raise ValueError("non-finite model JSON number")
+
+        result = json.loads(content, parse_constant=reject_constant)
+        if not isinstance(result, dict):
+            raise ValueError("model content is not an object")
+    except CaseModelUnavailable:
+        raise
+    except (KeyError, IndexError, TypeError, ValueError, AttributeError):
+        raise CaseModelUnavailable("本地模型没有返回符合 JSON 格式的结果。") from None
+    return result
+
+
 def _local_model_response(case_payload: dict[str, str], knowledge_context: dict | None = None) -> dict:
     base_url = str(settings.CASE_MODEL_BASE_URL or "").strip().rstrip("/")
     model_name = str(settings.CASE_MODEL_NAME or "").strip()
@@ -204,18 +234,7 @@ def _local_model_response(case_payload: dict[str, str], knowledge_context: dict 
     except (urllib.error.URLError, TimeoutError, OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         logger.warning("Local case model request failed: %s", type(exc).__name__)
         raise CaseModelUnavailable("无法连接本地医案分析模型，请检查服务地址和状态。") from None
-    try:
-        content = parsed_response["choices"][0]["message"]["content"]
-        if not isinstance(content, str):
-            raise TypeError("model content is not text")
-        if len(content.encode("utf-8")) > MAX_MODEL_RESPONSE_BYTES:
-            raise ValueError("model content too large")
-        result = json.loads(content)
-    except (KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError):
-        raise CaseModelUnavailable("本地模型没有返回符合 JSON 格式的结果。") from None
-    if not isinstance(result, dict):
-        raise CaseModelUnavailable("本地模型没有返回符合 JSON 格式的结果。")
-    return result
+    return _model_json_object(parsed_response)
 
 
 def _source_texts(case) -> dict[str, str]:

@@ -229,7 +229,7 @@ class CaseCandidateReviewRequestSerializer(serializers.Serializer):
 class VisualizationRequestSerializer(serializers.Serializer):
     chartKey = serializers.ChoiceField(choices=[
         "overlap", "components", "pathways", "proteomics_summary", "proteomics_top_nodes",
-        "proteomics_go_kegg_enrichment",
+        "proteomics_go_kegg_enrichment", "proteomics_volcano",
     ])
 
 
@@ -314,6 +314,7 @@ class AnalysisTaskSerializer(serializers.ModelSerializer):
             "status",
             "dataset",
             "medical_case",
+            "parent_task",
             "input_parameters",
             "source_releases",
             "progress",
@@ -367,9 +368,15 @@ class NetworkPharmacologyResponseSerializer(serializers.Serializer):
 
 class ExternalGeneListRequestSerializer(serializers.Serializer):
     targets = serializers.ListField(
-        child=serializers.CharField(max_length=120), min_length=2, max_length=500
+        child=serializers.CharField(max_length=120), min_length=2, max_length=500, required=False
     )
+    source_task_id = serializers.IntegerField(required=False, min_value=1)
     consent = serializers.BooleanField()
+
+    def validate(self, attrs):
+        if "targets" not in attrs and "source_task_id" not in attrs:
+            raise serializers.ValidationError({"targets": "请提供基因标识，或关联已完成的本地网络药理任务。"})
+        return attrs
 
     def validate_consent(self, value):
         if not value:

@@ -14,11 +14,17 @@ const {NetworkPharmacologyCharts} = load('./src/components/NetworkPharmacologyCh
 const source = {taskId: 41, summary: {herb: '测试中药', disease: '测试疾病'}, charts: {overlap: [], components: [], pathways: [{name: 'LOCAL_ONLY', targets: 9}]}};
 const pathways = Array.from({length: 31}, (_, index) => ({stableId: `R-HSA-${index}`, name: `Pathway_${index}`, species: 'Homo sapiens', matchedEntities: 100 + index, totalEntities: 200, coverage: null, pValue: null, fdr: (31 - index) / 1000}));
 const value = {analysisKind: 'reactome_enrichment', organism: 'Homo sapiens', inputCount: 3, mappedCount: 3, mappings: [{query:'AKT1', symbol:'AKT1'}], ambiguous: [], unmapped: [], rejected: [], truncatedCount: 0, source: 'Reactome Analysis Service', sourceVersion: null, sourceToken: 'synthetic-token', identifiersNotFound: 0, pathways, retrievedAt: '2026-10-04T00:00:00+00:00'};
-const task = {id: 77, task_type: 'network', status: 'succeeded', dataset: null, medical_case: null, input_parameters: {analysisKind: 'reactome_enrichment', rawTargets: ['AKT1', 'IL6', 'MAPK1'], consentRecorded:true}, source_releases: [], progress:100, result:value, error_summary:'', created_at: '2026-10-04T00:00:00+00:00', started_at:null, finished_at:'2026-10-04T00:00:01+00:00', owner:2, created_by:2};
+const task = {id: 77, task_type: 'network', status: 'succeeded', parent_task:41, dataset: null, medical_case: null, input_parameters: {analysisKind: 'reactome_enrichment', rawTargets: ['AKT1', 'IL6', 'MAPK1'], consentRecorded:true}, source_releases: [], progress:100, result:value, error_summary:'', created_at: '2026-10-04T00:00:00+00:00', started_at:null, finished_at:'2026-10-04T00:00:01+00:00', owner:2, created_by:2};
 assert.equal(readReactomeEnrichment(task), value);
 const exported = JSON.parse(reactomeResultJson(task, source));
 assert.equal(exported.pageAssociation.sourceTaskId, 41);
-assert.match(exported.pageAssociation.note, /页面/);
+assert.equal(exported.pageAssociation.persisted, true);
+assert.match(exported.pageAssociation.note, /服务端/);
+const legacyExport = JSON.parse(reactomeResultJson({...task,parent_task:null},source));
+assert.equal(legacyExport.pageAssociation.persisted,false);
+assert.match(legacyExport.pageAssociation.note,/历史/);
+assert.equal(reactomeResultJson({...task,parent_task:999},source),null);
+assert.equal(readReactomeEnrichment({...task,parent_task:999},source.taskId),null);
 assert.deepEqual(exported.task, task);
 assert.equal(exported.task.result.pathways.length, 31);
 assert.equal(exported.task.result.sourceVersion, null);
@@ -47,4 +53,7 @@ for (const status of ['queued','running','failed','cancelled']) {
 }
 assert.equal(readReactomeEnrichment({...task, result:{...value, pathways:[{...pathways[0], fdr:NaN}]}}), null);
 assert.equal(readReactomeEnrichment({...task, result:{}}), null);
+for (const change of [{mappings:null},{unmapped:'AKT1'},{sourceToken:[]},{inputCount:1.5},{pathways:[{...pathways[0],fdr:1.1}]}]) {
+  assert.equal(readReactomeEnrichment({...task,result:{...value,...change}}),null);
+}
 console.log('PASS: all 31 pathways exported with full task metadata; 20-item list and 12-item FDR chart; null source version preserved; empty success and four non-success states; invalid payload rejected.');

@@ -224,6 +224,9 @@ class AnalysisTask(models.Model):
     medical_case = models.ForeignKey(
         MedicalCase, on_delete=models.PROTECT, null=True, blank=True, related_name="analysis_tasks"
     )
+    parent_task = models.ForeignKey(
+        "self", on_delete=models.PROTECT, null=True, blank=True, related_name="derived_tasks"
+    )
     input_parameters = models.JSONField(default=dict, blank=True)
     source_releases = models.ManyToManyField(SourceRelease, blank=True, related_name="analysis_tasks")
     progress = models.PositiveSmallIntegerField(default=0, validators=[MaxValueValidator(100)])

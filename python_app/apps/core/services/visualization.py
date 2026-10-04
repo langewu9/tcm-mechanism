@@ -279,6 +279,8 @@ def execute_visualization_task(task: AnalysisTask) -> dict:
         raise VisualizationInputError("任务类型不是 R 图表任务。")
     parent_id = task.input_parameters.get("parentTaskId")
     chart_key = task.input_parameters.get("chartKey")
+    if task.parent_task_id is not None and task.parent_task_id != parent_id:
+        raise VisualizationInputError("图表任务的来源关联不一致，请重新创建图表任务。")
     parent = AnalysisTask.objects.get(pk=parent_id, owner_id=task.owner_id)
     payload = build_chart_payload(parent, chart_key)
     if payload["inputSha256"] != task.input_parameters.get("inputSha256"):
@@ -354,6 +356,7 @@ def queue_visualization(*, parent_task: AnalysisTask, user, chart_key: str) -> t
     payload = build_chart_payload(parent_task, chart_key)
     existing = AnalysisTask.objects.filter(
         owner=parent_task.owner,
+        parent_task=parent_task,
         task_type=AnalysisTask.TaskType.VISUALIZATION,
         input_parameters__parentTaskId=parent_task.pk,
         input_parameters__chartKey=chart_key,
@@ -370,6 +373,7 @@ def queue_visualization(*, parent_task: AnalysisTask, user, chart_key: str) -> t
             status=AnalysisTask.Status.QUEUED,
             dataset=parent_task.dataset,
             medical_case=parent_task.medical_case,
+            parent_task=parent_task,
             input_parameters={
                 "analysisKind": "r_visualization",
                 "parentTaskId": parent_task.pk,
