@@ -1,0 +1,180 @@
+"""Bounded, read-only disease evidence lookups over the local knowledge graph."""
+
+from __future__ import annotations
+
+from django.db.models import Q
+
+from apps.core.models import EvidenceRelation, KnowledgeEntity
+from .disease_names import (
+    ALIAS_DATA,
+    disease_entity_queryset,
+    expand_disease_queries,
+    matched_disease_queries,
+)
+
+
+MAX_MATCHES = 20
+MAX_RELATIONS = 1200
+
+DISEASE_HERB_TYPE = "disease_herb"
+DISEASE_TARGET_TYPES = {"disease_target", "disease_herb_target"}
+TARGET_ENTITY_TYPES = [KnowledgeEntity.EntityType.GENE, KnowledgeEntity.EntityType.PROTEIN]
+
+
+def _entity_record(entity: KnowledgeEntity) -> dict:
+    release = entity.source_release
+    return {
+        "id": entity.pk,
+        "stableId": entity.stable_id,
+        "label": entity.label,
+        "sourceSlug": release.source.slug if release else None,
+        "sourceVersion": release.version if release else None,
+    }
+
+
+def _relation_record(relation: EvidenceRelation) -> dict:
+    source_release = relation.source_release
+    return {
+        "subject": relation.subject.label,
+        "object": relation.object.label,
+        "subjectType": relation.subject.entity_type,
+        "objectType": relation.object.entity_type,
+        "relationType": relation.relation_type,
+        "evidenceType": relation.evidence_type,
+        "sourceSlug": source_release.source.slug,
+        "sourceVersion": source_release.version,
+        "sourceRecordId": relation.source_record_id,
+        "score": float(relation.score) if relation.score is not None else None,
+    }
+
+
+def _visible_relations(disease_ids: set[int]) -> tuple[list[EvidenceRelation], bool]:
+    queryset = EvidenceRelation.objects.filter(
+        is_active=True,
+        subject__is_active=True,
+        object__is_active=True,
+        source_release__source__enabled=True,
+        subject_id__in=disease_ids,
+    ).filter(
+        (Q(subject__source_release__isnull=True) | Q(subject__source_release__source__enabled=True))
+        & (Q(object__source_release__isnull=True) | Q(object__source_release__source__enabled=True))
+    ).filter(
+        Q(relation_type=DISEASE_HERB_TYPE, object__entity_type=KnowledgeEntity.EntityType.HERB)
+        | Q(
+            relation_type__in=DISEASE_TARGET_TYPES,
+            object__entity_type__in=TARGET_ENTITY_TYPES,
+        )
+    ).select_related(
+        "subject", "subject__source_release", "subject__source_release__source",
+        "object", "object__source_release", "object__source_release__source",
+        "source_release", "source_release__source",
+    )
+
+    records = list(queryset.order_by(
+        "relation_type", "subject__label", "subject__stable_id", "object__label",
+        "object__stable_id", "source_release__source__slug", "source_release__version",
+        "source_record_id", "id",
+    )[: MAX_RELATIONS + 1])
+    return records[:MAX_RELATIONS], len(records) > MAX_RELATIONS
+
+
+def _direct_herb_stable_id(relation: EvidenceRelation) -> str | None:
+    metadata = relation.metadata
+    if not isinstance(metadata, dict):
+        return None
+    stable_id = metadata.get("herbStableId")
+    if not isinstance(stable_id, str) or not stable_id:
+        return None
+    return stable_id
+
+
+def _visible_herbs_by_stable_id(relations: list[EvidenceRelation]) -> dict[str, KnowledgeEntity]:
+    stable_ids = {
+        stable_id
+        for relation in relations
+        if relation.relation_type == "disease_herb_target"
+        for stable_id in [_direct_herb_stable_id(relation)]
+        if stable_id is not None
+    }
+    if not stable_ids:
+        return {}
+    herbs = KnowledgeEntity.objects.filter(
+        entity_type=KnowledgeEntity.EntityType.HERB,
+        stable_id__in=stable_ids,
+        is_active=True,
+    ).filter(
+        Q(source_release__isnull=True) | Q(source_release__source__enabled=True)
+    ).select_related("source_release", "source_release__source")
+    return {herb.stable_id: herb for herb in herbs}
+
+
+def search_disease_evidence(query: str) -> dict:
+    query = str(query or "").strip()
+    expanded_queries = expand_disease_queries(query)
+
+    # The queryset provides the shared database search, and this value-based
+    # check prevents JSON object keys from being treated as disease synonyms.
+    matching_records = []
+    for entity in disease_entity_queryset(expanded_queries).iterator(chunk_size=MAX_MATCHES + 1):
+        if matched_disease_queries(entity, expanded_queries):
+            matching_records.append(entity)
+            if len(matching_records) > MAX_MATCHES:
+                break
+    matches_truncated = len(matching_records) > MAX_MATCHES
+    matches = matching_records[:MAX_MATCHES]
+
+    relations, relations_truncated = _visible_relations({entity.pk for entity in matches}) if matches else ([], False)
+    direct_herbs = _visible_herbs_by_stable_id(relations)
+
+    herbs_by_id: dict[int, KnowledgeEntity] = {}
+    targets_by_id: dict[int, KnowledgeEntity] = {}
+    links = []
+    for relation in relations:
+        herb_label = ""
+        target_label = ""
+        if relation.relation_type == DISEASE_HERB_TYPE:
+            herbs_by_id[relation.object_id] = relation.object
+            herb_label = relation.object.label
+        else:
+            targets_by_id[relation.object_id] = relation.object
+            target_label = relation.object.label
+            if relation.relation_type == "disease_herb_target":
+                stable_id = _direct_herb_stable_id(relation)
+                herb = direct_herbs.get(stable_id) if stable_id is not None else None
+                if herb is not None:
+                    herbs_by_id[herb.pk] = herb
+                    herb_label = herb.label
+
+        links.append({
+            "disease": relation.subject.label,
+            "herb": herb_label,
+            "target": target_label,
+            "relationType": relation.relation_type,
+            "sourceSlug": relation.source_release.source.slug,
+            "sourceVersion": relation.source_release.version,
+            "sourceRecordId": relation.source_record_id,
+        })
+
+    entity_sort_key = lambda entity: (entity.label.casefold(), entity.stable_id.casefold(), entity.pk)
+    truncated = matches_truncated or relations_truncated
+    return {
+        "query": query,
+        "expandedQueries": expanded_queries,
+        "aliasSource": ALIAS_DATA["source"],
+        "aliasSourceCommit": ALIAS_DATA["sourceCommit"],
+        "matches": [_entity_record(entity) for entity in matches],
+        "ambiguous": len(matches) > 1,
+        "herbs": [_entity_record(entity) for entity in sorted(herbs_by_id.values(), key=entity_sort_key)],
+        "targets": [_entity_record(entity) for entity in sorted(targets_by_id.values(), key=entity_sort_key)],
+        "relations": [_relation_record(relation) for relation in relations],
+        "links": links,
+        "counts": {
+            "diseases": len(matches),
+            "herbs": len(herbs_by_id),
+            "targets": len(targets_by_id),
+            "links": len(links),
+            "relations": len(relations),
+        },
+        "truncated": truncated,
+        "limits": {"maxMatches": MAX_MATCHES, "maxRelations": MAX_RELATIONS},
+    }

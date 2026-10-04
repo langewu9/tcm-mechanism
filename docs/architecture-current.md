@@ -1,6 +1,6 @@
 # 当前架构与模块边界
 
-2026-10-04 补充：公共侧栏/顶栏、原五项移动导航、检索标签布局、文本分析正文及首页卷轴 PNG 已按 main 源码恢复到 React/Vite。Django 会话返回当前用户姓名/邮箱供外壳展示；网络统计已修正候选范围、直接关联重叠计数和直接候选中药字段，历史任务不改写。核验范围及尚存差异见 [main UI 与结果复刻核验](main-ui-and-result-parity.md)，不能将编译或合成数据测试当作全站视觉/真实结果完全一致的证明。
+2026-10-04 补充：公共侧栏/顶栏、原五项移动导航、检索标签布局、研究总览正文、文本分析正文及首页卷轴 PNG 已按 main 源码恢复到 React/Vite。疾病检索新增只读中药/靶点/来源关系汇总，旧别名目录查询继续可用。Django 会话返回当前用户姓名/邮箱供外壳展示；网络统计已修正候选范围、直接关联重叠计数和直接候选中药字段，历史任务不改写。核验范围及尚存差异见 [main UI 与结果复刻核验](main-ui-and-result-parity.md)，不能将编译或合成数据测试当作全站视觉/真实结果完全一致的证明。
 
 ## 运行结构
 
@@ -28,6 +28,7 @@ Django 当前保留一个 `core` 应用标签和现有迁移历史，内部先�
 - `apps/core/domain/research.py`：数据集、去标识化医案、医案候选、审计事件和分析任务。
 - `apps/core/views/auth.py`：CSRF token、会话登录/退出、限速注册、邮箱验证及验证链接重发。
 - `apps/core/views/catalog.py`：知识目录查询与首页计数。
+- `apps/core/views/disease_evidence.py`、`apps/core/services/disease_evidence.py`：main 疾病检索的版本化只读关系汇总，别名仅用于查询展开，实体和关系保留独立身份与来源。
 - `apps/core/views/research.py`：研究者个人工作区 API。
 - `apps/core/views/text_analysis.py`、`apps/core/services/text_analysis.py`：main 四组关键词规则的文本分析任务、证据链和来源快照。
 - `apps/core/views/integrations.py`：main 旧版 API 接入监测的 Django 适配，仅平台超级管理员可访问。
@@ -47,6 +48,7 @@ API 按模块分组：
 | 科研助手 | `/api/v1/research/assistant/`、`analysis-tasks/{id}/` | 研究者选择启用来源目录实体；默认只返回本地证据，逐次同意后才调用内网模型；异步任务冻结来源快照并校验回答引用 |
 | 外部分析 | `/api/v1/analysis/pathway-enrichment/`、`string-network/`；蛋白组学任务的独立同意参数 | 需要显式同意的 Reactome、STRING 物理互作和 g:Profiler GO/KEGG 富集后台任务 |
 | 知识目录 | `/api/v1/catalog/` | 数据源、实体、证据关系；实体 neighborhood 最多返回 200 条活动来源关系；`herb-evidence/batch/` 支持每批最多 12 个中药或成分的本地精确查询，返回成分/靶点关系和来源记录 |
+| 疾病关系汇总 | `/api/v1/catalog/diseases/evidence-search/` | 登录后共享知识检索；查询词最多 120 字，main 别名展开后最多返回 20 个疾病和 1,200 条活动关系，按实体 ID 计数并返回来源版本/记录号；不访问研究者私有记录或创建任务，旧 `alias-search/` 保留 |
 | Reactome 人类通路目录 | `/api/v1/catalog/pathways/reactome/` | 登录后共享的启用、版本化人类通路目录；名称/稳定 ID 检索，最多 100 项，实际来源版本与校验值；不读取用户私有富集任务 |
 | 管理员数据源同步 | `/api/v1/admin/sources/`、`sync-runs/` | Reactome、UniProt、人工 CID 映射的 PubChem、STRING 人类标识映射与受控旧 SQLite 来源的后台预览、审计历史和人工应用；`DELETE /sources/{id}/` 仅删除无版本/同步历史的登记，有历史则返回 409 保留溯源 |
 | 管理员平台总览 | `/admin`、`/api/v1/admin/overview/` | 仅超级管理员可见的用户角色/状态/资产计数与最近 10 项数据集、分析任务；只读接口，身份和所有权由 Django session/服务端控制 |

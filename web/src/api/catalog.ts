@@ -118,6 +118,36 @@ export type HerbEvidenceSearch = {
   results: HerbEvidenceItem[];
 };
 
+export type DiseaseEvidenceLink = {
+  disease: string;
+  herb: string;
+  target: string;
+  relationType: string;
+  sourceSlug: string;
+  sourceVersion: string;
+  sourceRecordId: string;
+};
+
+export type DiseaseEvidenceSearch = {
+  query: string;
+  expandedQueries: string[];
+  aliasSource: string;
+  aliasSourceCommit: string;
+  matches: HerbEvidenceEntity[];
+  ambiguous: boolean;
+  herbs: HerbEvidenceEntity[];
+  targets: HerbEvidenceEntity[];
+  relations: HerbEvidenceRelation[];
+  links: DiseaseEvidenceLink[];
+  counts: { diseases: number; herbs: number; targets: number; links: number; relations: number };
+  truncated: boolean;
+  limits: { maxMatches: number; maxRelations: number };
+};
+
+export function searchDiseaseEvidence(query: string) {
+  return apiRequest<DiseaseEvidenceSearch>(`/api/v1/catalog/diseases/evidence-search/?${new URLSearchParams({ query })}`);
+}
+
 export function searchCatalogEntities(query: string, entityType: string, page = 1) {
   if (entityType === "disease") {
     const params = new URLSearchParams({ query, page: String(page) });

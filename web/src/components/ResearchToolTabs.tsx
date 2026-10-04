@@ -4,11 +4,12 @@ import { useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { Activity, Beaker, Database, Download, FileJson, GitCompareArrows, Leaf, Route, Search, Sparkles, Table2 } from "lucide-react";
 import { ApiError } from "../api/client";
-import { getEntityNeighborhood, searchCatalogEntities, searchHerbComponentEvidence, searchReactomeCatalog, type EntityNeighborhood, type HerbEvidenceSearch, type KnowledgeEntity, type KnowledgeSearchPage, type ReactomeCatalogResult } from "../api/catalog";
+import { getEntityNeighborhood, searchCatalogEntities, searchDiseaseEvidence, searchHerbComponentEvidence, searchReactomeCatalog, type DiseaseEvidenceSearch, type EntityNeighborhood, type HerbEvidenceSearch, type KnowledgeEntity, type KnowledgeSearchPage, type ReactomeCatalogResult } from "../api/catalog";
 import { compareComponents, searchChemblActivities, searchChemblMolecules, type ChemblActivitySearch, type ChemblMoleculeSearch, type ComponentComparison } from "../api/chembl";
 import { runNetworkPharmacology, type NetworkPharmacologyResult } from "../api/network";
 import { downloadText, encodeCsv } from "../utils/downloads";
 import { ComponentComparisonResults } from "./ComponentComparisonResults";
+import { DiseaseEvidenceResults } from "./DiseaseEvidenceResults";
 import { NetworkPharmacologyCharts } from "./NetworkPharmacologyCharts";
 import { NetworkResultDownloads } from "./NetworkResultDownloads";
 import { PaginatedTable } from "./PaginatedTable";
@@ -56,6 +57,7 @@ export function ResearchToolTabs() {
   const [comparison, setComparison] = useState<ComponentComparison | null>(null);
   const [pathways, setPathways] = useState<ReactomeCatalogResult | null>(null);
   const [network, setNetwork] = useState<NetworkPharmacologyResult | null>(null);
+  const [diseaseEvidence, setDiseaseEvidence] = useState<DiseaseEvidenceSearch | null>(null);
   const [entityPage, setEntityPage] = useState<KnowledgeSearchPage | null>(null);
   const [activeQuery, setActiveQuery] = useState("");
   const [activeType, setActiveType] = useState("");
@@ -66,10 +68,10 @@ export function ResearchToolTabs() {
   const requestId = useRef(0);
   const detailRequest = useRef(0);
   const selectedTool = tools.find((tool) => tool.id === active)!;
-  const hasResult = Boolean(evidence || chembl || comparison || pathways || network || entityPage);
+  const hasResult = Boolean(evidence || chembl || comparison || pathways || network || diseaseEvidence || entityPage);
 
   function resetResults() {
-    setEvidence(null); setChembl(null); setChemblActivity(null); setComparison(null); setPathways(null); setNetwork(null); setEntityPage(null); setSelected(null); setNeighborhood(null);
+    setEvidence(null); setChembl(null); setChemblActivity(null); setComparison(null); setPathways(null); setNetwork(null); setDiseaseEvidence(null); setEntityPage(null); setSelected(null); setNeighborhood(null);
     setChemblBusyId(null); setDetailBusy(false); detailRequest.current += 1;
   }
 
@@ -104,8 +106,10 @@ export function ResearchToolTabs() {
       resetResults(); await run(() => searchReactomeCatalog(query.trim()), setPathways);
     } else if (active === "intersection") {
       resetResults(); await run(() => runNetworkPharmacology({ herb: herbs, disease }), setNetwork);
+    } else if (active === "disease") {
+      resetResults(); await run(() => searchDiseaseEvidence(query.trim()), setDiseaseEvidence);
     } else {
-      const type = active === "disease" ? "disease" : entityType;
+      const type = entityType;
       resetResults(); setActiveQuery(query.trim()); setActiveType(type); setPageNumber(1);
       await run(() => searchCatalogEntities(query.trim(), type), setEntityPage);
     }
@@ -157,7 +161,7 @@ export function ResearchToolTabs() {
           </> : active === "herb" ? <label className="form-label" htmlFor="research-query">中药名称（可输入多个）<textarea id="research-query" className="field" value={query} maxLength={maxBatchQueryLength} onChange={(event) => setQuery(event.target.value)} placeholder="例如：麦冬、半夏、人参、大枣、甘草、粳米" required /></label> : active === "component" ? <label className="form-label" htmlFor="research-query">成分名称（中文 / 英文 / 拉丁）<input id="research-query" className="field" value={query} maxLength={maxBatchQueryLength} onChange={(event) => setQuery(event.target.value)} placeholder="例如：甘草酸 / Glycyrrhizic acid" required /></label> : <label className="form-label" htmlFor="research-query">{active === "chembl" ? "分子名称（中文 / 英文 / 拉丁 / ChEMBL 规范名）" : active === "pathway" ? "通路名称或稳定 ID" : "检索词"}<input id="research-query" className="field" value={query} maxLength={active === "pathway" ? 160 : 120} onChange={(event) => setQuery(event.target.value)} placeholder={active === "pathway" ? "例如：Interleukin 或 R-HSA-449147" : active === "chembl" ? "例如：甘草酸 / Glycyrrhizic acid" : `例如：${examples[active] || "肺纤维化、麦冬、TP53"}`} required={active !== "pathway"} /></label>}
           {active === "catalogue" && <label className="form-label" htmlFor="catalog-type">实体类型<select className="field" id="catalog-type" value={entityType} onChange={(event) => setEntityType(event.target.value)}>{entityTypes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>}
           {active === "chembl" && <label className="chembl-consent"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} /><span>我同意将输入的查询词、main 内置别名展开的检索词，以及选中的 ChEMBL 编号发送到 ChEMBL 官方服务。不会发送医案正文、上传文件或账号标识。</span></label>}
-          {active === "herb" || active === "component" ? <p className="section-help">支持逗号、分号、顿号、竖线或换行分隔，每次最多 12 项。仅查询已导入且启用的目录，不连接旧电脑的 Excel / SQLite 文件。</p> : active === "compare" ? <p className="section-help">每侧最多 100 项，按 main 名称表进行标准化；同家族只标候选，不计入精确交集。不会向外部服务发送名称。</p> : active === "pathway" ? <p className="section-help">检索已同步的本地目录；输入为空时展示按名称排序的前 100 项。</p> : active === "disease" || active === "catalogue" ? <p className="section-help">只展示已导入目录和来源证据；未导入的名称会返回空结果，不生成推测记录。</p> : null}
+          {active === "herb" || active === "component" ? <p className="section-help">支持逗号、分号、顿号、竖线或换行分隔，每次最多 12 项。仅查询已导入且启用的目录，不连接旧电脑的 Excel / SQLite 文件。</p> : active === "compare" ? <p className="section-help">每侧最多 100 项，按 main 名称表进行标准化；同家族只标候选，不计入精确交集。不会向外部服务发送名称。</p> : active === "pathway" ? <p className="section-help">检索已同步的本地目录；输入为空时展示按名称排序的前 100 项。</p> : active === "disease" ? <p className="section-help">使用 main 疾病别名表扩展查询词，只返回已导入且当前启用来源中的实体与关联证据；别名不代表药理证据。</p> : active === "catalogue" ? <p className="section-help">只展示已导入目录和来源证据；未导入的名称会返回空结果，不生成推测记录。</p> : null}
           {error && <div className="notice-error" role="alert">{error}</div>}
           <button className="btn btn-primary" disabled={busy} type="submit"><Search size={17} />{busy ? "正在检索..." : "开始检索"}</button>
         </div>
@@ -169,8 +173,9 @@ export function ResearchToolTabs() {
           {pathways && <PathwayResults data={pathways} />}
           {chembl && <ChemblResults data={chembl} activities={chemblActivity} busyId={chemblBusyId} consent={consent} onActivities={(id) => void loadChemblActivities(id)} />}
           {network && <IntersectionResults data={network} />}
+          {diseaseEvidence && <DiseaseEvidenceResults data={diseaseEvidence} />}
           {entityPage && <>
-            <div className="panel-header"><div><h3 className="section-title-sm">{active === "disease" ? "疾病检索结果" : "匹配结果"}</h3><p className="section-help">{activeQuery} · {entityPage.count} 条</p></div><span className="status-badge status-success">查询完成</span></div>
+            <div className="panel-header"><div><h3 className="section-title-sm">匹配结果</h3><p className="section-help">{activeQuery} · {entityPage.count} 条</p></div><span className="status-badge status-success">查询完成</span></div>
             <div className="case-form-fields">
               {activeType === "disease" && entityPage.expandedQueries && <p className="notice-info">main 疾病别名表 {entityPage.aliasSourceCommit} 展开的本地检索词：{entityPage.expandedQueries.join("、")}。这些词只帮助查找已导入记录；不表示疾病术语等价，也不构成研究证据。</p>}
               {!entityPage.results.length ? <div className="empty-state"><strong>没有匹配的已导入实体</strong><p>请检查名称，或联系平台管理员确认来源目录是否已同步。</p></div> : <div className="knowledge-entity-list">{entityPage.results.map((entity) => <button className="knowledge-entity-option" key={entity.id} type="button" aria-pressed={selected?.id === entity.id} onClick={() => void selectEntity(entity)}><span><strong>{entity.label}</strong><small>{entityTypeLabel[entity.entity_type] ?? entity.entity_type} · {entity.stable_id}</small>{entity.matchedQueries?.length ? <small>匹配检索词：{entity.matchedQueries.join("、")}</small> : null}</span><small>{entity.source_slug ? `${entity.source_slug} ${entity.source_version ?? ""}` : "来源版本未登记"}</small></button>)}</div>}

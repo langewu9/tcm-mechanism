@@ -6,7 +6,7 @@
 
 ## 迁移规则
 
-2026-10-04 复刻收尾：已恢复 main 公共侧栏/顶栏、原五项移动导航、检索标签布局、文本分析正文及首页三张卷轴 PNG，并修正网络候选统计和直接关联候选的中药字段。实际 Django + 构建静态前端已通过合成数据 HTTP 联调；浏览器实际渲染、真实研究样例和旧数据导入仍未验收。详见 [UI 与结果复刻核验](main-ui-and-result-parity.md)。
+2026-10-04 复刻进展：已恢复 main 公共侧栏/顶栏、原五项移动导航、检索标签布局、研究总览正文、文本分析正文及首页三张卷轴 PNG，并修正网络候选统计和直接关联候选的中药字段。疾病中药/靶点/关系汇总已接入只读 Django API，保留来源与实体身份。实际 Django + 构建静态前端已通过合成数据 HTTP 联调；浏览器实际渲染、真实研究样例和旧数据导入仍未验收。详见 [UI 与结果复刻核验](main-ui-and-result-parity.md)。
 
 - React 组件和 CSS 可以复用交互与视觉结构，但 `next/navigation`、Next.js Server Actions、Prisma 查询必须改为 React Router、Django API 和当前设计系统。
 - 领域算法优先复用并迁到 Python 业务服务，需建立输入/输出样例并与 main 结果对照后才能替换旧路径。
@@ -23,6 +23,7 @@
 | main 分支源码 | main 中的用途 | 当前 Django + React/Vite 目标 | 状态 |
 |---|---|---|---|
 | `src/app/api/research/route.ts#pathway`、`ResearchWorkbench.tsx#PathwaySearchResult` | 本地 Reactome 人类目录名称/编号检索、注释数量和导出 | `/research` 的通路目录组件 + `/api/v1/catalog/pathways/reactome/` | 已迁移启用、活动且有来源版本的 R-HSA 人类目录，名称排序、最多 100 项，保留实际版本/校验值和去重基因/蛋白注释来源；空目录、无匹配和截断有提示。CSV/JSON 导出包含同一结果及来源，旧全局富集表未迁入，显示“未迁入”，不访问研究者私有任务。6 项 API 测试及合成数据页面检索/分页/错误提示通过；浏览器 Blob 文件落盘仍需常规浏览器确认 |
+| `backend/data_service.py#search_disease`、`src/app/api/research/route.ts#mergeDiseaseResults` | 疾病名称/别名检索，汇总中药、靶点与三元关系 | `/research` 疾病标签 + `/api/v1/catalog/diseases/evidence-search/` | 已迁移启用的版本化目录汇总，最多 20 个疾病/1,200 条关系；可信 stable ID 解析、同名身份保留、来源 CSV/JSON 和空态/截断提示已接入，旧目录 API 保留。8 项 API 测试含固定旧 SQLite 输入对照；新关系总数包括三类证据，实体按 ID 去重，不能直接等同于旧按名称/三元表计数；真实旧数据对照及浏览器样式/下载仍待验收 |
 | `src/components/AppShell.tsx`、`AppNavigation.tsx`、`PageHeader.tsx`、`src/app/product.css` | 主导航、页面框架和产品视觉样式 | `web/src` 中复用样式/交互，路由改为 React Router | 首页、医案和数据集已接入；共享工作台导航已统一，保留原有标签和视觉样式 |
 | `src/app/dashboard/page.tsx`、`src/app/api/dashboard/route.ts` | 展示登录用户的数据集、医案、任务数量，知识库规模和最近五项任务 | React `/dashboard` + 登录保护的 `/api/v1/research/dashboard/` | 已迁移；研究者只看本人记录，超级管理员可看全部，知识实体按启用来源统计；登录后默认进入总览 |
 | `src/app/api-integration/page.tsx`、`ApiIntegrationConsole.tsx`、`src/app/api/integrations/{status,test}/route.ts` | 管理员查看服务状态并测试疾病/中药/成分/ChEMBL/靶点交集/成分比对/Qwen/AI Scientist 调用链 | React `/admin/integrations` + 超级管理员 Django API `/api/v1/admin/integrations/` | 已迁入原监测页及主要测试项；状态映射为 Django/数据库、数据源目录和本机模型配置。疾病、中药、成分、交集与成分比对检查复用当前 Django 服务，交集为只读不建任务；ChEMBL 和本机模型需逐次同意并限流。旧 AI Scientist 依赖仓库缺失的 Excel/SQLite 数据，页面明确标待迁移，不伪造替代结果。6 项权限、同意门槛、只读行为和缺失依赖测试通过 |
