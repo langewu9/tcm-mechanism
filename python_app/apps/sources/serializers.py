@@ -1,3 +1,4 @@
+from django.conf import settings
 from rest_framework import serializers
 
 from apps.core.models import DataSource, SyncRun
@@ -9,14 +10,20 @@ class DataSourceSyncSerializer(serializers.ModelSerializer):
     latest_run_status = serializers.CharField(read_only=True, allow_null=True, default=None)
     latest_run_at = serializers.DateTimeField(read_only=True, allow_null=True, default=None)
     connector_type = serializers.SerializerMethodField()
+    scheduled_previews_enabled = serializers.SerializerMethodField()
 
     class Meta:
         model = DataSource
         fields = [
             "id", "slug", "name", "description", "access_mode", "documentation_url",
             "license_note", "enabled", "last_success_at", "latest_run_status", "latest_run_at", "connector_type",
+            "refresh_interval_hours", "last_preview_requested_at",
+            "scheduled_previews_enabled",
         ]
         read_only_fields = fields
+
+    def get_scheduled_previews_enabled(self, obj) -> bool:
+        return settings.SOURCE_SCHEDULED_PREVIEWS_ENABLED
 
     def get_connector_type(self, obj) -> str:
         fallback = {

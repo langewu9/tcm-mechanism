@@ -1,0 +1,70 @@
+name: Platform checks
+on:
+  pull_request:
+  push:
+    branches: [main, 'codex/**']
+permissions:
+  contents: read
+concurrency:
+  group: platform-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        database: [sqlite, postgres]
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: tcm_ci
+          POSTGRES_USER: tcm_ci
+          POSTGRES_PASSWORD: ci-only-password
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd 'pg_isready -U tcm_ci -d tcm_ci'
+          --health-interval 10s --health-timeout 5s --health-retries 10
+    defaults:
+      run:
+        working-directory: python_app
+    env:
+      DJANGO_DEBUG: 'true'
+      DJANGO_SECRET_KEY: ci-only-not-a-production-secret
+      DATABASE_URL: ${{ matrix.database == 'postgres' && 'postgres://tcm_ci:ci-only-password@127.0.0.1:5432/tcm_ci' || 'sqlite:////tmp/tcm_ci.sqlite3' }}
+      MEDIA_ROOT: ${{ runner.temp }}/tcm-media
+      SOURCE_SCHEDULED_PREVIEWS_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: python_app/requirements.txt
+      - run: python -m pip install -r requirements.txt
+      - run: python manage.py migrate --noinput
+      - run: python manage.py check
+      - run: python manage.py makemigrations --check --dry-run
+      - run: python manage.py test apps.core apps.proteomics apps.sources --noinput
+      - run: python manage.py spectacular --file "$RUNNER_TEMP/schema.yml" --validate --fail-on-warn
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '9.15.9'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:api
+      - run: pnpm test:research
+      - run: pnpm test:network
+      - run: pnpm build

@@ -1,6 +1,7 @@
 import hashlib
 import sqlite3
 import tempfile
+from contextlib import closing
 from unittest.mock import patch
 from pathlib import Path
 
@@ -284,7 +285,7 @@ class SQLiteSourceSyncTests(APITestCase):
 
     def create_legacy_file(self, root: str) -> Path:
         path = Path(root) / "legacy.sqlite3"
-        with sqlite3.connect(path) as connection:
+        with closing(sqlite3.connect(path)) as connection, connection:
             connection.execute(
                 "CREATE TABLE herb_component_target "
                 "(herb TEXT, component TEXT, target TEXT)"
@@ -428,7 +429,7 @@ class SQLiteSourceSyncTests(APITestCase):
             preview_id = preview_response.data["run"]["id"]
             sync_source_run.run(preview_id)
             preview = SyncRun.objects.get(pk=preview_id)
-            with sqlite3.connect(Path(root) / "legacy.sqlite3") as connection:
+            with closing(sqlite3.connect(Path(root) / "legacy.sqlite3")) as connection, connection:
                 connection.execute("INSERT INTO herb_component_target VALUES (?, ?, ?)", ("丹参", "丹参酮", "AKT1"))
 
             with patch("apps.sources.tasks.sync_source_run.delay"):
@@ -470,7 +471,7 @@ class SQLiteSourceSyncTests(APITestCase):
     def test_empty_mapped_table_does_not_create_a_preview_or_retire_existing_entities(self):
         with tempfile.TemporaryDirectory() as root, override_settings(SQLITE_SOURCE_ROOT=root):
             path = Path(root) / "legacy.sqlite3"
-            with sqlite3.connect(path) as connection:
+            with closing(sqlite3.connect(path)) as connection, connection:
                 connection.execute("CREATE TABLE herb_component_target (herb TEXT, component TEXT, target TEXT)")
                 connection.execute("INSERT INTO herb_component_target VALUES ('', '', '')")
             payload = self.source_payload()

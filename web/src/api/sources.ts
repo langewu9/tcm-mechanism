@@ -10,6 +10,9 @@ export type AdminDataSource = {
   license_note: string;
   enabled: boolean;
   last_success_at: string | null;
+  refresh_interval_hours?: number | null;
+  last_preview_requested_at?: string | null;
+  scheduled_previews_enabled?: boolean;
   latest_run_status: string | null;
   latest_run_at: string | null;
   connector_type: "reactome-catalog" | "sqlite-herb-compound-target" | "uniprot-human-catalog" | "pubchem-compound-catalog" | "string-human-identifier-crosswalk" | string;

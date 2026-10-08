@@ -192,6 +192,8 @@ REST_FRAMEWORK = {
         "registration": "5/hour",
         "email_verification": "5/hour",
         "chembl": "10/hour",
+        "login_ip": env("DJANGO_LOGIN_IP_RATE", default="30/min"),
+        "login_account": env("DJANGO_LOGIN_ACCOUNT_RATE", default="10/min"),
     },
 }
 
@@ -221,3 +223,8 @@ CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 CELERY_TASK_TIME_LIMIT = 1200
 CELERY_TASK_SOFT_TIME_LIMIT = 1080
 CELERY_TASK_IGNORE_RESULT = True
+SOURCE_SCHEDULED_PREVIEWS_ENABLED = env.bool("SOURCE_SCHEDULED_PREVIEWS_ENABLED", default=False)
+CELERY_BEAT_SCHEDULE = (
+    {"source-preview-scan": {"task": "sources.schedule_previews", "schedule": 60.0}}
+    if SOURCE_SCHEDULED_PREVIEWS_ENABLED else {}
+)

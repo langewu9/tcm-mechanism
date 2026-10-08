@@ -13,7 +13,7 @@ from apps.core.services.network_pharmacology import STATISTICS_VERSION, build_ne
 class NetworkStatisticsParityTests(TestCase):
     @classmethod
     def setUpTestData(cls):
-        cls.fixture = json.loads((Path(__file__).parent / "fixtures" / "main_network_statistics.json").read_text())
+        cls.fixture = json.loads((Path(__file__).parent / "fixtures" / "main_network_statistics.json").read_text(encoding="utf-8"))
         cls.user = get_user_model().objects.create_user(username="network-statistics-owner")
         cls.releases = {}
         for slug in ("fixture", "fixture-duplicate"):

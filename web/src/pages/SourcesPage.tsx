@@ -188,6 +188,12 @@ export function SourcesPage() {
                     {deletingSourceId === source.id ? <RefreshCw size={15} className="spin" /> : <Trash2 size={15} />}
                   </button></div></div>
               <p className="dataset-description">{source.description}</p>
+              <p className="section-help">
+                定时预览：{!source.enabled ? "数据源已停用" : !source.scheduled_previews_enabled ? "部署开关未开启" :
+                  source.refresh_interval_hours && source.refresh_interval_hours > 0 ? `每 ${source.refresh_interval_hours} 小时检查` : "未设置刷新间隔"}
+                {source.last_preview_requested_at ? ` · 最近调度：${dateTime(source.last_preview_requested_at)}` : ""}
+                。预览不会自动入库，仍需管理员审核确认。
+              </p>
               {source.connector_type === "reactome-catalog" || source.slug === "reactome" || source.connector_type === "uniprot-human-catalog" || source.connector_type === "pubchem-compound-catalog" || source.connector_type === "string-human-identifier-crosswalk" ? <>
                 <p className="source-last-success">最近一次成功应用：{dateTime(source.last_success_at)}</p>
                 {source.connector_type === "uniprot-human-catalog" && <p className="section-help">只同步人类 reviewed 蛋白条目。系统将先按基因符号尝试关联已有靶点；多重匹配会保留为歧义，应用前请检查预览。</p>}
@@ -265,7 +271,7 @@ export function SourcesPage() {
               const canApply = summary.mode === "preview" && run.status === "succeeded" && !activeApplyBases.has(run.id);
               return <article className="panel source-run-record" key={run.id}>
                 <div className="case-record-top"><div><h3>{run.source_name} · {summary.mode === "apply" ? "应用数据" : "预览数据"} #{run.id}</h3>
-                  <time>{dateTime(run.created_at)} · 操作者：{run.requested_by_username ?? "未知"}</time></div>
+                  <time>{dateTime(run.created_at)} · {run.trigger === "scheduled" ? "定时预览" : "人工触发"} · 操作者：{run.requested_by_username ?? (run.trigger === "scheduled" ? "系统调度" : "未知")}</time></div>
                   <span className={`status-badge ${run.status === "succeeded" ? "status-success" : run.status === "failed" ? "status-error" : "status-warning"}`}>{runStatus(run.status)}</span></div>
                 {run.status === "failed" && <div className="notice-error source-run-error" role="alert">{run.error_summary}</div>}
                 {summary.mode === "preview" && run.status === "succeeded" && <>

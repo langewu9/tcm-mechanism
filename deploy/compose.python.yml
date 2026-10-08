@@ -58,6 +58,7 @@ services:
       DATABASE_URL: postgresql://tcm_platform:tcm_platform_dev_only@postgres:5432/tcm_platform
       CELERY_BROKER_URL: redis://redis:6379/0
       CACHE_URL: redis://redis:6379/1
+      SOURCE_SCHEDULED_PREVIEWS_ENABLED: ${SOURCE_SCHEDULED_PREVIEWS_ENABLED:-false}
       MEDIA_ROOT: /app/var/media
       SQLITE_SOURCE_ROOT: /app/var/source-databases
       STRING_DB_VERSION: ${STRING_DB_VERSION:-}
@@ -83,6 +84,7 @@ services:
       DJANGO_ALLOWED_HOSTS: 127.0.0.1,localhost,api
       DATABASE_URL: postgresql://tcm_platform:tcm_platform_dev_only@postgres:5432/tcm_platform
       CELERY_BROKER_URL: redis://redis:6379/0
+      SOURCE_SCHEDULED_PREVIEWS_ENABLED: ${SOURCE_SCHEDULED_PREVIEWS_ENABLED:-false}
       MEDIA_ROOT: /app/var/media
       SQLITE_SOURCE_ROOT: /app/var/source-databases
       STRING_DB_VERSION: ${STRING_DB_VERSION:-}
@@ -110,10 +112,31 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
+  beat:
+    profiles: [scheduler]
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    command: ["celery", "-A", "config", "beat", "--loglevel=INFO", "--schedule=/app/var/celery/beat"]
+    environment:
+      DJANGO_DEBUG: "true"
+      DJANGO_SECRET_KEY: local-only-unsafe-key-do-not-use-in-production
+      DATABASE_URL: postgresql://tcm_platform:tcm_platform_dev_only@postgres:5432/tcm_platform
+      CELERY_BROKER_URL: redis://redis:6379/0
+      SOURCE_SCHEDULED_PREVIEWS_ENABLED: ${SOURCE_SCHEDULED_PREVIEWS_ENABLED:-false}
+    volumes:
+      - tcm_platform_celery_schedule:/app/var/celery
+    depends_on:
+      api:
+        condition: service_started
+      redis:
+        condition: service_healthy
+
 volumes:
   tcm_platform_pgdata:
   tcm_platform_redisdata:
   tcm_platform_media:
+  tcm_platform_celery_schedule:
 
 networks:
   visualization:

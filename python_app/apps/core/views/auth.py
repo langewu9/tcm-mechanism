@@ -18,6 +18,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.core.models import ResearcherProfile
+from apps.core.services.account_identity import users_with_email
+from apps.core.throttling import LoginAccountThrottle, LoginIPThrottle
 from apps.core.services.account_verification import (
     EmailVerificationUnavailable,
     InvalidEmailVerificationToken,
@@ -56,7 +58,7 @@ class ResearcherRegistrationSerializer(serializers.Serializer):
 
     def validate_email(self, value):
         email = value.strip().lower()
-        if get_user_model().objects.filter(email__iexact=email).exists():
+        if users_with_email(email).exists():
             raise serializers.ValidationError("该邮箱已登记，请联系平台管理员。")
         return email
 
@@ -86,7 +88,11 @@ class ResearcherRegistrationSerializer(serializers.Serializer):
                 ResearcherProfile.objects.create(user=user)
                 return user
         except IntegrityError as exc:
-            raise serializers.ValidationError({"username": "该用户名已被使用，请重新选择。"}) from exc
+            if users_with_email(validated_data["email"]).exists():
+                raise serializers.ValidationError({"email": "该邮箱已登记，请联系平台管理员。"}) from exc
+            if user_model.objects.filter(username__iexact=validated_data["username"]).exists():
+                raise serializers.ValidationError({"username": "该用户名已被使用，请重新选择。"}) from exc
+            raise
 
 
 class CsrfTokenSerializer(serializers.Serializer):
@@ -229,6 +235,7 @@ class ResendVerificationEmailView(APIView):
 
 class SessionView(APIView):
     permission_classes = [AllowAny]
+    throttle_classes = [LoginIPThrottle, LoginAccountThrottle]
 
     @extend_schema(responses=SessionSerializer)
     def get(self, request):

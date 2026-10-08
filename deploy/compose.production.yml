@@ -24,6 +24,9 @@ x-django-environment: &django-environment
   DATABASE_URL: postgres://tcm_platform:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.production}@postgres:5432/tcm_platform
   CELERY_BROKER_URL: redis://:${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env.production}@redis:6379/0
   CACHE_URL: redis://:${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env.production}@redis:6379/1
+  DJANGO_LOGIN_IP_RATE: ${DJANGO_LOGIN_IP_RATE:-30/min}
+  DJANGO_LOGIN_ACCOUNT_RATE: ${DJANGO_LOGIN_ACCOUNT_RATE:-10/min}
+  SOURCE_SCHEDULED_PREVIEWS_ENABLED: ${SOURCE_SCHEDULED_PREVIEWS_ENABLED:-false}
   S3_STORAGE_ENABLED: "true"
   S3_BUCKET_NAME: ${S3_BUCKET_NAME:?Set S3_BUCKET_NAME in .env.production}
   S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:?Set S3_ENDPOINT_URL in .env.production}
@@ -138,6 +141,22 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
+  beat:
+    profiles: [scheduler]
+    build: *python-build
+    restart: unless-stopped
+    command: ["celery", "-A", "config", "beat", "--loglevel=INFO", "--schedule=/app/var/celery/beat"]
+    environment:
+      <<: *django-environment
+    volumes:
+      - celery_schedule:/app/var/celery
+    depends_on:
+      api:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks: [data]
+
   nginx:
     build:
       context: ..
@@ -166,6 +185,7 @@ volumes:
   postgres_data:
   redis_data:
   django_static:
+  celery_schedule:
 
 networks:
   edge:

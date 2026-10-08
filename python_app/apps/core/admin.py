@@ -5,6 +5,7 @@ from django.contrib.auth.models import User as DefaultUser
 from django.db import transaction
 
 from .domain.accounts import ResearcherProfile
+from .forms import ResearcherUserChangeForm, ResearcherUserCreationForm
 from .models import (
     AnalysisTask,
     DataSource,
@@ -28,6 +29,8 @@ if User is DefaultUser:
 
 @admin.register(User)
 class ResearcherUserAdmin(UserAdmin):
+    form = ResearcherUserChangeForm
+    add_form = ResearcherUserCreationForm
     list_display = (*UserAdmin.list_display, "researcher_email_verified")
     readonly_fields = (*UserAdmin.readonly_fields, "researcher_email_verification")
 
@@ -83,7 +86,7 @@ class DataSourceAdmin(admin.ModelAdmin):
     list_display = ("name", "slug", "access_mode", "enabled", "last_success_at")
     list_filter = ("access_mode", "enabled")
     search_fields = ("name", "slug")
-    readonly_fields = ("created_at", "updated_at")
+    readonly_fields = ("created_at", "updated_at", "last_preview_requested_at")
 
 
 @admin.register(SourceRelease)

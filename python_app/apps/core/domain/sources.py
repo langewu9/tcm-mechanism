@@ -17,6 +17,7 @@ class DataSource(models.Model):
     enabled = models.BooleanField(default=True)
     refresh_interval_hours = models.PositiveIntegerField(null=True, blank=True)
     last_success_at = models.DateTimeField(null=True, blank=True)
+    last_preview_requested_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

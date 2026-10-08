@@ -2,6 +2,7 @@ import hashlib
 import ast
 import sqlite3
 import tempfile
+from contextlib import closing
 from collections import Counter
 from pathlib import Path
 from unittest.mock import patch
@@ -280,7 +281,8 @@ class DiseaseEvidenceSearchTests(APITestCase):
         # using synthetic rows rather than treating the migrated result as a golden.
         repository_root = Path(__file__).resolve().parents[4]
         source_path = repository_root / "backend" / "data_service.py"
-        source_bytes = source_path.read_bytes()
+        # Git may check out CRLF on Windows; compare canonical source bytes.
+        source_bytes = source_path.read_bytes().replace(b"\r\n", b"\n")
         self.assertEqual(hashlib.sha256(source_bytes).hexdigest(), MAIN_DATA_SERVICE_SHA256)
         module = ast.parse(source_bytes.decode("utf-8"), filename=str(source_path))
         original_function = next(
@@ -303,7 +305,7 @@ class DiseaseEvidenceSearchTests(APITestCase):
         ]
         with tempfile.TemporaryDirectory() as directory:
             database = Path(directory) / "synthetic-main-cache.sqlite"
-            with sqlite3.connect(database) as connection:
+            with closing(sqlite3.connect(database)) as connection, connection:
                 connection.execute("CREATE TABLE disease_herb_target (disease TEXT, herb TEXT, target TEXT)")
                 connection.execute("CREATE TABLE disease_target (disease TEXT, target TEXT)")
                 connection.executemany(
@@ -314,13 +316,20 @@ class DiseaseEvidenceSearchTests(APITestCase):
                     "INSERT INTO disease_target VALUES (?, ?)", synthetic_disease_target_rows
                 )
 
+            opened_connections = []
+
             def open_synthetic_cache():
                 connection = sqlite3.connect(database)
                 connection.row_factory = sqlite3.Row
+                opened_connections.append(connection)
                 return connection
 
             namespace["_cache"] = open_synthetic_cache
-            legacy = namespace["search_disease"]("肺纤维化")
+            try:
+                legacy = namespace["search_disease"]("肺纤维化")
+            finally:
+                for connection in opened_connections:
+                    connection.close()
 
         direct_rows = [row for row in response.data["links"] if row["relationType"] == "disease_herb_target"]
         projected_rows = [

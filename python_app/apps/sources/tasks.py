@@ -26,6 +26,12 @@ from apps.sources.sqlite_sync import SQLITE_CONNECTOR, apply_sqlite_sync, previe
 logger = logging.getLogger(__name__)
 
 
+@shared_task(name="sources.schedule_previews")
+def schedule_source_previews():
+    from apps.sources.scheduling import enqueue_due_previews
+    return enqueue_due_previews()
+
+
 @shared_task(name="sources.sync_run")
 def sync_source_run(run_id: int) -> dict[str, str | int]:
     claimed = SyncRun.objects.filter(pk=run_id, status=SyncRun.Status.PENDING).update(
