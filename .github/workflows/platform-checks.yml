@@ -67,4 +67,5 @@ jobs:
       - run: pnpm test:api
       - run: pnpm test:research
       - run: pnpm test:network
+      - run: pnpm test:sources
       - run: pnpm build

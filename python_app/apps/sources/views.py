@@ -1,5 +1,8 @@
 from uuid import uuid4
+import json
 
+from django.contrib.admin.models import CHANGE, LogEntry
+from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
 from django.db.models import OuterRef, Subquery
 from django.db.models.deletion import ProtectedError
@@ -13,6 +16,7 @@ from apps.core.models import DataSource, SyncRun
 from config.api_errors import error_payload
 from apps.sources.serializers import (
     DataSourceSyncSerializer,
+    DataSourceSettingsSerializer,
     SyncApplyResponseSerializer,
     SyncPreviewRequestSerializer,
     SyncPreviewResponseSerializer,
@@ -76,6 +80,29 @@ class DataSourceListView(generics.ListCreateAPIView):
 class DataSourceDeleteView(APIView):
     permission_classes = [IsPlatformAdministrator]
 
+    @extend_schema(request=DataSourceSettingsSerializer, responses=DataSourceSyncSerializer)
+    def patch(self, request, source_id: int):
+        serializer = DataSourceSettingsSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        with transaction.atomic():
+            try:
+                source = DataSource.objects.select_for_update().get(pk=source_id)
+            except DataSource.DoesNotExist as exc:
+                raise NotFound("找不到指定的数据源。") from exc
+            before = {field: getattr(source, field) for field in serializer.validated_data}
+            for field, value in serializer.validated_data.items():
+                setattr(source, field, value)
+            source.save(update_fields=[*serializer.validated_data, "updated_at"])
+            LogEntry.objects.create(
+                user_id=request.user.pk, content_type=ContentType.objects.get_for_model(DataSource),
+                object_id=str(source.pk), object_repr=str(source), action_flag=CHANGE,
+                change_message=json.dumps([{
+                    "changed": {"fields": list(serializer.validated_data)},
+                    "before": before, "after": dict(serializer.validated_data),
+                }], ensure_ascii=False),
+            )
+        return Response(DataSourceSyncSerializer(source).data)
+
     @extend_schema(responses={204: None, 409: OpenApiTypes.OBJECT})
     def delete(self, request, source_id: int):
         try:
@@ -124,25 +151,27 @@ class SourceSyncPreviewView(APIView):
 
     @extend_schema(request=SyncPreviewRequestSerializer, responses={202: SyncPreviewResponseSerializer})
     def post(self, request, source_id: int):
-        try:
-            source = DataSource.objects.get(pk=source_id)
-        except DataSource.DoesNotExist as exc:
-            raise NotFound("找不到指定的数据源。") from exc
-        connector = (source.configuration or {}).get("connector") or (
-            REACTOME_CONNECTOR if source.slug == REACTOME_SOURCE_SLUG else
-            STRING_CONNECTOR if source.slug == "string" else ""
-        )
-        if connector not in {REACTOME_CONNECTOR, SQLITE_CONNECTOR, UNIPROT_CONNECTOR, PUBCHEM_CONNECTOR, STRING_CONNECTOR}:
-            raise ValidationError("当前版本不支持该数据源的同步连接器。")
-        if not source.enabled:
-            raise ValidationError("该数据源已停用，不能执行同步。")
         serializer = SyncPreviewRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        run = SyncRun.objects.create(
-            source=source,
-            requested_by=request.user,
-            preview_summary={"mode": "preview", "connector": connector},
-        )
+        with transaction.atomic():
+            try:
+                source = DataSource.objects.select_for_update().get(pk=source_id)
+            except DataSource.DoesNotExist as exc:
+                raise NotFound("找不到指定的数据源。") from exc
+            connector = (source.configuration or {}).get("connector") or (
+                REACTOME_CONNECTOR if source.slug == REACTOME_SOURCE_SLUG else
+                STRING_CONNECTOR if source.slug == "string" else ""
+            )
+            if connector not in {REACTOME_CONNECTOR, SQLITE_CONNECTOR, UNIPROT_CONNECTOR, PUBCHEM_CONNECTOR, STRING_CONNECTOR}:
+                raise ValidationError("当前版本不支持该数据源的同步连接器。")
+            if not source.enabled:
+                raise ValidationError("该数据源已停用，不能执行同步。")
+            if source.sync_runs.filter(status__in=[SyncRun.Status.PENDING, SyncRun.Status.RUNNING]).exists():
+                return active_sync_conflict(request, source.pk)
+            run = SyncRun.objects.create(
+                source=source, requested_by=request.user,
+                preview_summary={"mode": "preview", "connector": connector},
+            )
         enqueue_sync_run(run)
         return Response({"run": SyncRunSerializer(run).data}, status=status.HTTP_202_ACCEPTED)
 
@@ -154,8 +183,13 @@ class SourceSyncApplyView(APIView):
     @extend_schema(responses={202: SyncApplyResponseSerializer})
     def post(self, request, run_id: int):
         with transaction.atomic():
+            # Lock source first, matching the scheduler and manual preview lock order.
+            source_id = SyncRun.objects.filter(pk=run_id).values_list("source_id", flat=True).first()
+            if source_id is None:
+                raise NotFound("找不到指定的预览记录。")
+            source = DataSource.objects.select_for_update().get(pk=source_id)
             try:
-                preview = SyncRun.objects.select_for_update().select_related("source", "release").get(pk=run_id)
+                preview = SyncRun.objects.select_related("source", "release").get(pk=run_id)
             except SyncRun.DoesNotExist as exc:
                 raise NotFound("找不到指定的预览记录。") from exc
             if preview.status != SyncRun.Status.SUCCEEDED or (preview.preview_summary or {}).get("mode") != "preview":
@@ -166,12 +200,15 @@ class SourceSyncApplyView(APIView):
             )
             if connector not in {REACTOME_CONNECTOR, SQLITE_CONNECTOR, UNIPROT_CONNECTOR, PUBCHEM_CONNECTOR, STRING_CONNECTOR} or not preview.release_id or not preview.cursor:
                 raise ValidationError("预览记录缺少可应用的来源版本信息。")
-            if not preview.source.enabled:
+            if not source.enabled:
                 raise ValidationError("该数据源已停用，不能执行同步。")
             if SyncRun.objects.filter(preview_summary__basedOn=preview.pk).exclude(
                 status=SyncRun.Status.FAILED
             ).exists():
                 raise ValidationError("该预览已有待处理或成功的应用任务，请查看同步历史。")
+
+            if source.sync_runs.filter(status__in=[SyncRun.Status.PENDING, SyncRun.Status.RUNNING]).exists():
+                return active_sync_conflict(request, source.pk)
 
             run = SyncRun.objects.create(
                 source=preview.source,
@@ -187,6 +224,13 @@ class SourceSyncApplyView(APIView):
             )
         enqueue_sync_run(run)
         return Response({"run": SyncRunSerializer(run).data}, status=status.HTTP_202_ACCEPTED)
+
+
+def active_sync_conflict(request, source_id):
+    return Response(error_payload(
+        "SOURCE_SYNC_ACTIVE", "该数据源已有排队或运行中的同步任务，请等待完成后重试。",
+        {"sourceId": source_id}, request=request,
+    ), status=status.HTTP_409_CONFLICT)
 
 
 class SQLiteSourceTestView(APIView):

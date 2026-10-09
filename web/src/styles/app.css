@@ -290,3 +290,9 @@
   .source-sync-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .source-create-grid { grid-template-columns: minmax(0, 1fr); }
 }
+.source-settings { margin: 0.75rem 0; border: 1px solid rgba(168,111,31,0.18); border-radius: 0.75rem; padding: 0.75rem; }
+.source-settings summary { cursor: pointer; font-weight: 600; }
+.source-settings-form { display: grid; gap: 0.75rem; margin-top: 0.75rem; }
+.source-settings-form label { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.source-settings-form input[type="number"] { max-width: 9rem; border: 1px solid rgba(168,111,31,0.25); border-radius: 0.5rem; padding: 0.5rem; }
+.source-settings-form .btn { justify-self: start; }

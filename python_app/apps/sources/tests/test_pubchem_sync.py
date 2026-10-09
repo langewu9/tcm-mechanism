@@ -271,6 +271,10 @@ class PubChemSyncApiTests(APITestCase):
         self.assertEqual(run.preview_summary["connector"], "pubchem-compound-catalog")
         enqueue.assert_called_once_with(run.pk)
 
+        # The mocked worker must finish before another same-source task may start.
+        run.status = SyncRun.Status.SUCCEEDED
+        run.save(update_fields=["status"])
+
         release = SourceRelease.objects.create(
             source=self.source,
             version="sha256-smoke-preview",

@@ -1,23 +1,25 @@
 import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { lazy, Suspense } from "react";
+import { PageLoadBoundary, PageLoading } from "./PageLoadBoundary";
 import { HomePage } from "../pages/HomePage";
 import { LoginPage } from "../pages/LoginPage";
 import { RegisterPage } from "../pages/RegisterPage";
 import { VerifyEmailPage } from "../pages/VerifyEmailPage";
-import { CasesPage } from "../pages/CasesPage";
 import { RequireAuth } from "./RequireAuth";
-import { DatasetsPage } from "../pages/DatasetsPage";
-import { ProteomicsPage } from "../pages/ProteomicsPage";
-import { SourcesPage } from "../pages/SourcesPage";
-import { NetworkPharmacologyPage } from "../pages/NetworkPharmacologyPage";
-import { KnowledgeExplorerPage } from "../pages/KnowledgeExplorerPage";
-import { ResearchAssistantPage } from "../pages/ResearchAssistantPage";
-import { DashboardPage } from "../pages/DashboardPage";
-import { ApiIntegrationPage } from "../pages/ApiIntegrationPage";
-import { AdminOverviewPage } from "../pages/AdminOverviewPage";
-import { AnalysisPage } from "../pages/AnalysisPage";
 import { WorkspaceLayout } from "../components/AppShell";
+const CasesPage = lazy(() => import("../pages/CasesPage").then((module) => ({ default: module.CasesPage })));
+const DatasetsPage = lazy(() => import("../pages/DatasetsPage").then((module) => ({ default: module.DatasetsPage })));
+const ProteomicsPage = lazy(() => import("../pages/ProteomicsPage").then((module) => ({ default: module.ProteomicsPage })));
+const SourcesPage = lazy(() => import("../pages/SourcesPage").then((module) => ({ default: module.SourcesPage })));
+const NetworkPharmacologyPage = lazy(() => import("../pages/NetworkPharmacologyPage").then((module) => ({ default: module.NetworkPharmacologyPage })));
+const KnowledgeExplorerPage = lazy(() => import("../pages/KnowledgeExplorerPage").then((module) => ({ default: module.KnowledgeExplorerPage })));
+const ResearchAssistantPage = lazy(() => import("../pages/ResearchAssistantPage").then((module) => ({ default: module.ResearchAssistantPage })));
+const DashboardPage = lazy(() => import("../pages/DashboardPage").then((module) => ({ default: module.DashboardPage })));
+const ApiIntegrationPage = lazy(() => import("../pages/ApiIntegrationPage").then((module) => ({ default: module.ApiIntegrationPage })));
+const AdminOverviewPage = lazy(() => import("../pages/AdminOverviewPage").then((module) => ({ default: module.AdminOverviewPage })));
+const AnalysisPage = lazy(() => import("../pages/AnalysisPage").then((module) => ({ default: module.AnalysisPage })));
 export function App() {
-  return <BrowserRouter><Routes>
+  return <BrowserRouter><PageLoadBoundary><Suspense fallback={<PageLoading />}><Routes>
     <Route path="/" element={<HomePage />} />
     <Route path="/login" element={<LoginPage />} />
     <Route path="/register" element={<RegisterPage />} />
@@ -38,5 +40,5 @@ export function App() {
       <Route path="/api-integration" element={<ApiIntegrationPage />} />
     </Route></Route>
     <Route path="*" element={<main className="site-home"><section className="empty-state"><strong>页面尚未接入</strong><p>这个模块会在对应业务源码确认后补齐。</p><a className="btn btn-secondary" href="/">返回首页</a></section></main>} />
-  </Routes></BrowserRouter>;
+  </Routes></Suspense></PageLoadBoundary></BrowserRouter>;
 }

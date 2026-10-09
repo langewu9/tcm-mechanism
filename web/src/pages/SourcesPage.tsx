@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link, Navigate, useOutletContext } from "react-router-dom";
 import { ArrowLeft, CheckCircle2, Database, RefreshCw, Trash2 } from "lucide-react";
 import { type Session } from "../api/auth";
@@ -14,6 +14,7 @@ import {
   type SyncRun,
 } from "../api/sources";
 import { ApiError } from "../api/client";
+import { SourceSettingsForm } from "../components/SourceSettingsForm";
 
 function errorMessage(error: unknown) {
   return error instanceof ApiError ? error.message : "请求未完成，请稍后重试。";
@@ -57,25 +58,28 @@ export function SourcesPage() {
   const [testingSourceId, setTestingSourceId] = useState<number | null>(null);
   const [deletingSourceId, setDeletingSourceId] = useState<number | null>(null);
   const [testResults, setTestResults] = useState<Record<number, { rowCount: number; checksum: string; tableRowCounts: Record<string, number> }>>({});
+  const mounted = useRef(false);
+  const readVersion = useRef(0);
 
   const refresh = useCallback(async () => {
-    const [sourcePage, runPage] = await Promise.all([getAdminDataSources(), getSyncRuns()]);
-    setSources(sourcePage.results);
-    setRuns(runPage.results);
+    const version = ++readVersion.current;
+    try {
+      const [sourcePage, runPage] = await Promise.all([getAdminDataSources(), getSyncRuns()]);
+      if (!mounted.current || version !== readVersion.current) return;
+      setSources(sourcePage.results);
+      setRuns(runPage.results);
+    } catch (cause) {
+      if (mounted.current && version === readVersion.current) throw cause;
+    }
   }, []);
 
   useEffect(() => {
-    let active = true;
-    Promise.all([getAdminDataSources(), getSyncRuns()])
-      .then(([sourcePage, runPage]) => {
-        if (!active) return;
-        setSources(sourcePage.results);
-        setRuns(runPage.results);
-      })
-      .catch((cause: unknown) => { if (active) setError(errorMessage(cause)); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, []);
+    mounted.current = true;
+    void refresh()
+      .catch((cause: unknown) => { if (mounted.current) setError(errorMessage(cause)); })
+      .finally(() => { if (mounted.current) setLoading(false); });
+    return () => { mounted.current = false; readVersion.current++; };
+  }, [refresh]);
 
   const hasActiveRuns = runs.some((run) => run.status === "pending" || run.status === "running");
   useEffect(() => {
@@ -87,6 +91,9 @@ export function SourcesPage() {
   const activeApplyBases = useMemo(() => new Set(runs
     .filter((run) => run.preview_summary.mode === "apply" && run.status !== "failed")
     .map((run) => run.preview_summary.basedOn)), [runs]);
+  const activeSourceIds = useMemo(() => new Set(runs
+    .filter((run) => run.status === "pending" || run.status === "running")
+    .map((run) => run.source)), [runs]);
 
   if (!user.isSuperuser) return <Navigate to="/cases" replace />;
 
@@ -188,6 +195,11 @@ export function SourcesPage() {
                     {deletingSourceId === source.id ? <RefreshCw size={15} className="spin" /> : <Trash2 size={15} />}
                   </button></div></div>
               <p className="dataset-description">{source.description}</p>
+              <SourceSettingsForm source={source} onSaved={(saved) => {
+                readVersion.current++;
+                setSources((current) => current.map((item) => item.id === saved.id ? { ...item, ...saved } : item));
+              }} />
+              {activeSourceIds.has(source.id) && <p className="section-help" role="status">此数据源已有同步任务，请等待完成后再提交。</p>}
               <p className="section-help">
                 定时预览：{!source.enabled ? "数据源已停用" : !source.scheduled_previews_enabled ? "部署开关未开启" :
                   source.refresh_interval_hours && source.refresh_interval_hours > 0 ? `每 ${source.refresh_interval_hours} 小时检查` : "未设置刷新间隔"}
@@ -200,7 +212,7 @@ export function SourcesPage() {
                 {source.connector_type === "pubchem-compound-catalog" && <p className="section-help">PubChem 只补充已登记成分的化学属性。请先在 Django 管理后台核对并配置 CID 到本地成分 stableId 的映射；系统不会按名称猜测或自动改绑。配置格式：<code>{'{"connector":"pubchem-compound-catalog","mappings":[{"stableId":"本地成分stable_id","cid":"5280343"}]}'}</code></p>}
                 {source.connector_type === "string-human-identifier-crosswalk" && <p className="section-help">只为已明确标注为人类的本地基因/蛋白补充 STRING ID，不下载完整蛋白目录、不创建或合并实体。STRING 返回最佳匹配，重名、冲突和未匹配记录会在预览中单独统计；应用前请检查样例。</p>}
                 <div className="source-record-actions">
-                  <button className="btn btn-primary" type="button" disabled={!source.enabled || busy === source.id || deletingSourceId === source.id}
+                  <button className="btn btn-primary" type="button" disabled={!source.enabled || busy === source.id || deletingSourceId === source.id || activeSourceIds.has(source.id)}
                     onClick={() => void startPreview(source)}>
                     {busy === source.id ? <RefreshCw size={15} className="spin" /> : <Database size={15} />}
                     {busy === source.id ? "正在提交…" : source.connector_type === "uniprot-human-catalog" ? "预览 UniProt 目录" : source.connector_type === "pubchem-compound-catalog" ? "预览 PubChem 属性" : source.connector_type === "string-human-identifier-crosswalk" ? "预览 STRING 标识映射" : "检查目录变更"}
@@ -218,7 +230,7 @@ export function SourcesPage() {
                     {testingSourceId === source.id ? <RefreshCw size={15} className="spin" /> : <CheckCircle2 size={15} />}
                     {testingSourceId === source.id ? "正在测试…" : "测试连接"}
                   </button>
-                  <button className="btn btn-primary" type="button" disabled={!source.enabled || busy === source.id || deletingSourceId === source.id}
+                  <button className="btn btn-primary" type="button" disabled={!source.enabled || busy === source.id || deletingSourceId === source.id || activeSourceIds.has(source.id)}
                     onClick={() => void startPreview(source)}>
                     {busy === source.id ? <RefreshCw size={15} className="spin" /> : <Database size={15} />}
                     {busy === source.id ? "正在预览…" : "预览导入差异"}
@@ -321,7 +333,7 @@ export function SourcesPage() {
                   {isPubChem && summary.previewRecords?.length ? <><ul className="proteomics-pathways source-table-counts">{summary.previewRecords.map((record) => <li key={record.cid}><strong>{record.compound} · CID {record.cid}</strong><span>{record.molecularFormula || "无分子式"} · {record.molecularWeight || "无分子量"} · {record.inchiKey || "无 InChIKey"}</span></li>)}</ul>{summary.previewRecordsTruncated && <p className="section-help">这里只展示前 20 条，完整映射数见上方统计。</p>}</> : null}
                   {isString && summary.previewRecords?.length ? <><ul className="proteomics-pathways source-table-counts">{summary.previewRecords.map((record) => <li key={record.entityStableId}><strong>{record.entityStableId} · {record.query}</strong><span>{record.stringId} · {record.preferredName || "无首选名称"} · {record.annotation || "无注释"}</span></li>)}</ul>{summary.previewRecordsTruncated && <p className="section-help">这里只展示前 20 条映射样例，完整数量见上方统计。</p>}</> : null}
                   <p className="section-help">{syncLabel}预览只保存来源版本与变更统计，不会修改知识目录。应用时会重新读取来源并核对校验值。</p>
-                  {canApply && <button className="btn btn-primary source-apply-button" type="button" disabled={busy === run.source}
+                  {canApply && <button className="btn btn-primary source-apply-button" type="button" disabled={busy === run.source || activeSourceIds.has(run.source)}
                     onClick={() => void applyPreview(run)}><CheckCircle2 size={15} />应用此预览</button>}
                   {!canApply && activeApplyBases.has(run.id) && <p className="section-help">此预览已有待处理或成功的应用记录。</p>}
                 </>}

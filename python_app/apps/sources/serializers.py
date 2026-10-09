@@ -33,6 +33,21 @@ class DataSourceSyncSerializer(serializers.ModelSerializer):
         return (obj.configuration or {}).get("connector") or fallback.get(obj.slug, "")
 
 
+class DataSourceSettingsSerializer(serializers.Serializer):
+    enabled = serializers.BooleanField(required=False)
+    refresh_interval_hours = serializers.IntegerField(
+        required=False, allow_null=True, min_value=1, max_value=8760,
+    )
+
+    def validate(self, attrs):
+        unknown = set(self.initial_data) - set(self.fields)
+        if unknown:
+            raise serializers.ValidationError({key: "此接口不允许修改该字段。" for key in sorted(unknown)})
+        if not attrs:
+            raise serializers.ValidationError("请提供启停状态或刷新间隔。")
+        return attrs
+
+
 class SQLiteSourceCreateSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=160)
     description = serializers.CharField(required=False, allow_blank=True, max_length=2000)
