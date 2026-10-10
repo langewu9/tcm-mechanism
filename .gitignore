@@ -37,3 +37,4 @@ models/
 # React/Vite frontend output
 web/node_modules/
 web/dist/
+/public/r-demo/

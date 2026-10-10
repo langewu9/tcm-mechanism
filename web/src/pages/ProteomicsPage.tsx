@@ -17,6 +17,7 @@ import { ApiError } from "../api/client";
 import { createVisualization } from "../api/network";
 import { StringNetworkResult } from "../components/StringNetworkResult";
 import { RAnalysisGallery } from "../components/RAnalysisGallery";
+import { RDemoGallery } from "../components/RDemoGallery";
 
 const initialMapping = {
   geneColumn: "",
@@ -397,6 +398,7 @@ export function ProteomicsPage() {
   }
 
   return <>
+    <RDemoGallery />
 
       <div className="page-heading"><div className="page-heading-copy"><p className="page-kicker">Proteomics analysis</p><h1 className="page-title">差异蛋白组学分析</h1>
         <p className="page-description">复用 main 分支的差异蛋白筛选和本地网络逻辑；逐行保留筛选、映射和排除原因，未验证的符号会明确标出。</p></div>

@@ -263,7 +263,7 @@ make_data_table_html <- function(payload) {
     edge_rows <- vapply(payload$edges, function(edge) paste0("<tr><td>", escape_html(edge$source), "</td><td>", escape_html(edge$target), "</td><td>", escape_html(format(edge$score, digits = 4)), "</td></tr>"), character(1))
     return(paste0("<section><h2>节点</h2><div class=\"table-wrap\"><table><thead><tr>", node_header, "</tr></thead><tbody>", paste(node_rows, collapse = ""), "</tbody></table></div><h2>实际展示关系</h2><div class=\"table-wrap\"><table><thead><tr><th>起点</th><th>终点</th><th>互作评分 / 本地关系存在标记</th></tr></thead><tbody>", paste(edge_rows, collapse = ""), "</tbody></table></div></section>"))
   } else if (identical(payload$chartType, "enrichment_bubble")) {
-    headers <- c("来源", "功能条目", "GeneRatio", "FDR", "命中基因数")
+    headers <- c("来源", "功能条目", payload$xLabel %||% "GeneRatio", "FDR", payload$sizeLabel %||% "命中基因数")
     rows <- lapply(payload$data, function(item) {
       c(item$source, item$label, format(item$geneRatio, digits = 5, trim = TRUE),
         format(item$adjustedPValue, digits = 5, trim = TRUE), as.character(item$intersectionSize))

@@ -10,6 +10,7 @@ import { NetworkResultDownloads } from "../components/NetworkResultDownloads";
 import { ReactomeEnrichmentResult, readReactomeEnrichment } from "../components/ReactomeEnrichmentResult";
 import { StringTaskResult } from "../components/StringNetworkResult";
 import { RAnalysisGallery } from "../components/RAnalysisGallery";
+import { RDemoGallery } from "../components/RDemoGallery";
 
 type QueryTask = { sourceTaskId: number; task: AnalysisTask };
 
@@ -203,6 +204,7 @@ export function NetworkPharmacologyPage() {
   }
 
   return <>
+    <RDemoGallery />
 
       <div className="page-heading"><div className="page-heading-copy"><p className="page-kicker">Network pharmacology</p><h1 className="page-title">中药—疾病靶点交集</h1><p className="page-description">在已导入的本地知识目录中匹配中药成分靶点和疾病靶点，展示关系证据与来源版本。</p></div><Link to="/" className="btn btn-secondary"><ArrowLeft size={16} />返回首页</Link></div>
       {error && <div className="notice-error workspace-notice" role="alert">{error}</div>}
