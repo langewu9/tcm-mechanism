@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "test:api": "node tests/api-contracts.cjs",
     "test:research": "node tests/research-requests.cjs",
+    "test:r": "node tests/r-analysis-catalog.cjs",
     "test:sources": "node tests/source-management.cjs && node tests/source-page-requests.cjs",
     "test:network": "node tests/reactome-results.cjs && node tests/network-requests.cjs && node tests/network-raw-exports.cjs && node tests/string-results.cjs && node tests/network-composition.cjs",
     "preview": "vite preview"

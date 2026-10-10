@@ -18,6 +18,10 @@
 
 三种图均生成静态 SVG、PDF、PNG 和附有对应数据表的自包含 HTML。当前还未实现 R 的交互网络图、PCA、样本相关性图和热图。
 
+2026-10-10 新增 `network` 类型与统一网页目录：`ppi_network` / `ppi_degree`、`evidence_network`、`gene_pathway_network` / `gene_pathway_distribution`、`proteomics_go_kegg_bar`、`reactome_enrichment`。网络摘要最多 80 个节点、500 条唯一无向边，展示子图 degree 不等于完整返回图 degree；排行使用完整有效返回图。PPI 必须是已成功返回的 STRING physical 结果，评分阈值来自原查询，网络为空时拒绝绘图。Reactome 气泡图横轴为命中实体 / 通路实体，不冒充 query-set GeneRatio。
+
+新图表哈希包含来源版本摘要，每个结果仍绑定父任务与 source releases。HTML 网络导出包含实际展示节点和边表。详细目录、依赖与后续阶段见 `INPUT-R-analysis-roadmap.md`。
+
 ## 安全和数据边界
 
 - 请求正文上限 1 MiB；R 对摘要柱图/富集图限制最多 100 点，火山图最多 5,000 点，绘图标签设字符上限。

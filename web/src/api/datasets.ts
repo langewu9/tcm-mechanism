@@ -285,8 +285,8 @@ export const deleteDataset = (id: number) =>
   apiRequest<void>(`/api/v1/research/datasets/${id}/`, { method: "DELETE" });
 export const runProteomicsAnalysis = (datasetId: number, request: ProteomicsRunRequest) =>
   apiRequest<AnalysisTask>(`/api/v1/research/datasets/${datasetId}/analyze/`, { method: "POST", body: request });
-export const getAnalysisTasks = (page = 1) =>
-  apiRequest<AnalysisTaskPage>(`/api/v1/research/analysis-tasks/?page=${page}`);
+export const getAnalysisTasks = (page = 1, parentTaskId?: number) =>
+  apiRequest<AnalysisTaskPage>(`/api/v1/research/analysis-tasks/?page=${page}${parentTaskId === undefined ? "" : `&parent_task=${parentTaskId}&task_type=visualization`}`);
 export const getAnalysisTask = (id: number) =>
   apiRequest<AnalysisTask>(`/api/v1/research/analysis-tasks/${id}/`);
 export const getProteomicsRows = (taskId: number, page = 1) =>

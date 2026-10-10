@@ -12,3 +12,7 @@ This private Plumber service renders chart-ready JSON into SVG, PDF, PNG, and a 
 - The response contains base64-encoded artifacts. The caller must enforce a maximum response size and write only to private object/file storage.
 
 The service rejects unconfigured credentials, unsupported chart types, oversized bodies, labels, and non-finite values. The artifacts are static; interactive Plotly/visNetwork output, PCA, and heatmaps remain future work. Never include case text, patient details, account IDs, or uploaded raw matrices in the rendering payload.
+
+The renderer additionally accepts `network`: 2–80 validated nodes, 1–500 actual edges, and a deterministic circular or layered layout. Python provides the persisted STRING physical graph or local evidence graph, calculates unique-neighbor degrees, and discloses input/subgraph counts. No edges are inferred by R. The four artifacts include node and edge tables in HTML. Reactome has its own labeled enrichment category and is not merged into KEGG.
+
+R 0.2.0 fixes UTF-8 JSON decoding and scalar JSON serialization, and uses an explicit CJK font. Set `R_VIZ_FONT_FAMILY` for another installed font (Windows default: Microsoft YaHei; Docker default: Noto Sans CJK SC). On native Windows start R with `Sys.setlocale('LC_CTYPE', '.UTF-8')` before loading `plumber.R`. Native Windows Celery solo is for local preview only, not production deployment.

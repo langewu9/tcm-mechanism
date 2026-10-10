@@ -230,6 +230,8 @@ class VisualizationRequestSerializer(serializers.Serializer):
     chartKey = serializers.ChoiceField(choices=[
         "overlap", "components", "pathways", "proteomics_summary", "proteomics_top_nodes",
         "proteomics_go_kegg_enrichment", "proteomics_volcano",
+        "ppi_network", "ppi_degree", "evidence_network", "gene_pathway_network",
+        "gene_pathway_distribution", "proteomics_go_kegg_bar", "reactome_enrichment",
     ])
 
 

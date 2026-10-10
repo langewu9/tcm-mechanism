@@ -43,6 +43,12 @@ class VisualizationUnavailable(RuntimeError):
 def build_chart_payload(task: AnalysisTask, chart_key: str) -> dict:
     if task.status != AnalysisTask.Status.SUCCEEDED:
         raise VisualizationInputError("只有已完成的分析任务可以生成图表。")
+    from .r_analysis_catalog import NEW_CHART_KEYS, build_catalog_payload
+    if chart_key in NEW_CHART_KEYS:
+        try:
+            return build_catalog_payload(task, chart_key)
+        except ValueError as exc:
+            raise VisualizationInputError(str(exc)) from exc
     result = task.result or {}
     if task.task_type == AnalysisTask.TaskType.NETWORK:
         charts = result.get("charts") or {}

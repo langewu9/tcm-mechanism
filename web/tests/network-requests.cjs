@@ -34,6 +34,7 @@ moduleUnderTest.require = name => {
   if (name === '../components/NetworkResultDownloads') return {NetworkResultDownloads:'Downloads'};
   if (name === '../components/ReactomeEnrichmentResult') return {ReactomeEnrichmentResult:'ReactomeResult',readReactomeEnrichment:task=>task?.status==='succeeded'?task.result:null};
   if (name === '../components/StringNetworkResult') return {StringTaskResult:'StringResult'};
+  if (name === '../components/RAnalysisGallery') return {RAnalysisGallery:'RGallery'};
   throw new Error('Unexpected import: '+name);
 };
 moduleUnderTest._compile(ts.transpileModule(fs.readFileSync(filename,'utf8'), {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText, filename);

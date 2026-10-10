@@ -9,6 +9,7 @@ import { NetworkPharmacologyCharts } from "../components/NetworkPharmacologyChar
 import { NetworkResultDownloads } from "../components/NetworkResultDownloads";
 import { ReactomeEnrichmentResult, readReactomeEnrichment } from "../components/ReactomeEnrichmentResult";
 import { StringTaskResult } from "../components/StringNetworkResult";
+import { RAnalysisGallery } from "../components/RAnalysisGallery";
 
 type QueryTask = { sourceTaskId: number; task: AnalysisTask };
 
@@ -248,7 +249,10 @@ export function NetworkPharmacologyPage() {
                 <label className="form-label">最低置信度<select className="field" value={requiredScore} onChange={(event) => setRequiredScore(Number(event.target.value))}><option value={400}>中等（400）</option><option value={700}>高（700）</option><option value={900}>最高（900）</option></select></label>
                 <div className="source-record-actions"><button className="btn btn-secondary" type="button" disabled={!shareWithString || stringSubmitting || result.targets.length > 200 || result.limits.targetsTruncated || Boolean(stringTask && ["queued", "running"].includes(stringTask.status))} onClick={() => void requestString()}>{stringSubmitting ? "正在创建 STRING 任务…" : "STRING PPI 网络"}</button>{result.targets.length > 200 || result.limits.targetsTruncated ? <span className="section-help">STRING 最多接收 200 个完整显示的靶点；当前结果过多，请缩小范围。</span> : null}</div>
                 {stringTask && <StringTaskResult task={stringTask} sourceTaskId={result.taskId} />}
+                {stringTask?.status === "succeeded" && <RAnalysisGallery key={stringTask.id} taskId={stringTask.id} />}
               </section>}
+              <RAnalysisGallery key={result.taskId} taskId={result.taskId} />
+              {pathwayTask?.status === "succeeded" && <RAnalysisGallery key={pathwayTask.id} taskId={pathwayTask.id} />}
             </div>
           </>}
         </section>

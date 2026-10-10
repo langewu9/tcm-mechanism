@@ -412,6 +412,7 @@ class AnalysisTaskViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = AnalysisTask.objects.none()
     serializer_class = AnalysisTaskSerializer
     permission_classes = [IsAuthenticated]
+    filterset_fields = ['parent_task', 'task_type', 'status']
 
     def get_queryset(self):
         if getattr(self, "swagger_fake_view", False):

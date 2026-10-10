@@ -16,6 +16,7 @@ import {
 import { ApiError } from "../api/client";
 import { createVisualization } from "../api/network";
 import { StringNetworkResult } from "../components/StringNetworkResult";
+import { RAnalysisGallery } from "../components/RAnalysisGallery";
 
 const initialMapping = {
   geneColumn: "",
@@ -598,6 +599,7 @@ function ProteomicsResultView({
       {result.externalGProfiler.terms.some((term) => term.matchedIdentifiers.length > 0) && <details className="case-notes"><summary>查看命中标识</summary>{result.externalGProfiler.terms.filter((term) => term.matchedIdentifiers.length > 0).slice(0, 30).map((term) => <p key={`${term.source}:${term.termId}`}><strong>{term.name}</strong>：{term.matchedIdentifiers.join("、")}</p>)}</details>}
     </section>}
 
+    <RAnalysisGallery key={task.id} taskId={task.id} />
     {result.externalString && <StringNetworkResult result={result.externalString} task={task} />}
 
     <section className="proteomics-result-section">
