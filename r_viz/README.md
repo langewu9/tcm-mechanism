@@ -16,3 +16,13 @@ The service rejects unconfigured credentials, unsupported chart types, oversized
 The renderer additionally accepts `network`: 2–80 validated nodes, 1–500 actual edges, and a deterministic circular or layered layout. Python provides the persisted STRING physical graph or local evidence graph, calculates unique-neighbor degrees, and discloses input/subgraph counts. No edges are inferred by R. The four artifacts include node and edge tables in HTML. Reactome has its own labeled enrichment category and is not merged into KEGG.
 
 R 0.2.0 fixes UTF-8 JSON decoding and scalar JSON serialization, and uses an explicit CJK font. Set `R_VIZ_FONT_FAMILY` for another installed font (Windows default: Microsoft YaHei; Docker default: Noto Sans CJK SC). On native Windows start R with `Sys.setlocale('LC_CTYPE', '.UTF-8')` before loading `plumber.R`. Native Windows Celery solo is for local preview only, not production deployment.
+
+## Synthetic delivery gallery
+
+Start the trusted local service from `r_viz/` with `R_VIZ_API_TOKEN` set to a local secret (never commit its value):
+
+```sh
+Rscript -e "Sys.setlocale('LC_CTYPE', '.UTF-8'); plumber::pr_run(plumber::pr('plumber.R'), host='127.0.0.1', port=8001)"
+```
+
+Then from the repository root, set the same `R_VIZ_API_TOKEN` and `R_VIZ_BASE_URL=http://127.0.0.1:8001` in the preparation environment and run `python r_viz/prepare_demo_gallery.py`. The script uses only deterministic synthetic fixtures, not uploaded files or the database. It creates 14 JSON keys and 56 R artifacts under `public/r-demo/`, then publishes a manifest with artifact hashes. `cd web` and run `pnpm build:delivery` to verify and package these resources. The `/demo` page provides 11 module scenarios alongside the gallery. See `docs/delivery-readiness-2026-10-11.md` for remaining production requirements. These examples are not scientific evidence; HTML exports are static image/data wrappers.

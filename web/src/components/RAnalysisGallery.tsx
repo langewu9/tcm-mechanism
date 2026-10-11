@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { getAnalysisTask, getAnalysisTasks, type AnalysisTask } from "../api/datasets";
 import { createVisualization } from "../api/network";
 import { ApiError } from "../api/client";
+import { RDemoGallery } from "./RDemoGallery";
 
 type Chart = { key: string; label: string; available: boolean; note: string };
 type Artifact = { id: number; format: string; downloadUrl: string };
@@ -105,6 +106,7 @@ export function RAnalysisGallery({ taskId }: { taskId: number }) {
           {!chart.available ? "缺少所需分析数据" : busy === chart.key ? "正在提交…" : pending ? `后台绘图 ${job?.progress ?? 0}%` : job?.status === "succeeded" ? "已生成" : job?.status === "failed" ? "重试绘图" : "生成 R 图表"}
         </button>
         {job?.status === "failed" && <p className="notice-error" role="alert">{job.error_summary}</p>}
+        <RDemoGallery chartKey={chart.key} />
         {job?.status === "succeeded" && <>
           <p className="section-help">任务 #{job.id} · {String(value.rendererVersion ?? "")} · 父分析 #{taskId}</p>
           {svg && <img className="visualization-preview" src={`${svg.downloadUrl}?inline=1`} alt={chart.label} />}

@@ -30,9 +30,10 @@ function trimLabel(value: string, max = 10) {
   return value.length > max ? `${value.slice(0, max)}…` : value;
 }
 
-export function KnowledgeNetworkGraph({ network, knownTruncated = false }: {
+export function KnowledgeNetworkGraph({ network, knownTruncated = false, synthetic = false }: {
   network: NetworkPharmacologyResult["network"];
   knownTruncated?: boolean;
+  synthetic?: boolean;
 }) {
   const [visibleKinds, setVisibleKinds] = useState<Record<string, boolean>>(
     () => Object.fromEntries([...ORDER, "other"].map((kind) => [kind, true])),
@@ -75,7 +76,7 @@ export function KnowledgeNetworkGraph({ network, knownTruncated = false }: {
 
   return <section className="panel network-graph-panel" aria-labelledby="network-graph-title">
     <div className="case-list-heading"><div><p className="page-kicker">Interactive evidence network</p><h3 id="network-graph-title" className="section-title-sm">药理证据链路图</h3></div><span>{nodes.length}/{allNodes.length} 个节点 · {displayedLinks.length}/{visibleLinks.length} 条边</span></div>
-    <p className="section-help">图中节点和连线来自本次分析的本地知识目录。点击节点或连线查看标签及来源记录；图形只表达数据库关联，不代表因果关系。</p>
+    <p className="section-help">{synthetic ? "图中全部节点与连线为合成演示，不来自知识库，不代表真实关系。" : "图中节点和连线来自本次分析的本地知识目录。"}点击节点或连线查看标签及来源记录；图形不代表因果关系。</p>
     <div className="network-graph-toolbar" aria-label="网络图筛选和缩放">
       <div className="network-graph-filters">{[...ORDER, "other"].filter((kind) => allKindCounts[kind] > 0).map((kind) => <label key={kind}>
         <input type="checkbox" checked={visibleKinds[kind] ?? true} onChange={(event) => {

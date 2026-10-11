@@ -11,6 +11,7 @@ const primary = [
   { href: "/analysis", label: "智能分析", shortLabel: "分析", icon: FlaskConical },
   { href: "/visualization", label: "网络图谱", shortLabel: "图谱", icon: BarChart3 },
   { href: "/assistant", label: "远志助手", shortLabel: "助手", icon: Bot },
+  { href: "/demo", label: "交付演示", shortLabel: "演示", icon: FlaskConical },
 ];
 const admin = [
   { href: "/api-integration", label: "接入监测", shortLabel: "接入", icon: PlugZap },

@@ -5,7 +5,9 @@ RUN corepack enable
 COPY web/package.json web/pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY web/ ./
-RUN pnpm build
+# Vite publicDir is ../public, not web/public. Include brand and demo assets.
+COPY public/ /public/
+RUN pnpm build:delivery
 
 FROM nginx:stable-alpine
 COPY --from=web-build /src/dist/ /usr/share/nginx/html/

@@ -18,12 +18,14 @@ const DashboardPage = lazy(() => import("../pages/DashboardPage").then((module) 
 const ApiIntegrationPage = lazy(() => import("../pages/ApiIntegrationPage").then((module) => ({ default: module.ApiIntegrationPage })));
 const AdminOverviewPage = lazy(() => import("../pages/AdminOverviewPage").then((module) => ({ default: module.AdminOverviewPage })));
 const AnalysisPage = lazy(() => import("../pages/AnalysisPage").then((module) => ({ default: module.AnalysisPage })));
+const DemoCenterPage = lazy(() => import("../pages/DemoCenterPage").then((module) => ({ default: module.DemoCenterPage })));
 export function App() {
   return <BrowserRouter><PageLoadBoundary><Suspense fallback={<PageLoading />}><Routes>
     <Route path="/" element={<HomePage />} />
     <Route path="/login" element={<LoginPage />} />
     <Route path="/register" element={<RegisterPage />} />
     <Route path="/verify-email" element={<VerifyEmailPage />} />
+    <Route path="/demo" element={<DemoCenterPage />} />
     <Route element={<RequireAuth />}><Route element={<WorkspaceLayout />}>
       <Route path="/dashboard" element={<DashboardPage />} />
       <Route path="/cases" element={<CasesPage />} />

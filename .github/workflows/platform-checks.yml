@@ -45,6 +45,7 @@ jobs:
       - run: python -m pip install -r requirements.txt
       - run: python manage.py migrate --noinput
       - run: python manage.py check
+      - run: python ../r_viz/test_demo_fixtures.py
       - run: python manage.py makemigrations --check --dry-run
       - run: python manage.py test apps.core apps.proteomics apps.sources --noinput
       - run: python manage.py spectacular --file "$RUNNER_TEMP/schema.yml" --validate --fail-on-warn
@@ -69,4 +70,5 @@ jobs:
       - run: pnpm test:network
       - run: pnpm test:sources
       - run: pnpm test:r
+      - run: pnpm test:demo
       - run: pnpm build

@@ -1,10 +1,20 @@
+import ast
 import hashlib
 import json
+from pathlib import Path
 import unittest
 from demo_fixtures import fixtures, DISCLAIMER
 
 
 class DemoFixtureTests(unittest.TestCase):
+    def test_demo_keys_cover_backend_chart_choices(self):
+        source = Path(__file__).resolve().parents[1] / 'python_app/apps/core/serializers/research.py'
+        tree = ast.parse(source.read_text(encoding='utf-8-sig'))
+        serializer = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == 'VisualizationRequestSerializer')
+        field = next(node for node in serializer.body if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == 'chartKey' for target in node.targets))
+        choices = next(keyword.value for keyword in field.value.keywords if keyword.arg == 'choices')
+        self.assertEqual({chart['key'] for chart in fixtures()}, set(ast.literal_eval(choices)))
+
     def test_all_current_chart_keys(self):
         charts = fixtures()
         self.assertEqual(len(charts), 14)

@@ -18,6 +18,20 @@ python3 -c 'import secrets; print(secrets.token_urlsafe(64))'
 
 ## Start and operate
 
+### Prepare synthetic presentation assets before building Nginx
+
+The Vite build reads the repository-root `public/` directory. The Nginx image now includes it and uses `pnpm build:delivery`, which refuses to package an incomplete R demonstration gallery. Generated gallery artifacts are intentionally not committed to Git. On a trusted preparation machine, start the private R service as described in `r_viz/README.md`, set `R_VIZ_BASE_URL` and `R_VIZ_API_TOKEN` locally, then run:
+
+```sh
+python r_viz/test_demo_fixtures.py
+python r_viz/prepare_demo_gallery.py
+cd web
+pnpm test:demo
+pnpm build:delivery
+```
+
+Return to the repository root before running Compose. This prepares only synthetic, explicitly labeled examples; never copy uploaded files, database exports, secrets or patient information into `public/`. Missing assets should be regenerated, not replaced by real research records. The gate checks all 14 JSON keys, 56 image/document artifacts and artifact SHA-256 digests in source and built output. See `docs/delivery-readiness-2026-10-11.md` for demonstration boundaries and remaining production acceptance work.
+
 Run from the repository root:
 
 ```sh

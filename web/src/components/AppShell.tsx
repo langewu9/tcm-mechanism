@@ -6,6 +6,7 @@ import { logout, type Session } from "../api/auth";
 import { apiRequest, ApiError } from "../api/client";
 import { DesktopNavigation, MobileNavigation } from "./AppNavigation";
 import { AssistantWidget } from "./AssistantWidget";
+import { ModuleDemoNotice } from "./ModuleDemoNotice";
 
 type ShellUser = NonNullable<Session["user"]>;
 export function AppShell({ user, children }: { user: ShellUser; children: ReactNode }) {
@@ -57,5 +58,5 @@ export function AppShell({ user, children }: { user: ShellUser; children: ReactN
 
 export function WorkspaceLayout() {
   const user = useOutletContext<ShellUser>();
-  return <AppShell user={user}><Outlet context={user} /></AppShell>;
+  return <AppShell user={user}><ModuleDemoNotice /><Outlet context={user} /></AppShell>;
 }

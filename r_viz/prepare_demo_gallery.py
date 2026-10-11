@@ -4,6 +4,7 @@ Run: python r_viz/prepare_demo_gallery.py (R service URL/token from environment)
 Outputs are reproducible build artifacts and ignored by Git.
 """
 import base64
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -18,6 +19,7 @@ def main():
     token = os.environ['R_VIZ_API_TOKEN']
     manifest = {'synthetic': True, 'disclaimer': DISCLAIMER, 'charts': []}
     for chart in fixtures():
+        artifact_hashes = {}
         payload = chart['payload']
         request = urllib.request.Request(url, data=json.dumps(payload, ensure_ascii=False, allow_nan=False).encode(), headers={'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json'})
         with urllib.request.urlopen(request, timeout=90) as response:
@@ -35,8 +37,9 @@ def main():
             if extension == 'html':
                 assert '合成演示'.encode() in content
             (output / f"{chart['key']}.{extension}").write_bytes(content)
+            artifact_hashes[extension] = hashlib.sha256(content).hexdigest()
         (output / f"{chart['key']}.json").write_text(json.dumps(chart, ensure_ascii=False, indent=2), encoding='utf-8')
-        manifest['charts'].append({'key': chart['key'], 'label': chart['label'], 'inputSha256': payload['inputSha256'], 'rendererVersion': result['rendererVersion']})
+        manifest['charts'].append({'key': chart['key'], 'label': chart['label'], 'inputSha256': payload['inputSha256'], 'rendererVersion': result['rendererVersion'], 'artifacts': artifact_hashes})
         print('PASS synthetic demo:', chart['key'], flush=True)
     # Publish the catalog only after all 14 renders succeed.
     (output / 'manifest.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding='utf-8')
