@@ -61,6 +61,12 @@ export type SyncRun = {
     releaseDate?: string | null;
     geneSymbolsMappedToExistingTargets?: number;
     ambiguousLocalGeneSymbols?: number;
+    unknownSpeciesLocalTargets?: number;
+    otherSpeciesLocalTargets?: number;
+    unverifiedLocalTargets?: number;
+    preservedAccessionMappings?: number;
+    identityPolicy?: string;
+    identityPlanSha256?: string;
     localHumanEntityCount?: number;
     submittedQueryCount?: number;
     unmappedQueries?: number;

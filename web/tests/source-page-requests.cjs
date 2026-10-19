@@ -38,9 +38,22 @@ async function settle(){await Promise.resolve(); await Promise.resolve(); await 
   calls[second].resolve(page([{...source,enabled:false,refresh_interval_hours:72}])); calls[second+1].resolve(page([run])); await settle(); render();
   calls[first].resolve(page([source])); calls[first+1].resolve(page([run])); await settle(); render();
   assert.equal(nodes(tree).find(node=>node.type===SourceSettingsForm).props.source.refresh_interval_hours,72,'Newest read wins despite out-of-order completion');
+  for (const [summary, allowed, message] of [
+    [{identityPlanSha256:'proof',identifierConflicts:0},true,null],
+    [{identityPlanSha256:'proof',identifierConflicts:1},false,'已有编号归属冲突'],
+    [{},false,'这份旧预览没有身份核对依据'],
+  ]) {
+    timer(); const read=calls.length-2;
+    calls[read].resolve(page([source]));
+    calls[read+1].resolve(page([run,{...run,id:8,status:'succeeded',preview_summary:{mode:'preview',connector:'uniprot-human-catalog',unknownSpeciesLocalTargets:2,...summary}}]));
+    await settle(); render();
+    assert.equal(nodes(tree).some(node=>node.type==='button' && node.props.className?.includes('source-apply-button')),allowed);
+    assert.ok(nodes(tree).some(node=>node.props.label==='物种未知的候选' && node.props.value===2));
+    if(message) assert.ok(nodes(tree).some(node=>node.props.role==='alert' && node.props.children.startsWith(message)));
+  }
   timer(); const pending=calls.length-2;
   slots.forEach(slot=>slot?.cleanup?.()); const before=writes;
   calls[pending].resolve(page([source])); calls[pending+1].resolve(page([run])); await settle();
   assert.equal(writes,before,'Unmounted source page cannot accept late reads');
-  console.log('PASS: saved settings protected from stale polls; newest read wins; unmount suppresses late responses.');
+  console.log('PASS: stale polls/unmount suppressed; UniProt identity counts and conflict/old-preview application guards.');
 })().catch(error=>{console.error(error.stack);process.exitCode=1;});

@@ -79,7 +79,7 @@ def _parse_tsv_page(payload: bytes) -> tuple[UniProtProtein, ...]:
         )
         if not _ACCESSION.fullmatch(accession):
             raise UniProtCatalogError("UniProt 返回了无效的 accession，已停止同步。")
-        if not organism.startswith("Homo sapiens"):
+        if organism not in {"Homo sapiens", "Homo sapiens (Human)"}:
             raise UniProtCatalogError("UniProt 返回了非人类条目，已停止同步。")
         proteins.append(
             UniProtProtein(

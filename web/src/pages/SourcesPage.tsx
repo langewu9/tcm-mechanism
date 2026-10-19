@@ -282,7 +282,8 @@ export function SourcesPage() {
               const isPubChem = summary.connector === "pubchem-compound-catalog";
               const isString = summary.connector === "string-human-identifier-crosswalk";
               const syncLabel = isSQLite ? "SQLite 关系数据" : isUniProt ? "UniProt 人类审核蛋白目录" : isPubChem ? "PubChem 化合物属性" : isString ? "STRING 人类标识映射" : "Reactome 通路目录";
-              const canApply = summary.mode === "preview" && run.status === "succeeded" && !activeApplyBases.has(run.id);
+              const identityBlocked = isUniProt && (!summary.identityPlanSha256 || (summary.identifierConflicts ?? 0) > 0);
+              const canApply = summary.mode === "preview" && run.status === "succeeded" && !activeApplyBases.has(run.id) && !identityBlocked;
               return <article className="panel source-run-record" key={run.id}>
                 <div className="case-record-top"><div><h3>{run.source_name} · {summary.mode === "apply" ? "应用数据" : "预览数据"} #{run.id}</h3>
                   <time>{dateTime(run.created_at)} · {run.trigger === "scheduled" ? "定时预览" : "人工触发"} · 操作者：{run.requested_by_username ?? (run.trigger === "scheduled" ? "系统调度" : "未知")}</time></div>
@@ -308,6 +309,11 @@ export function SourcesPage() {
                       <Metric label="将停用旧 accession" value={summary.wouldRetire ?? 0} />
                       <Metric label="可关联现有靶点符号" value={summary.geneSymbolsMappedToExistingTargets ?? 0} />
                       <Metric label="本地符号冲突" value={summary.ambiguousLocalGeneSymbols ?? 0} />
+                      <Metric label="物种未知的候选" value={summary.unknownSpeciesLocalTargets ?? 0} />
+                      <Metric label="其他物种的候选" value={summary.otherSpeciesLocalTargets ?? 0} />
+                      <Metric label="符号未核实的候选" value={summary.unverifiedLocalTargets ?? 0} />
+                      <Metric label="沿用已有编号归属" value={summary.preservedAccessionMappings ?? 0} />
+                      <Metric label="编号归属冲突" value={summary.identifierConflicts ?? 0} />
                     </> : isPubChem ? <>
                       <Metric label="已配置成分映射" value={summary.totalRecords ?? run.records_seen} />
                       <Metric label="新增 CID 关联" value={summary.wouldCreate ?? 0} />
@@ -335,6 +341,8 @@ export function SourcesPage() {
                   {isPubChem && summary.previewRecords?.length ? <><ul className="proteomics-pathways source-table-counts">{summary.previewRecords.map((record) => <li key={record.cid}><strong>{record.compound} · CID {record.cid}</strong><span>{record.molecularFormula || "无分子式"} · {record.molecularWeight || "无分子量"} · {record.inchiKey || "无 InChIKey"}</span></li>)}</ul>{summary.previewRecordsTruncated && <p className="section-help">这里只展示前 20 条，完整映射数见上方统计。</p>}</> : null}
                   {isString && summary.previewRecords?.length ? <><ul className="proteomics-pathways source-table-counts">{summary.previewRecords.map((record) => <li key={record.entityStableId}><strong>{record.entityStableId} · {record.query}</strong><span>{record.stringId} · {record.preferredName || "无首选名称"} · {record.annotation || "无注释"}</span></li>)}</ul>{summary.previewRecordsTruncated && <p className="section-help">这里只展示前 20 条映射样例，完整数量见上方统计。</p>}</> : null}
                   <p className="section-help">{syncLabel}预览只保存来源版本与变更统计，不会修改知识目录。应用时会重新读取来源并核对校验值。</p>
+                  {isUniProt && <p className="section-help">仅将物种明确为人类、符号未标记为待核实且无同名歧义的本地实体关联到目录。其余候选保留独立身份；已有编号不会仅因同名而转移归属。候选分类可能重叠，不能相加作为总数。</p>}
+                  {isUniProt && identityBlocked && <p className="notice-error" role="alert">{!summary.identityPlanSha256 ? "这份旧预览没有身份核对依据，请重新预览。" : "已有编号归属冲突，请先核对物种与符号，再重新预览；本次不能应用。"}</p>}
                   {canApply && <button className="btn btn-primary source-apply-button" type="button" disabled={busy === run.source || activeSourceIds.has(run.source)}
                     onClick={() => void applyPreview(run)}><CheckCircle2 size={15} />应用此预览</button>}
                   {!canApply && activeApplyBases.has(run.id) && <p className="section-help">此预览已有待处理或成功的应用记录。</p>}
