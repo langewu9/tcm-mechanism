@@ -444,9 +444,12 @@ def build_network_pharmacology(
         }
         if source_case_candidate:
             medical_case = MedicalCase.objects.select_for_update().get(pk=source_case_candidate.medical_case_id)
-            candidate = MedicalCaseCandidate.objects.select_for_update().select_related("task", "entity").get(
-                pk=source_case_candidate.pk,
-                medical_case=medical_case,
+            # The optional entity uses an outer join, which PostgreSQL cannot
+            # lock. Serialize the candidate and its source task explicitly.
+            candidate = (
+                MedicalCaseCandidate.objects.select_for_update(of=("self", "task"))
+                .select_related("task", "entity")
+                .get(pk=source_case_candidate.pk, medical_case=medical_case)
             )
             from .case_analysis import case_input_sha256
 
