@@ -1,4 +1,5 @@
 import { apiRequest } from "./client";
+import type { AnalysisTask } from "./datasets";
 export type HomeStats = { counts: { herbs: number; compounds: number; targets: number; pathways: number } };
 export const getHomeStats = () => apiRequest<HomeStats>("/api/v1/home-stats/");
 
@@ -85,11 +86,16 @@ export type HerbEvidenceEntity = {
   id: number;
   stableId: string;
   label: string;
+  sourceReleaseId?: number | null;
   sourceSlug: string | null;
   sourceVersion: string | null;
 };
 
 export type HerbEvidenceRelation = {
+  id?: number;
+  subjectId?: number;
+  objectId?: number;
+  sourceReleaseId?: number;
   subject: string;
   object: string;
   subjectType: string;
@@ -115,6 +121,7 @@ export type HerbEvidenceItem = {
 
 export type HerbEvidenceSearch = {
   queryType: "herb" | "compound";
+  resultSha256: string;
   results: HerbEvidenceItem[];
 };
 
@@ -166,5 +173,12 @@ export function searchHerbComponentEvidence(queryType: HerbEvidenceSearch["query
   return apiRequest<HerbEvidenceSearch>("/api/v1/catalog/herb-evidence/batch/", {
     method: "POST",
     body: { queryType, queries },
+  });
+}
+
+export function saveHerbEvidenceAnalysis(evidence: HerbEvidenceSearch) {
+  return apiRequest<AnalysisTask>("/api/v1/catalog/herb-evidence/analyses/", {
+    method: "POST",
+    body: { queryType: evidence.queryType, queries: evidence.results.map(item => item.query), expectedResultSha256: evidence.resultSha256 },
   });
 }

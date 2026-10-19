@@ -58,6 +58,8 @@ def api_exception_handler(exc, context):
         code, message = "AUTHENTICATION_REQUIRED", "请先登录后再操作。"
     elif exception_code == "email_not_verified":
         code, message = "EMAIL_NOT_VERIFIED", "请先通过注册邮箱中的链接完成邮箱验证。"
+    elif exception_code == "catalog_results_changed":
+        code, message = "CATALOG_RESULTS_CHANGED", "目录数据已更新，请重新检索后再保存关系图。"
     elif status_code == 403 and str(getattr(exc, "detail", "")).startswith("CSRF Failed:"):
         code, message = "CSRF_FAILED", "请求校验失败，请刷新页面后重试。"
     response.data = error_payload(code, message, response.data, request)

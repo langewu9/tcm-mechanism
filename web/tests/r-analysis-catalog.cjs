@@ -16,4 +16,9 @@ assert.ok(rChartCatalog({ ...parent, result: { externalString: ppi } }).find(cha
 assert.ok(!rChartCatalog({ ...parent, result: { externalString: { ...ppi, status: 'unavailable' } } }).find(chart => chart.key === 'ppi_network').available);
 assert.equal(rChartCatalog({ ...parent, task_type: 'network', result: { ...ppi, analysisKind: 'string_ppi' } }).length, 2);
 assert.deepEqual(rChartCatalog({ ...parent, task_type: 'case_link' }), []);
+const catalogue = rChartCatalog({ ...parent, task_type: 'network', result: { analysisKind: 'catalog_evidence', network: { links: [{source:'one',target:'two'}] } } });
+assert.equal(catalogue.length, 1);
+assert.equal(catalogue[0].key, 'evidence_network');
+assert.equal(catalogue[0].available, true);
+assert.ok(!catalogue[0].label.includes('疾病'), 'A herb-only query must not imply disease evidence');
 console.log('PASS: R catalog exposes real-data prerequisites, PPI failure states, standalone results and unsupported tasks.');

@@ -14,6 +14,9 @@ export function rChartCatalog(task: AnalysisTask): Chart[] {
   const result = record(task.result);
   const network = record(result.network);
   const hasGraph = list(network.links).length > 0;
+  if (task.task_type === "network" && result.analysisKind === "catalog_evidence") return [
+    { key: "evidence_network", label: "中药—成分—靶点目录关系图", available: hasGraph, note: "使用已保存的本地目录快照；R 图合并同一对实体的重复连线，完整来源记录保留在分析任务中。" },
+  ];
   const ppi = task.task_type === "proteomics" ? record(result.externalString) : result;
   const hasPpi = ppi.source === "STRING" && ppi.networkType === "physical"
     && (ppi.status === "succeeded" || (ppi.status === undefined && ppi.analysisKind === "string_ppi")) && list(ppi.edges).length > 0;

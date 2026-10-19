@@ -1,7 +1,7 @@
 // Tabs, query/result layout and labels adapted from origin/main@078d374:
 // src/components/ResearchWorkbench.tsx. Data and consent stay on the Django APIs.
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { Activity, Beaker, Database, Download, FileJson, GitCompareArrows, Leaf, Route, Search, Sparkles, Table2 } from "lucide-react";
 import { ApiError } from "../api/client";
 import { getEntityNeighborhood, searchCatalogEntities, searchDiseaseEvidence, searchHerbComponentEvidence, searchReactomeCatalog, type DiseaseEvidenceSearch, type EntityNeighborhood, type HerbEvidenceSearch, type KnowledgeEntity, type KnowledgeSearchPage, type ReactomeCatalogResult } from "../api/catalog";
@@ -13,6 +13,7 @@ import { DiseaseEvidenceResults } from "./DiseaseEvidenceResults";
 import { NetworkPharmacologyCharts } from "./NetworkPharmacologyCharts";
 import { NetworkResultDownloads } from "./NetworkResultDownloads";
 import { PaginatedTable } from "./PaginatedTable";
+import { CatalogEvidenceFigures } from "./CatalogEvidenceFigures";
 import { reactomeCatalogueCsv } from "./ReactomePathwayLookup";
 
 type Action = "disease" | "herb" | "component" | "chembl" | "intersection" | "pathway" | "compare" | "catalogue";
@@ -40,6 +41,7 @@ const csvDownload = (name: string, headers: string[], rows: Parameters<typeof en
 const errorMessage = (cause: unknown) => cause instanceof ApiError ? cause.message : "请求未完成，请稍后重试。";
 
 export function ResearchToolTabs() {
+  const [pageParams] = useSearchParams();
   const [active, setActive] = useState<Action>("herb");
   const [query, setQuery] = useState(examples.herb ?? "");
   const [herbs, setHerbs] = useState(examples.herb ?? "");
@@ -75,7 +77,8 @@ export function ResearchToolTabs() {
   const generation = toolGeneration.current;
   const displayedRequest = requestId.current;
   const selectedTool = tools.find((tool) => tool.id === active)!;
-  const hasResult = Boolean(evidence || chembl || comparison || pathways || network || diseaseEvidence || entityPage);
+  const hasResult = Boolean(evidence || chembl || comparison || pathways || network || diseaseEvidence || entityPage
+    || ((active === "herb" || active === "component") && pageParams.has("catalogTask")));
 
   useEffect(() => {
     mounted.current = true;
@@ -236,6 +239,7 @@ export function ResearchToolTabs() {
             </div>
           </>}
         </>}
+        {!busy && (active === "herb" || active === "component") && <CatalogEvidenceFigures evidence={evidence} />}
       </section>
     </div>
   </div>;

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+
 from django.db.models import Q
 
 from apps.core.models import EvidenceRelation, KnowledgeEntity
@@ -49,6 +52,7 @@ def _entity_record(entity: KnowledgeEntity) -> dict:
         "id": entity.pk,
         "stableId": entity.stable_id,
         "label": entity.label,
+        "sourceReleaseId": entity.source_release_id,
         "sourceSlug": release.source.slug if release else None,
         "sourceVersion": release.version if release else None,
     }
@@ -56,6 +60,10 @@ def _entity_record(entity: KnowledgeEntity) -> dict:
 
 def _relation_record(relation: EvidenceRelation) -> dict:
     return {
+        "id": relation.pk,
+        "subjectId": relation.subject_id,
+        "objectId": relation.object_id,
+        "sourceReleaseId": relation.source_release_id,
         "subject": relation.subject.label,
         "object": relation.object.label,
         "subjectType": relation.subject.entity_type,
@@ -127,4 +135,6 @@ def batch_herb_component_evidence(*, query_type: str, queries: list[str]) -> dic
             "truncated": matches_truncated or herb_edges_truncated or target_edges_truncated,
         })
 
-    return {"queryType": query_type, "results": result_items}
+    result = {"queryType": query_type, "results": result_items}
+    canonical = json.dumps(result, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    return {**result, "resultSha256": hashlib.sha256(canonical.encode()).hexdigest()}

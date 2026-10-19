@@ -26,7 +26,7 @@ const subject = new Module(filename);
 subject.require = name => {
   if (name === 'react') return fakeReact;
   if (name === 'react/jsx-runtime') return {jsx,jsxs:jsx,Fragment:'Fragment'};
-  if (name === 'react-router-dom') return {Link:'Link'};
+  if (name === 'react-router-dom') return {Link:'Link',useSearchParams:()=>[new URLSearchParams(),()=>{}]};
   if (name === 'lucide-react') return new Proxy({}, {get:(_,key)=>String(key)});
   if (name === '../api/client') return {ApiError:class extends Error {}};
   if (name === '../api/catalog') return catalogue;
@@ -34,6 +34,7 @@ subject.require = name => {
   if (name === '../api/network') return {runNetworkPharmacology:api('runNetworkPharmacology')};
   if (name === '../utils/downloads') return {...helpers.exports,downloadText:(...args)=>downloads.push(args)};
   if (name === './ReactomePathwayLookup') return {reactomeCatalogueCsv:()=>''};
+  if (name === './CatalogEvidenceFigures') return {CatalogEvidenceFigures:'CatalogEvidenceFigures'};
   const child = {'./ComponentComparisonResults':'ComponentComparisonResults','./DiseaseEvidenceResults':'DiseaseEvidenceResults','./NetworkPharmacologyCharts':'NetworkPharmacologyCharts','./NetworkResultDownloads':'NetworkResultDownloads','./PaginatedTable':'PaginatedTable'}[name];
   if (child) return {[child]:child};
   throw new Error('Unexpected import '+name);
