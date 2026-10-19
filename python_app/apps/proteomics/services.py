@@ -19,7 +19,7 @@ from typing import Any, Iterable
 import xlrd
 from django.conf import settings
 from django.core.files.storage import default_storage
-from django.db.models import Prefetch
+from django.db.models import Prefetch, Q
 from openpyxl import load_workbook
 
 from apps.core.models import AnalysisTask, EntityIdentifier, EvidenceRelation, KnowledgeEntity
@@ -28,7 +28,7 @@ from apps.proteomics.models import ProteomicsRowResult
 from apps.proteomics.raw_matrix import analyze_raw_matrix
 
 
-ALGORITHM_VERSION = "proteomics-py-1.6"
+ALGORITHM_VERSION = "proteomics-py-1.7"
 MAX_CELL_CHARACTERS = 50_000
 MAX_XLSX_EXPANDED_BYTES = 512 * 1024 * 1024
 PATHWAY_RELATION_TYPES = {
@@ -498,11 +498,12 @@ def _build_result(
         KnowledgeEntity.objects.filter(
             is_active=True,
             entity_type__in=[KnowledgeEntity.EntityType.GENE, KnowledgeEntity.EntityType.PROTEIN]
-        ).select_related("source_release", "source_release__source")
+        ).filter(Q(source_release__isnull=True) | Q(source_release__source__enabled=True))
+        .select_related("source_release", "source_release__source")
         .prefetch_related(
             Prefetch(
                 "identifiers",
-                queryset=EntityIdentifier.objects.filter(is_active=True).select_related(
+                queryset=EntityIdentifier.objects.filter(is_active=True, source_release__source__enabled=True).select_related(
                     "source_release", "source_release__source"
                 ),
             )
@@ -536,6 +537,17 @@ def _build_result(
                 row.mapping_source = f"{entity.source_release.source.slug}:{entity.source_release.version}"
             else:
                 row.mapping_source = str(metadata.get("source") or entity.entity_type)
+            if metadata.get("identifierStatus") == "name_only":
+                # A historical protein name is a catalogue hit, not evidence
+                # of a normalized gene symbol. Preserve its identity/provenance.
+                row.normalized_symbol = ""
+                row.mapping_status = ProteomicsRowResult.MappingStatus.UNMAPPED
+                row.mapping_source = f"name_only:{row.mapping_source}"
+                row.qc_warnings.append("local_target_name_only")
+            elif metadata.get("identifierStatus") == "unverified_symbol":
+                row.mapping_status = ProteomicsRowResult.MappingStatus.UNVERIFIED
+                row.mapping_source = f"unverified_symbol:{row.mapping_source}"
+                row.qc_warnings.append("local_target_symbol_unverified")
         elif len(matches) > 1:
             row.mapping_status = ProteomicsRowResult.MappingStatus.AMBIGUOUS
             row.mapping_source = "multiple_local_entities"
@@ -570,7 +582,7 @@ def _build_result(
     reference_only = sorted(reference_set - set(normalized_by_canonical))
 
     selected_entity_ids = list(
-        dict.fromkeys(row.matched_entity.pk for row in selected_rows if row.matched_entity)
+        dict.fromkeys(row.matched_entity.pk for row in selected_rows if row.matched_entity and row.normalized_symbol)
     )
     relations = list(
         EvidenceRelation.objects.filter(
@@ -578,7 +590,10 @@ def _build_result(
             subject_id__in=selected_entity_ids,
             object__entity_type=KnowledgeEntity.EntityType.PATHWAY,
             object__is_active=True,
-        ).select_related("subject", "object", "source_release", "source_release__source")
+            subject__is_active=True,
+            source_release__source__enabled=True,
+        ).filter(Q(object__source_release__isnull=True) | Q(object__source_release__source__enabled=True))
+        .select_related("subject", "object", "source_release", "source_release__source")
     ) if selected_entity_ids else []
     relations = [
         relation
@@ -592,9 +607,14 @@ def _build_result(
     network_links: list[dict[str, Any]] = []
     release_ids: set[int] = {
         row.matched_entity.source_release_id
-        for row in selected_rows
+        for row in rows
         if row.matched_entity and row.matched_entity.source_release_id
     }
+    release_ids.update(
+        identifier["sourceReleaseId"]
+        for row in rows for identifier in row.external_identifiers
+        if identifier.get("sourceReleaseId")
+    )
     pathways: dict[str, dict[str, Any]] = {}
     symbols_by_entity_id: dict[int, set[str]] = defaultdict(set)
     for row in selected_rows:
@@ -617,6 +637,8 @@ def _build_result(
             "version": relation.source_release.version,
         }
         release_ids.add(relation.source_release_id)
+        if relation.object.source_release_id:
+            release_ids.add(relation.object.source_release_id)
         for symbol in row_symbols:
             network_links.append(
                 {
@@ -725,6 +747,8 @@ def _build_result(
         warnings.append("文件中存在重复标识；重复行已保留并分别计入结果。")
     if heuristic_mapped:
         warnings.append("部分标识仅符合基因符号格式，未在本地知识库核实，请人工确认。")
+    if any("local_target_name_only" in row.qc_warnings for row in selected_rows):
+        warnings.append("部分输入仅命中旧库靶点名称，尚未确认规范基因标识；未计为已验证映射。")
     if not entities:
         warnings.append("本地知识库尚无基因/蛋白实体；结果不会使用外部服务自动补全。")
 

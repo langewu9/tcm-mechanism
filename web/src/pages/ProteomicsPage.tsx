@@ -91,7 +91,7 @@ function mappingStatusLabel(status: string) {
   return ({
     database: "本地核实",
     external: "外部映射",
-    unverified: "格式推测",
+    unverified: "未核实候选",
     ambiguous: "标识歧义",
     unmapped: "未映射",
     missing: "缺少标识",
@@ -116,6 +116,8 @@ function qualityReasonLabel(reason: string) {
     invalid_significance: "显著性数值非法",
     fdr_above_threshold: "FDR 超过阈值",
     p_value_above_threshold: "P 值超过阈值",
+    local_target_name_only: "旧库仅有靶点名称，规范基因标识待核对",
+    local_target_symbol_unverified: "旧库符号候选尚未核实",
   } as Record<string, string>)[reason] ?? reason;
 }
 
