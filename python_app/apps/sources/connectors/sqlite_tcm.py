@@ -43,6 +43,10 @@ def validate_sqlite_source_config(config: dict) -> dict[str, str]:
         "diseaseHerbTargetTable": ("diseaseHerbColumn", "diseaseHerbHerbColumn", "diseaseHerbTargetColumn"),
     }
     parsed = {}
+    target_mode = config.get("targetCellMode", "list")
+    if not isinstance(target_mode, str) or target_mode not in {"single", "list"}:
+        raise SQLiteSourceError("靶点字段内容必须选择 single 或 list。")
+    parsed["targetCellMode"] = target_mode
     for key, label in expected.items():
         value = config.get(key)
         if not isinstance(value, str) or not value.strip():

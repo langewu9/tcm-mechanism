@@ -36,6 +36,7 @@ const emptySQLiteSource = {
   herbColumn: "herb",
   compoundColumn: "component",
   targetColumn: "target",
+  targetCellMode: "list" as "single" | "list",
   diseaseTargetTable: "disease_target",
   diseaseColumn: "disease",
   diseaseTargetColumn: "target",
@@ -251,6 +252,7 @@ export function SourcesPage() {
               <label className="form-label">中药列<input className="field" required value={sqliteForm.herbColumn} onChange={(event) => setSQLiteForm((form) => ({ ...form, herbColumn: event.target.value }))} /></label>
               <label className="form-label">成分列<input className="field" required value={sqliteForm.compoundColumn} onChange={(event) => setSQLiteForm((form) => ({ ...form, compoundColumn: event.target.value }))} /></label>
               <label className="form-label">靶点列<input className="field" required value={sqliteForm.targetColumn} onChange={(event) => setSQLiteForm((form) => ({ ...form, targetColumn: event.target.value }))} /></label>
+              <label className="form-label">靶点单元格内容<select className="field" value={sqliteForm.targetCellMode} onChange={(event) => setSQLiteForm((form) => ({ ...form, targetCellMode: event.target.value as "single" | "list" }))}><option value="list">多个标识，以分隔符拆分（旧缓存默认）</option><option value="single">单个名称或标识（保留名称内标点）</option></select></label>
               <label className="form-label">疾病—靶点表<input className="field" value={sqliteForm.diseaseTargetTable} onChange={(event) => setSQLiteForm((form) => ({ ...form, diseaseTargetTable: event.target.value }))} /></label>
               <label className="form-label">疾病列<input className="field" value={sqliteForm.diseaseColumn} onChange={(event) => setSQLiteForm((form) => ({ ...form, diseaseColumn: event.target.value }))} /></label>
               <label className="form-label">疾病靶点列<input className="field" value={sqliteForm.diseaseTargetColumn} onChange={(event) => setSQLiteForm((form) => ({ ...form, diseaseTargetColumn: event.target.value }))} /></label>

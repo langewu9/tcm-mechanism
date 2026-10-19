@@ -33,7 +33,7 @@ jobs:
       DJANGO_DEBUG: 'true'
       DJANGO_SECRET_KEY: ci-only-not-a-production-secret
       DATABASE_URL: ${{ matrix.database == 'postgres' && 'postgres://tcm_ci:ci-only-password@127.0.0.1:5432/tcm_ci' || 'sqlite:////tmp/tcm_ci.sqlite3' }}
-      MEDIA_ROOT: ${{ runner.temp }}/tcm-media
+      MEDIA_ROOT: /tmp/tcm-ci-media
       SOURCE_SCHEDULED_PREVIEWS_ENABLED: 'false'
     steps:
       - uses: actions/checkout@v4

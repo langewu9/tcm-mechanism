@@ -112,6 +112,7 @@ export const createSQLiteDataSource = (input: {
   herbColumn: string;
   compoundColumn: string;
   targetColumn: string;
+  targetCellMode?: "single" | "list";
   diseaseTargetTable?: string;
   diseaseColumn?: string;
   diseaseTargetColumn?: string;

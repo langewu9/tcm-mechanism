@@ -56,6 +56,7 @@ class SQLiteSourceCreateSerializer(serializers.Serializer):
     herbColumn = serializers.CharField(max_length=80)
     compoundColumn = serializers.CharField(max_length=80)
     targetColumn = serializers.CharField(max_length=80)
+    targetCellMode = serializers.ChoiceField(choices=["single", "list"], required=False)
     diseaseTargetTable = serializers.CharField(max_length=80, required=False, allow_blank=True)
     diseaseColumn = serializers.CharField(max_length=80, required=False, allow_blank=True)
     diseaseTargetColumn = serializers.CharField(max_length=80, required=False, allow_blank=True)

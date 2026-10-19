@@ -26,6 +26,7 @@ from apps.sources.connectors.sqlite_tcm import (
 SQLITE_CONNECTOR = "sqlite-herb-compound-target"
 EVIDENCE_TYPE = "curated_sqlite_database"
 _SPACE = re.compile(r"\s+")
+_SYMBOL_CANDIDATE = re.compile(r"^[A-Z][A-Z0-9_.-]{0,63}$")
 
 
 def _canonical(value: str) -> str:
@@ -72,7 +73,8 @@ def _row_entities_and_relations(source: DataSource, row):
     disease_herb = clean_cell(second_value) if kind == "diseaseHerbTarget" else ""
     raw_targets = third_value if kind in {"herb", "diseaseHerbTarget"} else second_value
     source_file = clean_cell(third_value) if kind == "diseaseTarget" else ""
-    targets = list(dict.fromkeys(split_targets(raw_targets)))
+    target_values = [clean_cell(raw_targets)] if (source.configuration or {}).get("targetCellMode", "list") == "single" else split_targets(raw_targets)
+    targets = list(dict.fromkeys(value for value in target_values if value))
     if len(targets) > MAX_TARGETS_PER_ROW:
         raise ValidationError(f"源文件中单行拆分出的靶点超过 {MAX_TARGETS_PER_ROW} 个，请检查分隔符和数据内容。")
     entities: dict[tuple[str, str], dict] = {}
@@ -85,7 +87,11 @@ def _row_entities_and_relations(source: DataSource, row):
         key = (entity_type, stable_id)
         metadata = {"source": source.slug, "sourceKind": kind}
         if kind == "target":
-            metadata["symbol"] = label
+            # Old worksheets mix protein names and symbols in the same target column.
+            # A label is never evidence of an approved HGNC/UniProt identity.
+            metadata["identifierStatus"] = "unverified_symbol" if _SYMBOL_CANDIDATE.fullmatch(label) else "name_only"
+            if metadata["identifierStatus"] == "unverified_symbol":
+                metadata["symbol"] = label
         entities[key] = {
             "entity_type": entity_type,
             "stable_id": stable_id,
@@ -227,6 +233,7 @@ def preview_sqlite_sync(run: SyncRun) -> None:
         "tableRowCounts": snapshot.table_row_counts,
         "fileBytes": snapshot.file_size,
         "totalRows": rows_seen,
+        "targetCellMode": (source.configuration or {}).get("targetCellMode", "list"),
         "uniqueHerbs": len(seen.get(KnowledgeEntity.EntityType.HERB, {})),
         "uniqueCompounds": len(seen.get(KnowledgeEntity.EntityType.COMPOUND, {})),
         "uniqueTargets": len(seen.get(KnowledgeEntity.EntityType.PROTEIN, {})),

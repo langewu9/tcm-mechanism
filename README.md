@@ -4,6 +4,8 @@
 
 ## 当前架构
 
+最新本地修补、服务启动、验收结果与待接依赖见 [`docs/local-acceptance-2026-10-19.md`](docs/local-acceptance-2026-10-19.md)；研究资料归档规则见 [`docs/research-retention.md`](docs/research-retention.md)。
+
 - `web/`：独立的 React + TypeScript + Vite 前端。首页复用了现有 Next 页面结构和样式，新增了 Django 会话登录入口。
 - `python_app/`：Django 5.2 + Django REST Framework API、服务端会话认证、权限和管理后台。代码按认证、知识目录和研究工作区分模块。
 - `deploy/compose.python.yml`：本地 PostgreSQL 开发服务。
