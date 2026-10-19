@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useOutletContext } from "react-router-dom";
-import { ArrowLeft, FileHeart, Save, Sparkles, Stethoscope, Trash2 } from "lucide-react";
-import { approveMedicalCase, createMedicalCase, deleteMedicalCase, getMedicalCaseAnalysis, getMedicalCaseAudit, getMedicalCases, reviewMedicalCaseCandidate, startMedicalCaseAnalysis, type CaseAuditEvent, type CaseEvidence, type CaseKnowledgeEvidence, type MedicalCase, type MedicalCaseCandidate, type MedicalCaseAnalysis, type Page } from "../api/cases";
+import { ArrowLeft, FileHeart, Save, Sparkles, Stethoscope, Archive, RotateCcw } from "lucide-react";
+import { approveMedicalCase, createMedicalCase, deleteMedicalCase, getMedicalCaseAnalysis, getMedicalCaseAudit, getMedicalCases, restoreMedicalCase, reviewMedicalCaseCandidate, startMedicalCaseAnalysis, type CaseAuditEvent, type CaseEvidence, type CaseKnowledgeEvidence, type MedicalCase, type MedicalCaseCandidate, type MedicalCaseAnalysis, type Page } from "../api/cases";
 import { getAnalysisTask, type AnalysisTask } from "../api/datasets";
 import { type Session } from "../api/auth";
 import { ApiError } from "../api/client";
@@ -72,6 +72,7 @@ export function CasesPage() {
   const activeAuditCaseId = useRef<number | null>(null);
   const analysisRequestSequence = useRef(0);
   const [page, setPage] = useState<Page<MedicalCase> | null>(null);
+  const [archived, setArchived] = useState(false);
   const [pageNumber, setPageNumber] = useState(1);
   const [refresh, setRefresh] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -110,7 +111,7 @@ export function CasesPage() {
     setLoading(true);
     setListError(null);
     try {
-      const response = await getMedicalCases(pageNumber);
+      const response = await getMedicalCases(pageNumber, archived);
       if (!mounted.current || requestSequence !== casesRequestSequence.current) return;
       setPage(response);
     } catch (cause) {
@@ -120,7 +121,7 @@ export function CasesPage() {
       if (!mounted.current || requestSequence !== casesRequestSequence.current) return;
       setLoading(false);
     }
-  }, [pageNumber]);
+  }, [pageNumber, archived]);
 
   useEffect(() => {
     void loadCases();
@@ -178,6 +179,7 @@ export function CasesPage() {
       if (!mounted.current) return;
       formElement.reset();
       setNotice("医案已保存，来源和提交账号已记录。");
+      setArchived(false);
       if (pageNumber !== 1) setPageNumber(1);
       else setRefresh((value) => value + 1);
     } catch (cause) {
@@ -190,15 +192,16 @@ export function CasesPage() {
 
   async function removeCase(item: MedicalCase) {
     if (mutationInFlight.current) return;
-    if (!window.confirm(`确定删除“${item.title}”吗？`)) return;
+    if (!window.confirm(item.archived_at ? `恢复医案“${item.title}”？` : `归档医案“${item.title}”？正文、来源和分析记录将保留，已提交任务继续运行。`)) return;
     mutationInFlight.current = true;
     setDeletingId(item.id);
     setError(null);
     setNotice(null);
     try {
-      await deleteMedicalCase(item.id);
+      if (item.archived_at) await restoreMedicalCase(item.id);
+      else await deleteMedicalCase(item.id);
       if (!mounted.current) return;
-      setNotice("医案已删除。");
+      setNotice(item.archived_at ? "医案已恢复。" : "医案已归档，正文、来源和分析记录均已保留。");
       if (pageNumber > 1 && page?.results.length === 1) setPageNumber((value) => value - 1);
       else setRefresh((value) => value + 1);
     } catch (cause) {
@@ -379,12 +382,13 @@ export function CasesPage() {
         </form>
 
         <section className="space-y-4" aria-label="已保存医案">
+          <label className="form-label">显示范围<select className="field mt-2" value={String(archived)} disabled={mutating} onChange={(event) => { casesRequestSequence.current += 1; setPage(null); setLoading(true); setArchived(event.target.value === "true"); setPageNumber(1); }}><option value="false">使用中的医案</option><option value="true">已归档的医案</option></select></label>
           {loading ? <div className="panel empty-state" role="status">正在读取医案…</div>
             : listError ? <div className="panel empty-state" role="alert"><FileHeart size={26} /><strong>医案读取失败</strong><p>{listError}</p><button className="btn btn-secondary" type="button" onClick={() => setRefresh((value) => value + 1)} disabled={mutating}>重新读取</button></div>
             : page?.results.length ? page.results.map((item) => <article key={item.id} className="case-record panel p-5">
               <div className="flex items-start justify-between gap-3">
                 <div><h2 className="text-lg font-black">{item.title}</h2><p className="mt-2 text-sm leading-6 text-ink/65">{item.deidentified_text}</p></div>
-                <button className="btn btn-secondary px-2 py-1 text-xs text-cinnabar" type="button" onClick={() => void removeCase(item)} disabled={mutating} aria-label={`删除医案：${item.title}`} title="删除"><Trash2 size={14} />{deletingId === item.id ? "处理中" : "删除"}</button>
+                <button className="btn btn-secondary px-2 py-1 text-xs text-cinnabar" type="button" onClick={() => void removeCase(item)} disabled={mutating} aria-label={`${item.archived_at ? "恢复" : "归档"}医案：${item.title}`} title={item.archived_at ? "恢复医案" : "归档并保留正文"}>{item.archived_at ? <RotateCcw size={14} /> : <Archive size={14} />}{deletingId === item.id ? "处理中" : item.archived_at ? "恢复" : "归档"}</button>
               </div>
               <div className="case-record-meta">
                 <p><span>舌脉</span>{valueOf(item.structured_data, "tongue_pulse")}</p>
@@ -403,9 +407,9 @@ export function CasesPage() {
                   <div className="source-record-actions">
                     <button className="btn btn-secondary" type="button" onClick={() => void toggleAudit(item)} disabled={mutating}>{auditCaseId === item.id ? "收起审计记录" : "查看审计记录"}</button>
                     <button className="btn btn-secondary" type="button" onClick={() => void toggleCaseAnalysis(item)} disabled={mutating}>{analysisCaseId === item.id ? "收起分析" : "证候与方剂分析"}</button>
-                    {user.isSuperuser && item.review_status !== "reviewed" && <button className="btn btn-primary" type="button" onClick={() => void approveCase(item)} disabled={mutating}>{reviewingId === item.id ? "正在审核…" : "审核通过"}</button>}
+                    {user.isSuperuser && item.review_status !== "reviewed" && <button className="btn btn-primary" type="button" onClick={() => void approveCase(item)} disabled={mutating || !!item.archived_at}>{reviewingId === item.id ? "正在审核…" : "审核通过"}</button>}
                   </div>
-                  {analysisCaseId === item.id && <fieldset disabled={mutating} className="min-w-0"><CaseAnalysisPanel
+                  {analysisCaseId === item.id && <fieldset disabled={mutating || !!item.archived_at} className="min-w-0"><CaseAnalysisPanel
                     task={analysisTask}
                     candidates={analysisCandidates}
                     stale={analysisStale}
@@ -419,7 +423,7 @@ export function CasesPage() {
                     onAnalyze={() => void runCaseAnalysis(item)}
                     onDecision={(candidate, decision) => void decideCandidate(item, candidate, decision)}
                   /></fieldset>}
-                  {auditCaseId === item.id && <div className="panel case-audit-history"><h4>操作记录</h4>{auditLoading ? <p className="section-help" role="status">正在读取操作记录…</p> : auditError ? <div className="notice-error" role="alert"><p>{auditError}</p><button className="btn btn-secondary" type="button" onClick={() => void loadAudit(item.id)} disabled={mutating}>重新读取</button></div> : auditEvents.length ? <ul className="proteomics-pathways">{auditEvents.map((event) => <li key={event.id}><strong>{event.actor_username ?? "账号已删除"} · {event.action === "created" ? "创建" : event.action === "updated" ? "修改" : event.action === "reviewed" ? "审核" : event.action === "candidate" ? "候选审核" : event.action === "analyzed" ? "启动分析" : "删除"}</strong><span>{new Date(event.created_at).toLocaleString("zh-CN")} · {event.changed_fields.join("、") || "无字段变化"}</span></li>)}</ul> : <p className="section-help">尚无操作记录。</p>}</div>}
+                  {auditCaseId === item.id && <div className="panel case-audit-history"><h4>操作记录</h4>{auditLoading ? <p className="section-help" role="status">正在读取操作记录…</p> : auditError ? <div className="notice-error" role="alert"><p>{auditError}</p><button className="btn btn-secondary" type="button" onClick={() => void loadAudit(item.id)} disabled={mutating}>重新读取</button></div> : auditEvents.length ? <ul className="proteomics-pathways">{auditEvents.map((event) => <li key={event.id}><strong>{event.actor_username ?? "账号已删除"} · {event.action === "created" ? "创建" : event.action === "updated" ? "修改" : event.action === "reviewed" ? "审核" : event.action === "candidate" ? "候选审核" : event.action === "analyzed" ? "启动分析" : event.action === "archived" ? "归档" : event.action === "restored" ? "恢复" : "历史删除"}</strong><span>{new Date(event.created_at).toLocaleString("zh-CN")} · {event.changed_fields.join("、") || "无字段变化"}</span></li>)}</ul> : <p className="section-help">尚无操作记录。</p>}</div>}
                 </div>
               </details>
             </article>)

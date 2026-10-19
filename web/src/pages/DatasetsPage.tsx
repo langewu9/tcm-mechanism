@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Database, Download, FileSpreadsheet, Trash2, Upload } from "lucide-react";
-import { deleteDataset, getDatasets, uploadDataset, type DatasetPage, type ResearchDataset } from "../api/datasets";
+import { Database, Download, FileSpreadsheet, Archive, RotateCcw, Upload } from "lucide-react";
+import { deleteDataset, getDatasets, restoreDataset, uploadDataset, type DatasetPage, type ResearchDataset } from "../api/datasets";
 import { ApiError, apiRequestBlob } from "../api/client";
 
 function errorMessage(error: unknown) {
@@ -29,6 +29,7 @@ function DatasetProvenance({ item }: { item: ResearchDataset }) {
 
 export function DatasetsPage() {
   const [page, setPage] = useState<DatasetPage | null>(null);
+  const [archived, setArchived] = useState(false);
   const [pageNumber, setPageNumber] = useState(1);
   const [refresh, setRefresh] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -59,12 +60,12 @@ export function DatasetsPage() {
     setLoading(true);
     setListError(null);
     setPage(null);
-    void getDatasets(pageNumber)
+    void getDatasets(pageNumber, archived)
       .then((data) => { if (isCurrent()) setPage(data); })
       .catch((cause: unknown) => { if (isCurrent()) setListError(errorMessage(cause)); })
       .finally(() => { if (isCurrent()) setLoading(false); });
     return () => { active = false; };
-  }, [pageNumber, refresh]);
+  }, [pageNumber, refresh, archived]);
 
   function reloadDatasets(nextPage = pageNumber) {
     requestSequence.current += 1;
@@ -89,6 +90,7 @@ export function DatasetsPage() {
       if (!mounted.current) return;
       formElement.reset();
       setUploadMessage({ text: `已导入 ${item.row_count.toLocaleString("zh-CN")} 行数据，原始文件及 SHA-256 校验值已保存。`, failed: false });
+      setArchived(false);
       reloadDatasets(1);
     } catch (cause) {
       if (mounted.current) setUploadMessage({ text: errorMessage(cause), failed: true });
@@ -100,15 +102,16 @@ export function DatasetsPage() {
 
   async function removeDataset(item: ResearchDataset) {
     if (mutationInFlight.current) return;
-    if (!window.confirm(`确定删除数据集“${item.name}”及其服务器原始文件副本吗？本机原始文件不受影响。`)) return;
+    if (!window.confirm(item.archived_at ? `恢复数据集“${item.name}”到正常列表？` : `归档数据集“${item.name}”？原文件和分析结果将保留，已提交任务继续运行。`)) return;
     mutationInFlight.current = true;
     setDeletingId(item.id);
     setError(null);
     setNotice(null);
     try {
-      await deleteDataset(item.id);
+      if (item.archived_at) await restoreDataset(item.id);
+      else await deleteDataset(item.id);
       if (!mounted.current) return;
-      setNotice("数据集记录及其服务器私有原始文件副本已删除，本机原始文件不受影响。");
+      setNotice(item.archived_at ? "数据集已恢复。" : "数据集已归档，原文件、所属用户和分析记录均已保留。");
       reloadDatasets(pageNumber > 1 && page?.results.length === 1 ? pageNumber - 1 : pageNumber);
     } catch (cause) {
       if (mounted.current) setError(errorMessage(cause));
@@ -165,7 +168,7 @@ export function DatasetsPage() {
       <form className="panel space-y-3 p-5" onSubmit={submit} aria-label="上传研究数据集">
         <div>
           <h2 className="text-lg font-black">上传数据集</h2>
-          <p className="mt-1 text-sm text-ink/58">支持 CSV、TSV、XLS、XLSX，入库后可检索、预览和删除。</p>
+          <p className="mt-1 text-sm text-ink/58">支持 CSV、TSV、XLS、XLSX，入库后可检索、预览和归档。</p>
         </div>
         <label className="form-label" htmlFor="dataset-name">数据集名称<input className="field mt-2" id="dataset-name" name="name" maxLength={200} placeholder="例如：麦门冬汤六味中药成分靶点数据" required disabled={uploading} /></label>
         <label className="form-label" htmlFor="dataset-description">数据说明<textarea className="field mt-2 min-h-20" id="dataset-description" name="description" placeholder="描述来源、字段含义与使用范围" disabled={uploading} /></label>
@@ -178,7 +181,8 @@ export function DatasetsPage() {
       </form>
 
       <section className="panel overflow-hidden" aria-labelledby="dataset-list-heading" aria-busy={loading}>
-        <div className="panel-header"><div><h2 id="dataset-list-heading" className="section-title-sm">数据集列表</h2><p className="section-help">按最近导入时间排序，删除会移除服务器原始文件副本，本机原始文件不受影响。</p></div></div>
+        <div className="panel-header"><div><h2 id="dataset-list-heading" className="section-title-sm">数据集列表</h2><p className="section-help">归档保留原文件与来源记录，可在已归档列表恢复。</p></div></div>
+        <label className="form-label px-5 py-3">显示范围<select className="field mt-2" value={String(archived)} disabled={mutating} onChange={(event) => { requestSequence.current += 1; setPage(null); setLoading(true); setArchived(event.target.value === "true"); setPageNumber(1); }}><option value="false">使用中的数据集</option><option value="true">已归档的数据集</option></select></label>
         <div className="overflow-x-auto">
           <table className="data-table" aria-label="数据集列表">
             <thead><tr>
@@ -198,7 +202,7 @@ export function DatasetsPage() {
                 <td><time dateTime={item.created_at} title={new Date(item.created_at).toLocaleString("zh-CN")}>{new Date(item.created_at).toLocaleDateString("zh-CN")}</time></td>
                 <td><div className="flex gap-2">
                   <button className="btn btn-secondary px-2 py-1 text-xs" type="button" onClick={() => void downloadDataset(item)} disabled={downloadingId !== null || deletingId === item.id} aria-label={`下载原始文件：${item.name}`} title="下载原始文件"><Download size={14} />{downloadingId === item.id ? "下载中…" : "下载"}</button>
-                  <button className="btn btn-secondary px-2 py-1 text-xs text-cinnabar" type="button" onClick={() => void removeDataset(item)} disabled={mutating} aria-label={`删除数据集：${item.name}`} title="删除数据集及服务器原始文件副本"><Trash2 size={14} />{deletingId === item.id ? "处理中" : "删除"}</button>
+                  <button className="btn btn-secondary px-2 py-1 text-xs text-cinnabar" type="button" onClick={() => void removeDataset(item)} disabled={mutating} aria-label={`${item.archived_at ? "恢复" : "归档"}数据集：${item.name}`} title={item.archived_at ? "恢复数据集" : "归档并保留原文件"}>{item.archived_at ? <RotateCcw size={14} /> : <Archive size={14} />}{deletingId === item.id ? "处理中" : item.archived_at ? "恢复" : "归档"}</button>
                 </div></td>
               </tr>)}
             </tbody>
@@ -206,7 +210,7 @@ export function DatasetsPage() {
         </div>
         {loading ? <div className="empty-state" role="status">正在读取数据集…</div>
           : listError ? <div className="empty-state" role="alert"><strong>数据集列表读取失败</strong><p>{listError}</p><button className="btn btn-secondary" type="button" onClick={() => reloadDatasets()} disabled={mutating}>重试</button></div>
-          : page?.results.length === 0 ? <div className="empty-state"><FileSpreadsheet size={26} /><strong>暂无数据集</strong><p>从左侧导入第一份 CSV、TSV 或 Excel 文件，系统会记录数据行数和上传人。</p></div> : null}
+          : page?.results.length === 0 ? <div className="empty-state"><FileSpreadsheet size={26} /><strong>{archived ? "暂无归档数据集" : "暂无数据集"}</strong><p>{archived ? "归档后的资料会显示在这里，原始文件继续保留。" : "从左侧导入第一份 CSV、TSV 或 Excel 文件，系统会记录数据行数和上传人。"}</p></div> : null}
         {page && page.count > 0 && <nav className="table-pager" aria-label="数据集分页">
           <span>第 {pageNumber} 页 · 共 {page.count.toLocaleString("zh-CN")} 个数据集</span>
           <div>

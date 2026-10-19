@@ -36,7 +36,7 @@ class TextAnalysisView(APIView):
     @extend_schema(responses=TextAnalysisWorkspaceSerializer)
     def get(self, request):
         scope = {} if request.user.is_superuser else {"owner": request.user}
-        cases = list(MedicalCase.objects.filter(**scope).order_by("-created_at", "-id")[:201])
+        cases = list(MedicalCase.objects.filter(archived_at__isnull=True, **scope).order_by("-created_at", "-id")[:201])
         tasks = AnalysisTask.objects.filter(
             task_type=AnalysisTask.TaskType.TEXT_ANALYSIS, **scope,
         ).select_related("owner", "created_by").order_by("-created_at", "-id")[:8]
@@ -52,7 +52,7 @@ class TextAnalysisView(APIView):
         data = serializer.validated_data
         medical_case = None
         if data["caseId"]:
-            cases = MedicalCase.objects.select_for_update().select_related("owner")
+            cases = MedicalCase.objects.select_for_update().select_related("owner").filter(archived_at__isnull=True)
             if not request.user.is_superuser:
                 cases = cases.filter(owner=request.user)
             medical_case = cases.filter(pk=data["caseId"]).first()

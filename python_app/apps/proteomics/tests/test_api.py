@@ -275,7 +275,7 @@ class ProteomicsApiTests(APITestCase):
         visible = self.client.get(reverse("analysis-task-detail", args=[task.pk]))
         self.assertEqual(visible.status_code, 200)
 
-    def test_original_file_cannot_be_deleted_or_replaced_after_analysis_is_created(self):
+    def test_archive_preserves_analysis_and_original_file_cannot_be_replaced(self):
         AnalysisTask.objects.create(
             owner=self.owner,
             task_type=AnalysisTask.TaskType.PROTEOMICS,
@@ -283,15 +283,15 @@ class ProteomicsApiTests(APITestCase):
         )
         self.client.force_authenticate(self.owner)
 
-        deleted = self.client.delete(reverse("dataset-detail", args=[self.dataset.pk]))
         replaced = self.client.patch(
             reverse("dataset-detail", args=[self.dataset.pk]),
             {"file": ContentFile(b"Gene\nTP53\n", name="replacement.csv")},
             format="multipart",
         )
 
-        self.assertEqual(deleted.status_code, 409)
         self.assertEqual(replaced.status_code, 409)
+        archived = self.client.delete(reverse("dataset-detail", args=[self.dataset.pk]))
+        self.assertEqual(archived.status_code, 204)
         self.assertTrue(default_storage.exists(self.dataset.storage_key))
         self.assertTrue(ResearchDataset.objects.filter(pk=self.dataset.pk).exists())
 

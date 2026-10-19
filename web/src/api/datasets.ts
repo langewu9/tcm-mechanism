@@ -6,6 +6,8 @@ export type ResearchDataset = {
   owner_username: string;
   name: string;
   description: string;
+  archived_at: string | null;
+  archived_by: number | null;
   original_filename: string;
   content_sha256: string;
   byte_size: number;
@@ -278,9 +280,11 @@ export type ProteomicsRunRequest = {
   referenceTargets?: string[];
 };
 
-export const getDatasets = (page = 1) => apiRequest<DatasetPage>(`/api/v1/research/datasets/?page=${page}`);
+export const getDatasets = (page = 1, archived = false) => apiRequest<DatasetPage>(`/api/v1/research/datasets/?page=${page}&archived=${archived}`);
 export const uploadDataset = (data: FormData) =>
   apiRequest<ResearchDataset>("/api/v1/research/datasets/", { method: "POST", body: data });
+export const restoreDataset = (id: number) =>
+  apiRequest<ResearchDataset>(`/api/v1/research/datasets/${id}/restore/`, { method: "POST" });
 export const deleteDataset = (id: number) =>
   apiRequest<void>(`/api/v1/research/datasets/${id}/`, { method: "DELETE" });
 export const runProteomicsAnalysis = (datasetId: number, request: ProteomicsRunRequest) =>

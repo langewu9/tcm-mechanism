@@ -4,7 +4,28 @@ from django.db import models
 
 from .sources import SourceRelease
 
-class ResearchDataset(models.Model):
+
+class RetainedResearchQuerySet(models.QuerySet):
+    def delete(self):
+        raise models.ProtectedError("研究资料须保留溯源，请使用归档操作。", list(self[:1]))
+
+
+class RetainedResearchRecord(models.Model):
+    archived_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    archived_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True,
+        related_name="%(class)s_archived_records",
+    )
+    objects = RetainedResearchQuerySet.as_manager()
+
+    class Meta:
+        abstract = True
+
+    def delete(self, *args, **kwargs):
+        raise models.ProtectedError("研究资料须保留溯源，请使用归档操作。", [self])
+
+
+class ResearchDataset(RetainedResearchRecord):
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="research_datasets"
     )
@@ -48,7 +69,7 @@ class ResearchDatasetRow(models.Model):
         return f"数据集 #{self.dataset_id} · 第 {self.row_index + 1} 行"
 
 
-class MedicalCase(models.Model):
+class MedicalCase(RetainedResearchRecord):
     class ReviewStatus(models.TextChoices):
         DRAFT = "draft", "草稿"
         REVIEWED = "reviewed", "已审核"
@@ -151,6 +172,8 @@ class MedicalCaseAuditEvent(models.Model):
         CANDIDATE_REVIEWED = "candidate", "候选确认"
         ANALYSIS_REQUESTED = "analyzed", "启动分析"
         DELETED = "deleted", "删除"
+        ARCHIVED = "archived", "归档"
+        RESTORED = "restored", "恢复"
 
     case = models.ForeignKey(
         MedicalCase,
@@ -168,7 +191,7 @@ class MedicalCaseAuditEvent(models.Model):
     )
     actor = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
+        on_delete=models.PROTECT,
         null=True,
         blank=True,
         related_name="medical_case_actions",
@@ -188,6 +211,23 @@ class MedicalCaseAuditEvent(models.Model):
 
     def __str__(self) -> str:
         return f"医案 #{self.case_id_snapshot} · {self.get_action_display()}"
+
+
+class ResearchDatasetAuditEvent(models.Model):
+    class Action(models.TextChoices):
+        CREATED = "created", "上传"
+        ARCHIVED = "archived", "归档"
+        RESTORED = "restored", "恢复"
+
+    dataset = models.ForeignKey(ResearchDataset, on_delete=models.PROTECT, related_name="audit_events")
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="dataset_audit_events")
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="dataset_actions")
+    action = models.CharField(max_length=16, choices=Action.choices)
+    content_sha256 = models.CharField(max_length=64, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
 
 
 class AnalysisTask(models.Model):

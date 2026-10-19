@@ -16,6 +16,7 @@ from .models import (
     MedicalCaseAuditEvent,
     MedicalCaseCandidate,
     ResearchDataset,
+    ResearchDatasetAuditEvent,
     SourceRelease,
     SyncRun,
     VisualizationArtifact,
@@ -133,15 +134,38 @@ class EvidenceRelationAdmin(admin.ModelAdmin):
 
 @admin.register(ResearchDataset)
 class ResearchDatasetAdmin(admin.ModelAdmin):
-    list_display = ("name", "owner", "original_filename", "row_count", "byte_size", "created_at")
+    list_display = ("name", "owner", "original_filename", "row_count", "byte_size", "created_at", "archived_at")
+    list_filter = ("archived_at",)
     search_fields = ("name", "owner__username", "owner__email", "content_sha256")
-    readonly_fields = ("created_at", "updated_at")
+    readonly_fields = tuple(field.name for field in ResearchDataset._meta.fields)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(ResearchDatasetAuditEvent)
+class ResearchDatasetAuditEventAdmin(admin.ModelAdmin):
+    list_display = ("dataset", "owner", "actor", "action", "created_at")
+    list_filter = ("action",)
+    readonly_fields = tuple(field.name for field in ResearchDatasetAuditEvent._meta.fields)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(MedicalCase)
 class MedicalCaseAdmin(admin.ModelAdmin):
-    list_display = ("title", "owner", "review_status", "updated_at")
-    list_filter = ("review_status",)
+    list_display = ("title", "owner", "review_status", "updated_at", "archived_at")
+    list_filter = ("review_status", "archived_at")
     search_fields = ("title", "owner__username", "owner__email")
     readonly_fields = tuple(field.name for field in MedicalCase._meta.fields)
 

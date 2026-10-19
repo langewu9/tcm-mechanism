@@ -17,7 +17,8 @@ class EmailIdentityMigrationTests(TransactionTestCase):
     def tearDown(self):
         # Only these temporary test accounts; never operates on a real database.
         self.User.objects.filter(username__startswith="migration-test-").delete()
-        MigrationExecutor(connection).migrate(self.migrate_to)
+        executor = MigrationExecutor(connection)
+        executor.migrate(executor.loader.graph.leaf_nodes())
         super().tearDown()
 
     def test_duplicate_existing_emails_stop_migration_without_mutation(self):

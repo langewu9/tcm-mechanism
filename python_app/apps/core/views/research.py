@@ -22,6 +22,8 @@ from apps.proteomics.serializers import ProteomicsRunRequestSerializer
 from apps.proteomics.models import ProteomicsRowResult
 from apps.proteomics.serializers_rows import ProteomicsRowResultSerializer
 from apps.proteomics.services import ALGORITHM_VERSION
+from ..services.research_retention import dataset_audit, retention_scope, set_archived
+from ..serializers.research import ResearchDatasetAuditEventSerializer
 
 
 class ResearchDashboardView(APIView):
@@ -48,8 +50,8 @@ class ResearchDashboardView(APIView):
             pathways=Count("id", filter=Q(entity_type=KnowledgeEntity.EntityType.PATHWAY)),
         )
         counts.update(
-            datasets=ResearchDataset.objects.filter(**owner_filter).count(),
-            cases=MedicalCase.objects.filter(**owner_filter).count(),
+            datasets=ResearchDataset.objects.filter(archived_at__isnull=True, **owner_filter).count(),
+            cases=MedicalCase.objects.filter(archived_at__isnull=True, **owner_filter).count(),
             tasks=AnalysisTask.objects.filter(**owner_filter).count(),
         )
         latest_tasks = AnalysisTask.objects.filter(**owner_filter).order_by("-created_at")[:5]
@@ -76,18 +78,28 @@ class ResearchDatasetViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(
                 Q(name__icontains=query) | Q(original_filename__icontains=query)
             )
-        return queryset
+        return retention_scope(self, queryset)
 
+    @transaction.atomic
     def perform_create(self, serializer):
-        serializer.save(owner=self.request.user)
+        dataset = serializer.save(owner=self.request.user)
+        dataset_audit(dataset, self.request.user, "created")
 
     def perform_destroy(self, instance):
-        if instance.analysis_tasks.exists():
-            raise ResourceConflict("数据集已有分析任务，为保留结果溯源不能删除。")
-        storage_key = instance.storage_key
-        super().perform_destroy(instance)
-        if storage_key:
-            default_storage.delete(storage_key)
+        set_archived(instance, actor=self.request.user, archived=True)
+
+    @extend_schema(request=None, responses=ResearchDatasetSerializer)
+    @action(detail=True, methods=["post"])
+    def restore(self, request, pk=None):
+        dataset = set_archived(self.get_object(), actor=request.user, archived=False)
+        return Response(self.get_serializer(dataset).data)
+
+    @extend_schema(responses=ResearchDatasetAuditEventSerializer(many=True))
+    @action(detail=True, methods=["get"])
+    def audit(self, request, pk=None):
+        events = self.get_object().audit_events.select_related("actor")
+        page = self.paginate_queryset(events)
+        return self.get_paginated_response(ResearchDatasetAuditEventSerializer(page, many=True).data)
 
     @action(detail=True, methods=["get"])
     def download(self, request, pk=None):
@@ -163,7 +175,7 @@ class MedicalCaseViewSet(viewsets.ModelViewSet):
                 | Q(deidentified_text__icontains=query)
                 | Q(structured_data__diagnosis__icontains=query)
             )
-        return queryset
+        return retention_scope(self, queryset)
 
     def perform_create(self, serializer):
         from ..services.case_audit import case_field_values, create_case_audit_event
@@ -205,18 +217,13 @@ class MedicalCaseViewSet(viewsets.ModelViewSet):
                 )
 
     def perform_destroy(self, instance):
-        if instance.analysis_tasks.exists():
-            raise ResourceConflict("医案已有分析任务，为保留结果溯源不能删除。")
-        from ..services.case_audit import case_field_values, create_case_audit_event
+        set_archived(instance, actor=self.request.user, archived=True)
 
-        with transaction.atomic():
-            create_case_audit_event(
-                case=instance,
-                actor=self.request.user,
-                action=MedicalCaseAuditEvent.Action.DELETED,
-                before=case_field_values(instance),
-            )
-            super().perform_destroy(instance)
+    @extend_schema(request=None, responses=MedicalCaseSerializer)
+    @action(detail=True, methods=["post"])
+    def restore(self, request, pk=None):
+        case = set_archived(self.get_object(), actor=request.user, archived=False)
+        return Response(self.get_serializer(case).data)
 
     @action(detail=True, methods=["get"], url_path="audit")
     def audit(self, request, pk=None):
