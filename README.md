@@ -4,6 +4,8 @@
 
 ## 当前架构
 
+2026-10-19 本轮改动、对应模块位置、验证结果及更新注意事项见 [`docs/changes-2026-10-19.md`](docs/changes-2026-10-19.md)。
+
 最新本地修补、服务启动、验收结果与待接依赖见 [`docs/local-acceptance-2026-10-19.md`](docs/local-acceptance-2026-10-19.md)；研究资料归档规则见 [`docs/research-retention.md`](docs/research-retention.md)。
 
 原表到目录、接口和图表的逐层核对及映射修正见 [`docs/data-consistency-2026-10-19.md`](docs/data-consistency-2026-10-19.md)。
