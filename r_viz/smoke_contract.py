@@ -55,7 +55,7 @@ for key in keys:
     payload = seal(payload)
     response = request(payload)
     assert response['inputSha256'] == payload['inputSha256']
-    assert response['rendererVersion'] == 'r-viz-0.2.0'
+    assert response['rendererVersion'] == 'r-viz-0.3.0'
     formats = {item['format']: item for item in response['artifacts']}
     assert set(formats) == {'svg', 'pdf', 'png', 'html'}
     for extension, artifact in formats.items():

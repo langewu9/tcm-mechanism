@@ -4,13 +4,41 @@ library(svglite)
 library(jsonlite)
 library(base64enc)
 
-RENDERER_VERSION <- "r-viz-0.2.0"
+RENDERER_VERSION <- "r-viz-0.3.0"
 PLOT_FONT_FAMILY <- Sys.getenv(
   "R_VIZ_FONT_FAMILY",
   if (.Platform$OS.type == "windows") "Microsoft YaHei" else "Noto Sans CJK SC"
 )
 MAX_REQUEST_BYTES <- 1024L * 1024L
 MAX_DATA_POINTS <- 100L
+
+CHART_COLOURS <- c("#218b88", "#557fa8", "#d87967", "#8e81af", "#d3a252", "#6c9b82")
+
+research_theme <- function() {
+  theme_minimal(base_size = 11, base_family = PLOT_FONT_FAMILY) +
+    theme(
+      plot.background = element_rect(fill = "#f7fafb", colour = NA),
+      panel.background = element_rect(fill = "white", colour = NA),
+      panel.grid.major = element_line(colour = "#e8eef1", linewidth = 0.35),
+      panel.grid.minor = element_blank(),
+      plot.title = element_text(size = 17, face = "bold", colour = "#20394b", margin = margin(b = 9)),
+      plot.subtitle = element_text(size = 10, colour = "#657988", lineheight = 1.35, margin = margin(b = 20)),
+      plot.caption = element_text(size = 8, colour = "#718492", hjust = 0, margin = margin(t = 16)),
+      plot.title.position = "plot", plot.caption.position = "plot",
+      plot.margin = margin(24, 28, 20, 24),
+      axis.title = element_text(size = 10, colour = "#526b7c"),
+      axis.title.x = element_text(margin = margin(t = 12)),
+      axis.title.y = element_text(margin = margin(r = 12)),
+      axis.text = element_text(size = 10, colour = "#526b7c"),
+      axis.ticks = element_blank(),
+      legend.position = "bottom", legend.title = element_blank(),
+      legend.text = element_text(size = 9, colour = "#526b7c"),
+      legend.key = element_rect(fill = NA, colour = NA),
+      legend.margin = margin(t = 8),
+      strip.background = element_rect(fill = "#edf3f5", colour = NA),
+      strip.text = element_text(colour = "#526b7c", face = "bold", size = 10)
+    )
+}
 
 escape_html <- function(value) {
   value <- gsub("&", "&amp;", as.character(value), fixed = TRUE)
@@ -40,22 +68,26 @@ make_bar_plot <- function(payload) {
   }, numeric(1))
   data <- data.frame(label = labels, value = values, stringsAsFactors = FALSE)
   data$label <- factor(data$label, levels = unique(data$label[order(data$value)]))
-  ggplot(data, aes(x = label, y = value)) +
-    geom_col(fill = "#176b61", width = 0.72) +
-    coord_flip() +
+  data$colour <- ifelse(data$value == 0, "#b6c5ce", rep(CHART_COLOURS, length.out = nrow(data)))
+  data$valueLabel <- format(data$value, digits = 6, trim = TRUE, scientific = FALSE)
+  label_gap <- max(abs(data$value), 1) * 0.025
+  data$labelX <- data$value + ifelse(data$value < 0, -label_gap, label_gap)
+  ggplot(data, aes(x = value, y = label)) +
+    geom_vline(xintercept = 0, colour = "#d6e1e7", linewidth = 0.5) +
+    geom_segment(aes(x = 0, xend = value, yend = label, colour = colour), linewidth = 7, lineend = "round", alpha = 0.85) +
+    geom_point(aes(colour = colour), shape = 21, fill = "white", size = 3.4, stroke = 1.1) +
+    geom_text(aes(x = labelX, label = valueLabel, hjust = ifelse(value < 0, 1, 0)),
+              family = PLOT_FONT_FAMILY, size = 3.7, fontface = "bold", colour = "#20394b") +
+    scale_colour_identity() +
+    scale_x_continuous(expand = expansion(mult = c(0.08, 0.16))) +
     labs(
       title = payload$title,
       subtitle = payload$subtitle %||% "",
-      x = NULL,
-      y = payload$yLabel %||% "数量"
+      x = payload$yLabel %||% "数量", y = NULL,
+      caption = "数值直接取自输入结果；0 值保留并以空心圆显示。"
     ) +
-    theme_minimal(base_size = 12, base_family = PLOT_FONT_FAMILY) +
-    theme(
-      plot.title = element_text(face = "bold", colour = "#172a28", margin = margin(b = 12)),
-      axis.text = element_text(colour = "#344541"),
-      panel.grid.major.y = element_blank(),
-      panel.grid.minor = element_blank()
-    )
+    research_theme() +
+    theme(panel.grid.major.y = element_blank(), axis.text.y = element_text(size = 11))
 }
 
 make_enrichment_bubble_plot <- function(payload) {
@@ -96,18 +128,16 @@ make_enrichment_bubble_plot <- function(payload) {
   data <- do.call(rbind, terms)
   data$source <- factor(data$source, levels = allowed_sources)
   ggplot(data, aes(x = geneRatio, y = reorder(label, geneRatio))) +
-    geom_point(aes(size = intersectionSize, colour = -log10(adjustedPValue)), alpha = 0.85) +
+    geom_point(aes(size = intersectionSize, fill = -log10(adjustedPValue)), shape = 21, colour = "white", stroke = 0.8, alpha = 0.95) +
     facet_grid(source ~ ., scales = "free_y", space = "free_y", drop = TRUE) +
     scale_size_continuous(range = c(3, 10), name = payload$sizeLabel %||% "命中基因数") +
-    scale_colour_gradient(low = "#8cb9ad", high = "#a33b36", name = payload$colorLabel %||% "−log10(FDR)") +
+    scale_fill_gradientn(colours = c("#557fa8", "#218b88", "#e4bd79", "#d87967"), name = payload$colorLabel %||% "−log10(FDR)") +
+    guides(size = guide_legend(override.aes = list(fill = "#557fa8", colour = "white", alpha = 0.9))) +
     labs(title = payload$title, subtitle = payload$subtitle %||% "", x = payload$xLabel %||% "GeneRatio", y = NULL) +
-    theme_minimal(base_size = 12, base_family = PLOT_FONT_FAMILY) +
+    research_theme() +
     theme(
-      plot.title = element_text(face = "bold", colour = "#172a28", margin = margin(b = 12)),
-      plot.subtitle = element_text(colour = "#53635f", margin = margin(b = 10)),
-      axis.text = element_text(colour = "#344541"),
-      panel.grid.minor = element_blank(),
-      strip.text.y = element_text(angle = 0, face = "bold", colour = "#176b61"),
+      legend.position = "right", legend.title = element_text(size = 9, colour = "#526b7c"),
+      strip.text.y = element_text(angle = 0),
       panel.spacing.y = grid::unit(0.7, "lines")
     )
 }
@@ -155,29 +185,49 @@ make_volcano_plot <- function(payload) {
   })
   data <- do.call(rbind, points)
   data$negLog10P <- -log10(pmax(data$pValue, .Machine$double.xmin))
-  data$selected <- factor(data$selected, levels = c(FALSE, TRUE), labels = c("未通过筛选", "通过筛选"))
+  data$group <- ifelse(!data$selected, "未通过筛选",
+                       ifelse(data$log2FoldChange > 0, "正向通过", ifelse(data$log2FoldChange < 0, "负向通过", "零变化通过")))
+  groups <- c("负向通过", "未通过筛选", "正向通过", "零变化通过")
+  colours <- c("负向通过" = "#218b88", "未通过筛选" = "#b7c5ce", "正向通过" = "#d87967", "零变化通过" = "#8e81af")
+  groups <- groups[groups %in% data$group | groups != "零变化通过"]
+  data$group <- factor(data$group, levels = groups)
+  counts <- vapply(groups, function(group) sum(data$group == group), integer(1))
+  x_bound <- max(abs(data$log2FoldChange), thresholds$log2FoldChange, 1) * 1.25
+  p_cutoff <- -log10(thresholds$pValue)
+  y_bound <- max(data$negLog10P, p_cutoff, 1) * 1.3
+  # Labels never change which points are selected. Limit dense plots to the
+  # eight most significant selected points; small examples label every row.
+  labels <- if (nrow(data) <= 12L) data else head(data[data$selected, ][order(data$pValue[data$selected]), ], 8L)
+  labels <- labels[order(labels$pValue, labels$label), ]
   ggplot(data, aes(x = log2FoldChange, y = negLog10P)) +
-    geom_point(aes(colour = selected), alpha = 0.7, size = 1.6) +
+    annotate("rect", xmin = -x_bound, xmax = -thresholds$log2FoldChange,
+             ymin = p_cutoff, ymax = y_bound, fill = "#edf7f5", alpha = 0.8) +
+    annotate("rect", xmin = thresholds$log2FoldChange, xmax = x_bound,
+             ymin = p_cutoff, ymax = y_bound, fill = "#fcf0ec", alpha = 0.8) +
     geom_vline(xintercept = c(-thresholds$log2FoldChange, thresholds$log2FoldChange),
-               linetype = "dashed", colour = "#75827e", linewidth = 0.45) +
-    geom_hline(yintercept = -log10(thresholds$pValue),
-               linetype = "dashed", colour = "#75827e", linewidth = 0.45) +
-    scale_colour_manual(values = c("未通过筛选" = "#9aa7a3", "通过筛选" = "#b34d43"), drop = FALSE) +
+               linetype = "22", colour = "#9bafb9", linewidth = 0.4) +
+    geom_hline(yintercept = p_cutoff, linetype = "22", colour = "#9bafb9", linewidth = 0.4) +
+    geom_point(aes(fill = group), shape = 21, colour = "white", stroke = 0.4, alpha = 0.9,
+               size = if (nrow(data) <= 20L) 3.8 else 2.6) +
+    geom_text(data = labels, aes(label = label), colour = "#29475a", fontface = "bold",
+              family = PLOT_FONT_FAMILY, size = 3.1, vjust = -1.3, check_overlap = TRUE) +
+    annotate("text", x = -x_bound * 0.72, y = y_bound * 0.94,
+             label = paste0("负向通过  ", sum(data$group == "负向通过")), colour = colours[["负向通过"]],
+             family = PLOT_FONT_FAMILY, fontface = "bold", size = 3.7) +
+    annotate("text", x = x_bound * 0.72, y = y_bound * 0.94,
+             label = paste0("正向通过  ", sum(data$group == "正向通过")), colour = colours[["正向通过"]],
+             family = PLOT_FONT_FAMILY, fontface = "bold", size = 3.7) +
+    scale_fill_manual(values = colours, breaks = groups, labels = paste0(groups, " · ", counts), drop = FALSE) +
+    scale_x_continuous(limits = c(-x_bound, x_bound), expand = expansion(mult = 0)) +
+    scale_y_continuous(limits = c(0, y_bound), expand = expansion(mult = c(0.02, 0))) +
     labs(
       title = payload$title,
       subtitle = payload$subtitle %||% "",
       x = payload$xLabel %||% "log2 Fold Change",
       y = payload$yLabel %||% "−log10(P 值)",
-      colour = "阈值筛选"
+      caption = "颜色沿用任务的完整筛选结果；底色和虚线仅标示图中 log2FC / P 值阈值。"
     ) +
-    theme_minimal(base_size = 12, base_family = PLOT_FONT_FAMILY) +
-    theme(
-      plot.title = element_text(face = "bold", colour = "#172a28", margin = margin(b = 10)),
-      plot.subtitle = element_text(colour = "#53635f", margin = margin(b = 10)),
-      axis.text = element_text(colour = "#344541"),
-      panel.grid.minor = element_blank(),
-      legend.position = "top"
-    )
+    research_theme()
 }
 
 make_network_plot <- function(payload) {
@@ -205,7 +255,9 @@ make_network_plot <- function(payload) {
     preferred <- c("herb", "ingredient", "compound", "gene", "protein", "target", "pathway", "disease")
     types <- c(intersect(preferred, unique(nodes$type)), setdiff(unique(nodes$type), preferred))
     nodes$x <- match(nodes$type, types)
-    nodes$y <- ave(seq_len(nrow(nodes)), nodes$type, FUN = function(group) seq(-1, 1, length.out = length(group)))
+    nodes$y <- ave(seq_len(nrow(nodes)), nodes$type, FUN = function(group) {
+      if (length(group) == 1L) 0 else seq(-1, 1, length.out = length(group))
+    })
   }
   edges <- lapply(payload$edges, function(item) {
     if (!is.character(item$source) || length(item$source) != 1L ||
@@ -221,14 +273,35 @@ make_network_plot <- function(payload) {
   edges <- do.call(rbind, edges)
   labels <- nodes[order(-nodes$degree, nodes$id), ]
   if (nrow(labels) > 40L) labels <- head(labels, 20L)
+  labels$displayLabel <- vapply(labels$label, function(value) paste(strwrap(value, width = 28), collapse = "\n"), character(1))
+  layered <- identical(payload$layout, "layered")
+  labels$labelX <- if (layered) labels$x + ifelse(labels$x == min(nodes$x), -0.07, 0.07) else labels$x
+  labels$labelJust <- if (layered) ifelse(labels$x == min(nodes$x), 1, 0) else 0.5
+  types <- unique(nodes$type)
+  type_colours <- c(herb = "#218b88", ingredient = "#d3a252", compound = "#d3a252",
+                    gene = "#557fa8", protein = "#557fa8", target = "#557fa8",
+                    pathway = "#8e81af", disease = "#d87967")
+  unknown_types <- setdiff(types, names(type_colours))
+  type_colours <- c(type_colours, setNames(rep(CHART_COLOURS, length.out = length(unknown_types)), unknown_types))
+  type_labels <- c(herb = "中药", ingredient = "成分", compound = "成分", gene = "基因",
+                   protein = "蛋白", target = "靶点", pathway = "通路", disease = "疾病")
+  legend_labels <- ifelse(types %in% names(type_labels), type_labels[types], types)
   ggplot() +
-    geom_segment(data = edges, aes(x = x, y = y, xend = xend, yend = yend, linewidth = score), colour = "#889692", alpha = 0.45) +
-    geom_point(data = nodes, aes(x = x, y = y, size = degree, colour = type)) +
-    geom_text(data = labels, aes(x = x, y = y, label = label), family = PLOT_FONT_FAMILY, size = 3, vjust = -1.3, check_overlap = TRUE) +
-    scale_size_continuous(range = c(3, 9)) + scale_linewidth_continuous(range = c(0.25, 1.1), guide = "none") +
-    labs(title = payload$title, subtitle = payload$subtitle %||% "", size = "子图 degree", colour = "节点类型") +
-    coord_cartesian(clip = "off") + theme_void(base_size = 11, base_family = PLOT_FONT_FAMILY) +
-    theme(legend.position = "bottom", plot.margin = margin(20, 40, 20, 40), plot.title = element_text(face = "bold"))
+    geom_segment(data = edges, aes(x = x, y = y, xend = xend, yend = yend, linewidth = score), colour = "#9eb2bf", alpha = 0.38) +
+    geom_point(data = nodes, aes(x = x, y = y, size = degree, fill = type), shape = 21, colour = "white", stroke = 1.3, alpha = 0.95) +
+    geom_text(data = labels, aes(x = labelX, y = y, label = displayLabel, hjust = labelJust), family = PLOT_FONT_FAMILY,
+              size = 2.9, colour = "#29475a", vjust = if (layered) 0.5 else -1.6, check_overlap = TRUE) +
+    scale_fill_manual(values = type_colours, breaks = types, labels = legend_labels) +
+    guides(fill = guide_legend(override.aes = list(size = 4, stroke = 0.8)),
+           size = guide_legend(override.aes = list(fill = "#557fa8", colour = "white"))) +
+    scale_size_continuous(range = c(4, 10)) + scale_linewidth_continuous(range = c(0.3, 1), guide = "none") +
+    scale_x_continuous(expand = expansion(mult = c(0.16, if (layered) 0.38 else 0.16))) +
+    scale_y_continuous(expand = expansion(mult = 0.2)) +
+    labs(title = payload$title, subtitle = payload$subtitle %||% "", size = "子图 degree", x = NULL, y = NULL,
+         caption = paste0(nrow(nodes), " 个展示节点  ·  ", nrow(edges), " 条输入关系  ·  节点大小表示展示子图的唯一邻居数")) +
+    coord_cartesian(clip = "off") + research_theme() +
+    theme(panel.grid.major = element_blank(), axis.text = element_blank(),
+          axis.title.x = element_blank(), axis.title.y = element_blank())
 }
 
 `%||%` <- function(left, right) if (is.null(left) || !nzchar(as.character(left))) right else left
@@ -348,7 +421,13 @@ function(req, res) {
   svg_path <- file.path(temporary_directory, "chart.svg")
   pdf_path <- file.path(temporary_directory, "chart.pdf")
   png_path <- file.path(temporary_directory, "chart.png")
-  chart_height <- if (identical(payload$chartType, "enrichment_bubble")) min(16, max(6, 2 + 0.22 * length(payload$data))) else 6
+  chart_height <- if (identical(payload$chartType, "enrichment_bubble")) {
+    min(18, max(6, 2 + 0.3 * length(payload$data)))
+  } else if (identical(payload$chartType, "bar")) {
+    min(20, max(4.8, 1.8 + 0.36 * length(payload$data)))
+  } else if (identical(payload$chartType, "network") && identical(payload$layout, "layered")) {
+    min(18, max(6.5, 2.5 + 0.55 * max(table(vapply(payload$data, function(node) node$type, character(1))))))
+  } else 6.5
   svglite::svglite(svg_path, width = 11, height = chart_height)
   print(plot)
   grDevices::dev.off()

@@ -17,6 +17,8 @@ The renderer additionally accepts `network`: 2–80 validated nodes, 1–500 act
 
 R 0.2.0 fixes UTF-8 JSON decoding and scalar JSON serialization, and uses an explicit CJK font. Set `R_VIZ_FONT_FAMILY` for another installed font (Windows default: Microsoft YaHei; Docker default: Noto Sans CJK SC). On native Windows start R with `Sys.setlocale('LC_CTYPE', '.UTF-8')` before loading `plumber.R`. Native Windows Celery solo is for local preview only, not production deployment.
 
+Renderer 0.3.0 applies a shared light research theme, a teal/coral directional volcano palette, explicit counts and bounded gene labels, labeled summary bars with visible zero values, and coordinated enrichment/network styles. Point coordinates, input relationships and persisted selection flags are preserved. Volcano background regions illustrate only the supplied log2FC/P thresholds; point colours follow the full analysis selection flags, including any additional filters. No new statistics or enrichment evidence are calculated by these style changes. Regenerate the synthetic gallery after restarting R. Previously saved private artifacts remain historical outputs; newly analyzed datasets use the current renderer.
+
 ## Synthetic delivery gallery
 
 Start the trusted local service from `r_viz/` with `R_VIZ_API_TOKEN` set to a local secret (never commit its value):
