@@ -1,63 +1,34 @@
-# Python–R 可视化接口契约（草案）
+# Python–R 可视化接口契约
 
-本契约先冻结数据边界，R 服务实现与部署放在后续阶段。Python 是分析结果和用户权限的唯一入口；R 只渲染已整理的图表数据，不直接连接 PostgreSQL、不接收账号或医案身份字段。
+本文件记录当前代码实际使用的内部契约。Django/Python 是分析结果、用户权限和文件存储的唯一入口；R Plumber 只绘制经筛选的统计摘要，不连接 Django、PostgreSQL 或对象存储。
 
-## 调用方向
+## 调用与权限
 
-1. Python 分析任务生成带 `contract_version`、`analysis_id`、数据版本和图表数据的 JSON。
-2. 内网 R Plumber 服务提供 `GET /health` 与 `POST /v1/render`，验证服务调用令牌、负载大小、字段和允许的图表类型。
-3. R 返回图表工件 manifest（工件类型、相对对象键、媒体类型、校验值、生成器版本、摘要），不返回本机绝对路径。
-4. Python 验证 manifest，将工件登记为分析结果附件；浏览器只通过 Django 的权限校验下载，不直连 R 服务。
+1. 用户只能为本人已完成的分析任务创建 R 图表任务。Django 冻结父任务编号、图表类型和输入摘要哈希；Celery worker 再次核对父任务归属及摘要，避免任务数据变化后误绘。
+2. Python 通过内网 `POST /render` 调用 Plumber，使用 `Authorization: Bearer <R_VIZ_API_TOKEN>`；HTTP 重定向不跟随，连接超时 90 秒，请求体限制为 1 MiB。
+3. 请求只包含图表必要字段、图表数据和 `inputSha256`。哈希是对去掉哈希字段后的规范 JSON（UTF-8、键排序、无多余空格）计算的 SHA-256。
+4. R 返回 renderer 版本、原输入哈希，以及 SVG/PDF/PNG/HTML 四种格式的 MIME、文件名和 base64 字节。Python 核对哈希、格式、MIME、单文件大小及响应上限后计算文件 SHA-256，并将工件保存到私有存储。浏览器只能通过 Django 的所有者权限下载。
+5. R 失败不影响原分析结果、逐行结果或 CSV/XLSX/PDF 导出。
 
-## 请求示例
+## 当前支持的图表
 
-```json
-{
-  "contract_version": "1.0",
-  "analysis_id": "analysis_01J...",
-  "chart_id": "proteomics.volcano",
-  "database_releases": [
-    {"source": "uniprot", "version": "2026_04"},
-    {"source": "reactome", "version": "94"}
-  ],
-  "data": {
-    "points": [
-      {"id": "P12345", "label": "GENE1", "log2_fc": 1.4, "adjusted_p": 0.002}
-    ]
-  },
-  "parameters": {
-    "log2_fc_threshold": 1.0,
-    "adjusted_p_threshold": 0.05,
-    "formats": ["svg", "png"]
-  }
-}
-```
+- `bar`：本地网络药理汇总，1–100 个名称/数值点。
+- `enrichment_bubble`：g:Profiler GO/KEGG 富集，最多 100 条有效 FDR≤0.05 的条目；只发送条目名称、类别、GeneRatio、FDR 和命中数。
+- `volcano`：蛋白组学火山图，最多 5,000 条已持久化的 log2FC、P 值、FDR 和阈值筛选标记；无效 log2FC/P 值行不发送。超过上限时，按筛选状态和显著性排序截取，并在副标题说明展示数量。
 
-## 响应示例
+三种图均生成静态 SVG、PDF、PNG 和附有对应数据表的自包含 HTML。当前还未实现 R 的交互网络图、PCA、样本相关性图和热图。
 
-```json
-{
-  "contract_version": "1.0",
-  "analysis_id": "analysis_01J...",
-  "renderer": {"name": "tcm-r-viz", "version": "0.1.0"},
-  "artifacts": [
-    {
-      "artifact_id": "artifact_01J...",
-      "format": "svg",
-      "media_type": "image/svg+xml",
-      "object_key": "analyses/analysis_01J.../proteomics.volcano.svg",
-      "sha256": "<64-character-lowercase-hex>",
-      "bytes": 82411
-    }
-  ],
-  "summary": {"plotted": 1, "excluded": 0}
-}
-```
+2026-10-10 新增 `network` 类型与统一网页目录：`ppi_network` / `ppi_degree`、`evidence_network`、`gene_pathway_network` / `gene_pathway_distribution`、`proteomics_go_kegg_bar`、`reactome_enrichment`。网络摘要最多 80 个节点、500 条唯一无向边，展示子图 degree 不等于完整返回图 degree；排行使用完整有效返回图。PPI 必须是已成功返回的 STRING physical 结果，评分阈值来自原查询，网络为空时拒绝绘图。Reactome 气泡图横轴为命中实体 / 通路实体，不冒充 query-set GeneRatio。
 
-## 约束
+新图表哈希包含来源版本摘要，每个结果仍绑定父任务与 source releases。HTML 网络导出包含实际展示节点和边表。详细目录、依赖与后续阶段见 `INPUT-R-analysis-roadmap.md`。
 
-- `analysis_id` 必须对应已存在且已授权的 Python 任务；请求和响应版本不兼容时明确失败，不做静默字段猜测。
-- `data` 仅含绘图所需的最小统计量、标签和证据版本。禁止姓名、联系方式、病例号、原始医案文本、凭证和数据库连接串。
-- 阈值、单位、物种、输入/映射数量及来源版本随结果保存，确保表格与图使用同一结果集。
-- 工件大小、运行时长、输出格式和图类型由服务端限额；HTML 交互图在展示前做内容安全策略检查。
-- 图表失败不应阻断分析表格与结构化结果的查询和 CSV 导出。
+## 安全和数据边界
+
+- 请求正文上限 1 MiB；R 对摘要柱图/富集图限制最多 100 点，火山图最多 5,000 点，绘图标签设字符上限。
+- 文件、医案正文、姓名、联系方式、账号、原始定量矩阵、数据库连接串和凭证不得进入 R 请求。
+- R 服务只允许应用内部网络访问；不得将 8001 端口发布到公网。令牌由部署环境注入，不能写进仓库。
+- R 产物按用户和任务私有保存，并记录父分析任务、图表键、输入哈希、输出哈希、字节大小和 renderer 版本。
+
+## 尚待实机验收
+
+当前测试使用模拟 R 响应验证任务归属、输入哈希、工件格式和私有下载。需要在 Docker/R 可用的环境构建锁定依赖镜像，实测三类图的图像/HTML 字节、中文字体、失败恢复和响应大小；PCA、相关性、热图及交互网络图仍属后续实现。

@@ -1,0 +1,609 @@
+{
+  "source": "origin/main:src/lib/disease-query.ts#exactAliases",
+  "sourceCommit": "078d374",
+  "records": [
+    {
+      "patterns": [
+        {
+          "pattern": "肺纤维化|肺間質纤维|间质性肺",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Pulmonary fibrosis",
+        "Idiopathic pulmonary fibrosis",
+        "Interstitial lung disease"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "阿尔茨海默|老年痴呆",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Alzheimer's Disease",
+        "Alzheimer"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "帕金森",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Parkinson",
+        "Parkinson's disease"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "肌萎缩侧索硬化|渐冻症",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Amyotrophic lateral sclerosis"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "中风|卒中|脑卒中",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Stroke",
+        "Cerebral Infarction",
+        "Brain ischemia",
+        "Cerebral ischemia"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "脑梗|脑梗死",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Cerebral Infarction",
+        "Brain ischemia",
+        "Cerebral ischemia"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "冠心病|冠状动脉",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Coronary",
+        "Acute coronary syndromes",
+        "Cardiovascular disease"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "心肌梗死|心梗",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Myocardial infarction",
+        "Acute coronary syndromes"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "心力衰竭|心衰",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Heart failure",
+        "Cardiac failure"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "心律失常|房颤|心房颤动",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Cardiac arrhythmias",
+        "Atrial fibrillation and flutter",
+        "Cardiac dysrhythmias"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "动脉粥样硬化|粥样硬化",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Atherosclerosis"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "高血压",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Hypertension"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "糖尿病",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Diabetes",
+        "Diabetes Mellitus"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "哮喘|支气管哮喘",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Asthma",
+        "Bronchial asthma",
+        "Atopic asthma"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "慢阻肺|慢性阻塞性肺",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Chronic obstructive pulmonary disease",
+        "COPD"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "过敏性鼻炎",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Allergic rhinitis"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "类风湿",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Arthritis, Rheumatoid",
+        "Rheumatoid Arthritis"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "银屑病|牛皮癣",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Psoriasis"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "特应性皮炎|异位性皮炎",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Atopic Dermatitis"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "痤疮|粉刺",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Acne"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "乳腺癌",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Breast cancer",
+        "Breast Neoplasms"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "肺癌",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Lung cancer",
+        "Non-Small-Cell Lung",
+        "Carcinoma, Non-Small-Cell Lung"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "非小细胞肺癌",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Non-Small-Cell Lung",
+        "Advanced or metastatic non-small cell lung cancer"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "肝癌",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Liver cancer",
+        "Hepatocellular carcinoma"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "胃癌",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Gastric cancer",
+        "Stomach cancer"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "结直肠癌|结肠癌|直肠癌|肠癌",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Colorectal cancer",
+        "Colon cancer",
+        "Rectal cancer"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "前列腺癌",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Prostate cancer"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "前列腺增生",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Benign prostate hyperplasia"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "膀胱癌",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Bladder cancer"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "宫颈癌|子宫颈癌",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Cervical cancer"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "卵巢癌",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Ovarian cancer"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "胰腺癌",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Pancreatic cancer"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "肾癌",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Renal cancer",
+        "Kidney cancer"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "脑肿瘤|脑癌",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Brain tumors",
+        "Brain Cancer"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "白血病",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Leukemia",
+        "Leukaemia"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "淋巴瘤",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Lymphoma"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "黑色素瘤",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Melanoma"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "抑郁",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Depression",
+        "Depressive disorder"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "焦虑",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Anxiety Disorders",
+        "Anxiety disorder"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "癫痫|惊厥|抽搐",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Epilepsy",
+        "Seizure",
+        "Childhood seizure disorders"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "偏头痛",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Migraine",
+        "Acute migraine"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "艾滋|获得性免疫缺陷|HIV",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "AIDS",
+        "HIV",
+        "AIDS related dementia"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "贫血",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Anemia"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "肥胖",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Obesity"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "酒精依赖|酒精中毒",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Alcohol dependence",
+        "Alcoholism"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "黄斑变性",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Age-related macular degeneration"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "中耳炎",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Acute otitis media"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "普通感冒|感冒",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Acute nasopharyngitis",
+        "common cold"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "疟疾",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Malaria"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "阿米巴病",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Amebiasis"
+      ]
+    },
+    {
+      "patterns": [
+        {
+          "pattern": "锥虫病",
+          "flags": ""
+        }
+      ],
+      "aliases": [
+        "Trypanosomiasis",
+        "African trypanosomiasis",
+        "Chagas"
+      ]
+    }
+  ]
+}

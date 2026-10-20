@@ -1,0 +1,298 @@
+.auth-page { display: grid; min-height: 100vh; place-items: center; padding: 2rem 1rem; }
+.auth-card { display: grid; width: min(100%, 32rem); gap: 1rem; padding: clamp(1.5rem, 5vw, 3rem); }
+.auth-card .page-title { margin: 0; }
+.auth-back { justify-self: start; color: #7d1d04; font-size: 0.85rem; font-weight: 800; }
+.auth-form { display: grid; gap: 0.8rem; margin-top: 0.5rem; }
+.auth-note { color: rgba(43, 23, 17, 0.62); font-size: 0.78rem; line-height: 1.6; }
+.form-field-error { color: #7d1d04; font-size: 0.75rem; line-height: 1.5; }
+
+.workspace-page { min-height: 100vh; }
+.research-workbench-grid { display: grid; gap: 1.25rem; grid-template-columns: minmax(0, 1fr); align-items: start; }
+.research-query-form { padding: 1.25rem; }
+.research-query-form > .case-form-fields { padding: 1rem 0 0; }
+.research-workbench-results { min-width: 0; min-height: 460px; overflow: hidden; }
+.restored-assistant-float { position: fixed; right: 1.25rem; z-index: 30; }
+.restored-assistant-popover { display: flex; flex-direction: column; width: 360px; max-width: calc(100vw - 2rem); height: 560px; overflow: hidden; }
+.restored-assistant-heading { display: flex; align-items: center; gap: 0.5rem; font-weight: 700; }
+.restored-assistant-messages { flex: 1; min-height: 0; overflow-y: auto; padding: 1rem; }
+.restored-assistant-message { display: inline-block; max-width: 88%; border-radius: var(--radius-md); padding: 0.5rem 0.75rem; font-size: 0.875rem; line-height: 1.5; }
+.restored-assistant-input { display: flex; gap: 0.5rem; border-top: 1px solid rgba(168,111,31,0.1); padding: 0.75rem; }
+.restored-assistant-input .field { flex: 1; min-width: 0; }
+.workspace-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.65rem; }
+.workspace-loading { padding: 5rem 1rem; color: var(--color-ink-soft); text-align: center; }
+.workspace-notice { margin-bottom: 0.8rem; }
+.case-workspace-grid { display: grid; grid-template-columns: minmax(18rem, 0.78fr) minmax(0, 1.22fr); align-items: start; gap: 1.4rem; }
+.case-form { overflow: hidden; }
+.case-form-fields { display: grid; gap: 0.95rem; padding: 1.2rem; }
+.case-form-fields .form-label { display: grid; gap: 0.45rem; }
+.case-textarea { min-height: 7rem; resize: vertical; line-height: 1.65; }
+.case-textarea-short { min-height: 5rem; }
+.case-form-footer { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; border-top: 1px solid var(--color-border); padding: 1rem 1.2rem; }
+.case-form-footer p { color: var(--color-ink-faint); font-size: 0.7rem; line-height: 1.5; }
+.case-list { min-width: 0; }
+.case-list-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; margin-bottom: 0.9rem; border-bottom: 1px solid var(--color-border); padding: 0.5rem 0 0.85rem; }
+.case-list-heading .section-title-sm { margin-top: 0.25rem; font-size: 1.35rem; }
+.case-list-items { display: grid; gap: 0.85rem; }
+.case-record { min-width: 0; }
+.case-record-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.8rem; }
+.proteomics-export-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.4rem; }
+.case-record-top h3 { font-family: var(--font-heading); font-size: 1.12rem; font-weight: 900; line-height: 1.45; }
+.case-record-top time { display: block; margin-top: 0.25rem; color: var(--color-ink-faint); font-size: 0.67rem; }
+.case-delete { flex: none; }
+.case-summary { margin-top: 0.8rem; color: var(--color-ink-soft); font-size: 0.82rem; line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; }
+.case-record-meta { overflow-wrap: anywhere; }
+.case-analysis-panel { display: grid; gap: 0.75rem; margin-top: 0.85rem; padding: 1rem; }
+.case-analysis-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.7rem; }
+.case-analysis-heading h4, .case-analysis-section h5 { color: var(--color-ink); font-size: 0.9rem; font-weight: 850; }
+.case-analysis-consent { margin-top: 0.2rem; }
+.case-analysis-section { display: grid; min-width: 0; gap: 0.5rem; border-top: 1px solid var(--color-border); padding-top: 0.8rem; }
+.case-candidate-list { display: grid; gap: 0.65rem; }
+.case-candidate { min-width: 0; border: 1px solid var(--color-border); background: rgba(255, 253, 248, 0.68); padding: 0.8rem; }
+.case-candidate .proteomics-pathways { margin-top: 0.45rem; }
+.case-candidate-knowledge { margin-top: 0.7rem; border-top: 1px solid var(--color-border); padding-top: 0.65rem; color: var(--color-cinnabar); font-size: 0.72rem; }
+.case-candidate-knowledge .proteomics-pathways { color: var(--color-ink-soft); }
+.case-analysis-panel .notice-warning, .case-analysis-panel .notice-error { margin: 0; }
+.case-notes { margin-top: 0.75rem; border-top: 1px solid var(--color-border); padding-top: 0.65rem; }
+.case-notes summary { cursor: pointer; color: var(--color-cinnabar); font-size: 0.73rem; font-weight: 800; }
+.case-notes p { margin-top: 0.5rem; color: var(--color-ink-soft); font-size: 0.76rem; line-height: 1.7; white-space: pre-wrap; }
+.case-pagination { display: flex; align-items: center; justify-content: center; gap: 0.9rem; margin-top: 1rem; color: var(--color-ink-soft); font-size: 0.75rem; }
+.case-pagination .btn { min-height: 2.35rem; }
+.workspace-redirect { display: block; padding: 5rem 1rem; text-align: center; }
+.dataset-workspace-grid { grid-template-columns: minmax(18rem, 0.7fr) minmax(0, 1.3fr); }
+.dataset-list-items { display: grid; gap: 0.85rem; }
+.dataset-record { min-width: 0; padding: 1.1rem 1.2rem; }
+.dataset-record .case-record-top h3 { overflow-wrap: anywhere; }
+.dataset-description { margin-top: 0.65rem; color: var(--color-ink-soft); font-size: 0.78rem; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
+.dataset-provenance { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.65rem 1rem; margin-top: 0.9rem; border-top: 1px solid var(--color-border); padding-top: 0.8rem; }
+.dataset-provenance dt { margin-bottom: 0.18rem; color: var(--color-cinnabar); font-size: 0.64rem; font-weight: 800; }
+.dataset-provenance dd { color: var(--color-ink-soft); font-size: 0.72rem; overflow-wrap: anywhere; }
+.dataset-file-input { padding: 0.5rem; font-size: 0.78rem; }
+.source-sync-layout { display: grid; grid-template-columns: minmax(18rem, 0.75fr) minmax(0, 1.25fr); align-items: start; gap: 1.4rem; }
+.source-record, .source-run-record { min-width: 0; padding: 1.1rem 1.2rem; }
+.source-create-form { margin-top: 1rem; overflow: hidden; }
+.source-create-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; padding: 1rem 1.2rem; }
+.source-create-grid .form-label { display: grid; gap: 0.4rem; }
+.source-last-success, .source-release-line { margin-top: 0.75rem; color: var(--color-ink-soft); font-size: 0.72rem; line-height: 1.6; }
+.source-record-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.8rem; }
+.visualization-preview { display: block; width: 100%; max-height: 34rem; object-fit: contain; margin: 0.8rem 0; border: 1px solid var(--color-border); border-radius: 0.75rem; background: #fff; }
+.source-record > .section-help { margin-top: 0.75rem; }
+.integration-overview, .integration-tests, .integration-detail { display: grid; gap: 1rem; margin-bottom: 1rem; padding: 1.1rem 1.2rem; }
+.integration-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.integration-status-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.65rem; }
+.integration-status-card { display: grid; gap: 0.45rem; min-width: 0; border: 1px solid var(--color-border); border-radius: 0.65rem; background: rgba(255,253,248,.72); padding: 0.8rem; }
+.integration-status-card strong { font-size: 0.78rem; }
+.integration-status-card small, .integration-card small { color: var(--color-ink-faint); font-size: 0.66rem; overflow-wrap: anywhere; }
+.integration-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; }
+.integration-card { display: grid; align-content: start; gap: 0.65rem; min-width: 0; border: 1px solid var(--color-border); border-radius: 0.7rem; background: rgba(255,253,248,.75); padding: 0.9rem; }
+.integration-card-title { display: flex; align-items: flex-start; gap: 0.6rem; }
+.integration-icon { display: grid; width: 2.1rem; height: 2.1rem; flex: none; place-items: center; border-radius: 0.5rem; background: var(--color-cinnabar); color: white; }
+.integration-card-title h3 { font-size: 0.88rem; font-weight: 850; }
+.integration-card-title p { margin-top: 0.25rem; color: var(--color-ink-soft); font-size: 0.72rem; line-height: 1.55; }
+.integration-consent { display: flex; align-items: flex-start; gap: 0.4rem; color: var(--color-ink-soft); font-size: 0.69rem; line-height: 1.5; }
+.integration-consent input { margin-top: 0.15rem; accent-color: var(--color-cinnabar); }
+.integration-pending { color: var(--color-ink-faint); font-size: 0.7rem; font-weight: 750; }
+.integration-result { display: grid; gap: 0.35rem; border-top: 1px solid var(--color-border); padding-top: 0.65rem; font-size: 0.7rem; }
+.integration-result > strong { display: inline-flex; align-items: center; gap: 0.25rem; }
+.integration-result > span { color: var(--color-ink-soft); line-height: 1.5; }
+.integration-result > small { color: var(--color-ink-faint); }
+.integration-pass { color: #287245; }
+.integration-fail { color: #9f2d20; }
+.integration-json { max-height: 24rem; overflow: auto; border: 1px solid var(--color-border); border-radius: 0.55rem; background: rgba(255,250,241,.8); padding: 0.75rem; color: var(--color-ink-soft); font-size: 0.65rem; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.integration-overview details, .integration-result details { font-size: 0.68rem; }
+.integration-overview summary, .integration-result summary { cursor: pointer; color: var(--color-cinnabar); font-weight: 750; }
+.integration-overview details .integration-json, .integration-result details .integration-json { margin-top: 0.45rem; }
+.source-sync-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: 0.85rem; }
+.source-sync-metrics-sqlite { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.source-checksum { display: block; margin-top: 0.55rem; color: var(--color-ink-soft); font-size: 0.64rem; overflow-wrap: anywhere; }
+.source-apply-button { margin-top: 0.8rem; }
+.source-run-error { margin-top: 0.75rem; }
+.proteomics-workspace-grid { grid-template-columns: minmax(19rem, 0.78fr) minmax(0, 1.22fr); }
+.assistant-entity-results { margin-top: 0.7rem; max-height: 20rem; overflow-y: auto; }
+.assistant-selected-list { margin-top: 1rem; }
+.assistant-selected-item { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; padding: 0.6rem 0.75rem; }
+.assistant-selected-item > span { display: grid; gap: 0.25rem; }
+.assistant-selected-item small { color: var(--color-ink-faint); font-size: 0.65rem; }
+.assistant-task-result { display: grid; gap: 0.75rem; margin-top: 1rem; }
+.assistant-answer { white-space: pre-wrap; line-height: 1.75; }
+.network-graph-panel { display: grid; gap: 0.75rem; min-width: 0; padding: 0.85rem; }
+.network-graph-toolbar { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; }
+.network-graph-filters { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem 0.9rem; }
+.network-graph-filters label { display: inline-flex; align-items: center; gap: 0.32rem; color: var(--color-ink-soft); font-size: 0.66rem; }
+.network-graph-filters label span { width: 0.55rem; height: 0.55rem; border-radius: 50%; }
+.network-graph-zoom { display: flex; align-items: center; gap: 0.35rem; }
+.network-graph-zoom .btn { min-height: 2rem; padding: 0.3rem 0.55rem; }
+.network-graph-zoom span { min-width: 2.7rem; text-align: center; font-size: 0.68rem; }
+.network-graph-canvas { width: 100%; overflow: auto; border: 1px solid var(--color-border); border-radius: 0.65rem; background: rgba(255,253,248,0.75); }
+.network-graph-canvas svg { display: block; width: 100%; min-width: 760px; height: auto; }
+.network-graph-node { cursor: pointer; outline: none; }
+.network-graph-node:focus-visible circle { stroke: #2b1711; stroke-width: 4; }
+.network-graph-canvas path[role="button"] { cursor: pointer; outline: none; }
+.network-graph-canvas path[role="button"]:focus-visible { stroke: #9c2b22; stroke-width: 3; }
+.network-graph-selection { display: grid; gap: 0.3rem; border-left: 3px solid var(--color-cinnabar); padding: 0.5rem 0.75rem; background: rgba(156,43,34,0.045); }
+.network-graph-selection > small { color: var(--color-ink-faint); font-size: 0.65rem; }
+.network-graph-selection .proteomics-pathways { margin-top: 0.4rem; }
+.proteomics-column-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.7rem; }
+.raw-matrix-design { display: grid; gap: 0.7rem; border: 1px solid var(--color-border); border-radius: 0.7rem; padding: 0.85rem; background: rgba(255, 253, 248, 0.5); }
+.raw-matrix-method { margin-block: 1rem; padding: 1rem; }
+.proteomics-threshold-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.7rem; }
+.proteomics-consent { display: flex; align-items: flex-start; gap: 0.65rem; border: 1px solid var(--color-border); background: rgba(255, 253, 248, 0.7); padding: 0.75rem; cursor: pointer; }
+.proteomics-consent input { margin-top: 0.18rem; accent-color: var(--color-cinnabar); }
+.proteomics-consent span { display: grid; gap: 0.25rem; }
+.proteomics-consent strong { color: var(--color-ink); font-size: 0.74rem; }
+.proteomics-consent small { color: var(--color-ink-faint); font-size: 0.66rem; line-height: 1.55; }
+.proteomics-result-panel { display: grid; gap: 1rem; padding: 1.2rem; }
+.proteomics-result-content { display: grid; min-width: 0; gap: 1.2rem; }
+.proteomics-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.65rem; }
+.proteomics-metric { display: grid; min-width: 0; gap: 0.2rem; border: 1px solid var(--color-border); background: rgba(255, 253, 248, 0.74); padding: 0.7rem; }
+.proteomics-metric span { color: var(--color-ink-soft); font-size: 0.67rem; }
+.proteomics-metric strong { color: var(--color-cinnabar); font-size: 1.15rem; overflow-wrap: anywhere; }
+.proteomics-metric small { color: var(--color-ink-faint); font-size: 0.62rem; }
+.proteomics-qc { overflow: hidden; }
+.proteomics-qc-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0.45rem; padding: 0.85rem; }
+.proteomics-qc-grid .proteomics-metric { padding: 0.5rem; }
+.proteomics-qc-grid .proteomics-metric strong { font-size: 1rem; }
+.proteomics-result-section { display: grid; min-width: 0; gap: 0.65rem; }
+.proteomics-result-section .section-title-sm { font-size: 1rem; }
+.proteomics-validation-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.6rem; }
+.proteomics-validation-grid > div { border: 1px solid var(--color-border); background: rgba(255, 253, 248, 0.65); padding: 0.7rem; }
+.proteomics-validation-grid span { color: var(--color-cinnabar); font-size: 0.66rem; font-weight: 800; }
+.proteomics-validation-grid p { margin-top: 0.35rem; color: var(--color-ink-soft); font-size: 0.72rem; line-height: 1.6; overflow-wrap: anywhere; }
+.proteomics-pathways { display: grid; gap: 0.45rem; }
+.proteomics-pathways li { display: grid; gap: 0.18rem; border-bottom: 1px solid var(--color-border); padding: 0.55rem 0; }
+.proteomics-pathways strong { font-size: 0.78rem; }
+.proteomics-pathways span { color: var(--color-ink-faint); font-size: 0.65rem; }
+.table-scroll { max-width: 100%; overflow: auto; border: 1px solid var(--color-border); }
+.analysis-progress { display: grid; gap: 0.5rem; color: var(--color-ink-soft); font-size: 0.75rem; }
+.analysis-progress progress { width: 100%; accent-color: var(--color-cinnabar); }
+.notice-warning, .notice-info { display: flex; align-items: flex-start; gap: 0.55rem; border: 1px solid var(--color-border); padding: 0.65rem 0.75rem; color: var(--color-ink-soft); font-size: 0.72rem; line-height: 1.6; }
+.notice-warning { border-color: rgba(163, 99, 12, 0.3); background: rgba(231, 195, 111, 0.16); }
+.notice-info { background: rgba(255, 253, 248, 0.7); }
+.knowledge-explorer-grid { display: grid; grid-template-columns: minmax(18rem, 0.82fr) minmax(0, 1.18fr); align-items: start; gap: 1.4rem; }
+.chembl-panel { display: grid; gap: 0.9rem; margin-bottom: 1.4rem; padding: 1rem 1.2rem; }
+.reactome-panel, .reactome-panel .chembl-results { grid-template-columns: minmax(0, 1fr); }
+.reactome-panel > *, .reactome-panel .chembl-results > * { min-width: 0; }
+.component-compare-panel { display: grid; gap: 0.9rem; margin-bottom: 1.4rem; padding: 1rem 1.2rem; }
+.component-compare-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)) auto; align-items: end; gap: 0.75rem; }
+.component-compare-form textarea { min-height: 7rem; resize: vertical; }
+.component-comparison-summary { display: grid; grid-template-columns: minmax(0, 1fr) minmax(13rem, 0.6fr); align-items: start; gap: 1rem; }
+.component-comparison-downloads { display: grid; gap: 0.65rem; }
+.component-comparison-downloads .btn { justify-content: center; }
+.chembl-comparison-counts { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0.5rem; }
+.chembl-comparison-counts > div { display: grid; gap: 0.22rem; border: 1px solid var(--color-border); background: rgba(255, 253, 248, 0.72); padding: 0.6rem; }
+.chembl-comparison-counts strong { color: var(--color-cinnabar); font-size: 1.05rem; }
+.chembl-comparison-counts span { color: var(--color-ink-faint); font-size: 0.63rem; }
+.chembl-panel > .panel-header { align-items: flex-start; }
+.chembl-panel .section-help { margin-top: 0.35rem; }
+.chembl-search-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 0.75rem; }
+.chembl-search-form > .btn { min-height: 2.7rem; }
+.chembl-consent { grid-column: 1 / -1; display: flex; align-items: flex-start; gap: 0.55rem; color: var(--color-ink-soft); font-size: 0.7rem; line-height: 1.6; }
+.chembl-consent input { flex: 0 0 auto; margin-top: 0.2rem; accent-color: var(--color-cinnabar); }
+.chembl-results { display: grid; gap: 0.65rem; border-top: 1px solid var(--color-border); padding-top: 0.9rem; }
+.case-list-actions { display: flex; align-items: center; justify-content: flex-end; gap: 0.55rem; }
+.chembl-molecule-list { display: grid; gap: 0.5rem; }
+.chembl-molecule-card { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; border: 1px solid var(--color-border); background: rgba(255, 253, 248, 0.72); padding: 0.75rem 0.85rem; }
+.chembl-molecule-copy { display: grid; min-width: 0; gap: 0.3rem; }
+.chembl-molecule-copy h4 { color: var(--color-ink); font-size: 0.82rem; overflow-wrap: anywhere; }
+.chembl-molecule-copy p { color: var(--color-ink-faint); font-size: 0.68rem; line-height: 1.5; overflow-wrap: anywhere; }
+.chembl-molecule-copy details { color: var(--color-ink-soft); font-size: 0.66rem; }
+.chembl-molecule-copy details code { display: block; margin-top: 0.35rem; overflow-wrap: anywhere; white-space: pre-wrap; }
+.chembl-table-scroll { max-width: 100%; overflow: auto; border: 1px solid var(--color-border); }
+.chembl-activity-table { width: 100%; min-width: 58rem; border-collapse: collapse; font-size: 0.68rem; }
+.chembl-activity-table th, .chembl-activity-table td { border-bottom: 1px solid var(--color-border); padding: 0.55rem 0.65rem; text-align: left; vertical-align: top; line-height: 1.5; }
+.chembl-activity-table th { background: rgba(231, 222, 204, 0.36); color: var(--color-ink-soft); white-space: nowrap; }
+.chembl-activity-table td { color: var(--color-ink); }
+.chembl-activity-table td small { display: block; color: var(--color-ink-faint); }
+.knowledge-search-results { margin-top: 0.9rem; padding: 1rem 1.2rem; }
+.knowledge-entity-list, .knowledge-evidence-list { display: grid; gap: 0.6rem; }
+.knowledge-entity-option { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 0.8rem; border: 1px solid var(--color-border); background: rgba(255, 253, 248, 0.72); padding: 0.8rem; text-align: left; cursor: pointer; }
+.knowledge-entity-option:hover, .knowledge-entity-option[aria-pressed="true"] { border-color: var(--color-border-strong); background: var(--color-cinnabar-soft); }
+.knowledge-entity-option > span { display: grid; min-width: 0; gap: 0.2rem; }
+.knowledge-entity-option strong { color: var(--color-ink); font-size: 0.82rem; overflow-wrap: anywhere; }
+.knowledge-entity-option small, .knowledge-evidence-source { color: var(--color-ink-faint); font-size: 0.65rem; line-height: 1.5; overflow-wrap: anywhere; }
+.knowledge-entity-option > small { text-align: right; }
+.knowledge-entity-detail { padding: 1rem 1.2rem; }
+.knowledge-evidence-list { margin-top: 1rem; }
+.knowledge-evidence-card { padding: 0.9rem 1rem; }
+.knowledge-evidence-edge { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; font-size: 0.78rem; line-height: 1.55; }
+.knowledge-evidence-edge strong { color: var(--color-ink); overflow-wrap: anywhere; }
+.knowledge-evidence-edge span { border: 1px solid var(--color-border); border-radius: 999px; padding: 0.15rem 0.5rem; color: var(--color-cinnabar); font-size: 0.66rem; font-weight: 800; }
+.knowledge-evidence-text { margin-top: 0.55rem; color: var(--color-ink-soft); font-size: 0.72rem; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
+.spin { animation: proteomics-spin 1s linear infinite; }
+@keyframes proteomics-spin { to { transform: rotate(360deg); } }
+.batch-evidence-panel { margin-top: 1rem; padding: 1.1rem 1.2rem; }
+.batch-evidence-form { display: grid; grid-template-columns: minmax(12rem, 0.6fr) minmax(0, 1.4fr); gap: 0.8rem; }
+.batch-evidence-form > .case-form-footer { grid-column: 1 / -1; }
+.batch-evidence-results { display: grid; gap: 0.8rem; margin-top: 1rem; }
+.batch-evidence-item { min-width: 0; border-top: 1px solid var(--color-border); padding-top: 0.9rem; }
+.batch-evidence-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.7rem; margin-top: 0.65rem; }
+.batch-evidence-summary p { margin: 0; color: var(--color-ink-soft); font-size: 0.72rem; line-height: 1.6; overflow-wrap: anywhere; }
+.batch-evidence-summary strong { color: var(--color-ink); }
+.batch-evidence-relations { margin-top: 0.65rem; }
+.dashboard-stat-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.9rem; margin-bottom: 1rem; }
+.dashboard-panel { min-width: 0; padding: 1.15rem 1.2rem; }
+.dashboard-section-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; margin-bottom: 0.8rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem; }
+.dashboard-actions-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.dashboard-action { display: flex; min-width: 0; align-items: flex-start; gap: 0.75rem; padding: 1rem 0.8rem; color: var(--color-ink); }
+.dashboard-action > span:nth-child(2) { min-width: 0; flex: 1; }
+.dashboard-action strong, .dashboard-action small { display: block; }
+.dashboard-action strong { font-size: 0.82rem; }
+.dashboard-action small { margin-top: 0.25rem; color: var(--color-ink-faint); font-size: 0.7rem; line-height: 1.55; }
+.dashboard-detail-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(17rem, 0.45fr); align-items: start; gap: 1rem; margin-top: 1rem; }
+.dashboard-latest-list { display: grid; gap: 0.45rem; }
+.dashboard-latest-list .saved-analysis { display: block; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: rgba(255, 253, 248, 0.65); }
+.dashboard-task-heading { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; }
+.dashboard-task-heading > div { min-width: 0; }
+.dashboard-task-heading p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dashboard-task-summary { margin: 0.4rem 0 0; color: var(--color-ink-soft); font-size: 0.72rem; line-height: 1.65; overflow-wrap: anywhere; }
+.dashboard-text-link { color: var(--color-cinnabar); font-size: 0.7rem; font-weight: 800; }
+.dashboard-empty { min-height: 14rem; }
+.status-pending { background: rgba(164, 109, 28, 0.12); color: #805013; }
+.status-error { background: rgba(151, 45, 23, 0.1); color: var(--color-cinnabar-dark); }
+
+@media (min-width: 1280px) {
+  .research-workbench-grid { grid-template-columns: 360px minmax(0, 1fr); }
+}
+
+@media (max-width: 850px) {
+  .case-workspace-grid { grid-template-columns: minmax(0, 1fr); }
+  .knowledge-explorer-grid { grid-template-columns: minmax(0, 1fr); }
+  .source-sync-layout { grid-template-columns: minmax(0, 1fr); }
+  .dashboard-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dashboard-detail-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 560px) {
+  .case-form-footer { align-items: flex-start; flex-direction: column; }
+  .case-form-footer .btn { width: 100%; }
+  .case-record-meta { grid-template-columns: minmax(0, 1fr); }
+  .proteomics-export-actions { justify-content: flex-start; }
+  .dataset-provenance { grid-template-columns: minmax(0, 1fr); }
+  .proteomics-column-grid { grid-template-columns: minmax(0, 1fr); }
+  .proteomics-threshold-grid { grid-template-columns: minmax(0, 1fr); }
+  .proteomics-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .proteomics-qc-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .proteomics-validation-grid { grid-template-columns: minmax(0, 1fr); }
+  .chembl-search-form { grid-template-columns: minmax(0, 1fr); }
+  .component-compare-form { grid-template-columns: minmax(0, 1fr); }
+  .component-comparison-summary { grid-template-columns: minmax(0, 1fr); }
+  .chembl-comparison-counts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .chembl-consent { grid-column: auto; }
+  .chembl-search-form > .btn { width: 100%; }
+  .chembl-molecule-card { align-items: flex-start; flex-direction: column; }
+  .chembl-molecule-card .btn { width: 100%; }
+  .case-list-actions { align-items: flex-end; flex-direction: column; }
+  .batch-evidence-form { grid-template-columns: minmax(0, 1fr); }
+  .batch-evidence-form > .case-form-footer { grid-column: auto; }
+  .batch-evidence-summary { grid-template-columns: minmax(0, 1fr); }
+  .dashboard-stat-grid, .dashboard-actions-grid { grid-template-columns: minmax(0, 1fr); }
+  .dashboard-panel { padding: 0.9rem; }
+  .integration-status-grid, .integration-grid { grid-template-columns: minmax(0, 1fr); }
+  .integration-overview, .integration-tests, .integration-detail { padding: 0.9rem; }
+  .source-sync-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .source-create-grid { grid-template-columns: minmax(0, 1fr); }
+}
+.source-settings { margin: 0.75rem 0; border: 1px solid rgba(168,111,31,0.18); border-radius: 0.75rem; padding: 0.75rem; }
+.source-settings summary { cursor: pointer; font-weight: 600; }
+.source-settings-form { display: grid; gap: 0.75rem; margin-top: 0.75rem; }
+.source-settings-form label { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.source-settings-form input[type="number"] { max-width: 9rem; border: 1px solid rgba(168,111,31,0.25); border-radius: 0.5rem; padding: 0.5rem; }
+.source-settings-form .btn { justify-self: start; }

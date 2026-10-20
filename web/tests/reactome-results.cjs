@@ -1,0 +1,59 @@
+// Export and rendering regressions; uses synthetic tasks, without external services.
+const fs = require('fs');
+const path = require('path');
+const {createRequire} = require('module');
+const assert = require('node:assert/strict');
+const webRoot = path.resolve(__dirname, '..');
+const load = createRequire(path.join(webRoot, 'package.json'));
+const ts = load('typescript');
+for (const extension of ['.ts', '.tsx']) require.extensions[extension] = (module, filename) => module._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), {compilerOptions: {module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX}}).outputText, filename);
+const React = load('react');
+const {renderToStaticMarkup} = load('react-dom/server');
+const {readReactomeEnrichment, reactomeResultJson, ReactomeEnrichmentResult} = load('./src/components/ReactomeEnrichmentResult.tsx');
+const {NetworkPharmacologyCharts} = load('./src/components/NetworkPharmacologyCharts.tsx');
+const source = {taskId: 41, summary: {herb: '测试中药', disease: '测试疾病'}, charts: {overlap: [], components: [], pathways: [{name: 'LOCAL_ONLY', targets: 9}]}};
+const pathways = Array.from({length: 31}, (_, index) => ({stableId: `R-HSA-${index}`, name: `Pathway_${index}`, species: 'Homo sapiens', matchedEntities: 100 + index, totalEntities: 200, coverage: null, pValue: null, fdr: (31 - index) / 1000}));
+const value = {analysisKind: 'reactome_enrichment', organism: 'Homo sapiens', inputCount: 3, mappedCount: 3, mappings: [{query:'AKT1', symbol:'AKT1'}], ambiguous: [], unmapped: [], rejected: [], truncatedCount: 0, source: 'Reactome Analysis Service', sourceVersion: null, sourceToken: 'synthetic-token', identifiersNotFound: 0, pathways, retrievedAt: '2026-10-04T00:00:00+00:00'};
+const task = {id: 77, task_type: 'network', status: 'succeeded', parent_task:41, dataset: null, medical_case: null, input_parameters: {analysisKind: 'reactome_enrichment', rawTargets: ['AKT1', 'IL6', 'MAPK1'], consentRecorded:true}, source_releases: [], progress:100, result:value, error_summary:'', created_at: '2026-10-04T00:00:00+00:00', started_at:null, finished_at:'2026-10-04T00:00:01+00:00', owner:2, created_by:2};
+assert.equal(readReactomeEnrichment(task), value);
+const exported = JSON.parse(reactomeResultJson(task, source));
+assert.equal(exported.pageAssociation.sourceTaskId, 41);
+assert.equal(exported.pageAssociation.persisted, true);
+assert.match(exported.pageAssociation.note, /服务端/);
+const legacyExport = JSON.parse(reactomeResultJson({...task,parent_task:null},source));
+assert.equal(legacyExport.pageAssociation.persisted,false);
+assert.match(legacyExport.pageAssociation.note,/历史/);
+assert.equal(reactomeResultJson({...task,parent_task:999},source),null);
+assert.equal(readReactomeEnrichment({...task,parent_task:999},source.taskId),null);
+assert.deepEqual(exported.task, task);
+assert.equal(exported.task.result.pathways.length, 31);
+assert.equal(exported.task.result.sourceVersion, null);
+assert.equal(exported.task.result.retrievedAt, value.retrievedAt);
+const resultHtml = renderToStaticMarkup(React.createElement(ReactomeEnrichmentResult, {task, source}));
+assert.equal((resultHtml.match(/<li>/g)||[]).length, 20);
+assert.ok(resultHtml.includes('全部 31 条通路') && resultHtml.includes('来源版本未返回') && resultHtml.includes('导出全部通路 JSON'));
+const chartHtml = renderToStaticMarkup(React.createElement(NetworkPharmacologyCharts, {result:source, reactome:value}));
+assert.ok(chartHtml.includes('Reactome 富集通路') && chartHtml.includes('命中实体数') && chartHtml.includes('FDR 1.00e-3'));
+assert.ok(chartHtml.indexOf('Pathway_30') < chartHtml.indexOf('Pathway_29'));
+assert.ok(!chartHtml.includes('LOCAL_ONLY') && chartHtml.includes('130 个命中实体'));
+assert.equal((chartHtml.match(/tabindex="0"/g)||[]).length, 12);
+assert.equal(value.pathways[0].name, 'Pathway_0');
+const emptyTask = {...task, result:{...value, pathways:[]}};
+assert.ok(reactomeResultJson(emptyTask, source));
+const emptyHtml = renderToStaticMarkup(React.createElement(NetworkPharmacologyCharts, {result:source, reactome:readReactomeEnrichment(emptyTask)}));
+assert.ok(emptyHtml.includes('没有返回符合当前筛选阈值的显著通路') && !emptyHtml.includes('LOCAL_ONLY'));
+for (const status of ['queued','running','failed','cancelled']) {
+  const incomplete = {...task, status, error_summary: 'synthetic failure'};
+  assert.equal(readReactomeEnrichment(incomplete), null);
+  assert.equal(reactomeResultJson(incomplete, source), null);
+  const html = renderToStaticMarkup(React.createElement(ReactomeEnrichmentResult, {task:incomplete, source}));
+  assert.ok(!html.includes('导出全部通路 JSON') && !html.includes('没有返回符合当前筛选阈值的显著通路'));
+  const localHtml = renderToStaticMarkup(React.createElement(NetworkPharmacologyCharts, {result:source, reactome:readReactomeEnrichment(incomplete)}));
+  assert.ok(localHtml.includes('LOCAL_ONLY'));
+}
+assert.equal(readReactomeEnrichment({...task, result:{...value, pathways:[{...pathways[0], fdr:NaN}]}}), null);
+assert.equal(readReactomeEnrichment({...task, result:{}}), null);
+for (const change of [{mappings:null},{unmapped:'AKT1'},{sourceToken:[]},{inputCount:1.5},{pathways:[{...pathways[0],fdr:1.1}]}]) {
+  assert.equal(readReactomeEnrichment({...task,result:{...value,...change}}),null);
+}
+console.log('PASS: all 31 pathways exported with full task metadata; 20-item list and 12-item FDR chart; null source version preserved; empty success and four non-success states; invalid payload rejected.');

@@ -1,0 +1,409 @@
+{
+  "source": "origin/main:src/app/api/research/route.ts",
+  "sourceCommit": "078d374",
+  "records": [
+    {
+      "chinese": "槲皮素",
+      "english": "Quercetin",
+      "latin": "Quercetinum",
+      "aliases": [
+        "槲皮素",
+        "栎精",
+        "Quercetin",
+        "Quercetinum"
+      ]
+    },
+    {
+      "chinese": "木犀草素",
+      "english": "Luteolin",
+      "latin": "Luteolinum",
+      "aliases": [
+        "木犀草素",
+        "木樨草素",
+        "Luteolin",
+        "Luteolinum"
+      ]
+    },
+    {
+      "chinese": "山奈酚",
+      "english": "Kaempferol",
+      "latin": "Kaempferolum",
+      "aliases": [
+        "山奈酚",
+        "山柰酚",
+        "Kaempferol",
+        "Kaempferolum"
+      ]
+    },
+    {
+      "chinese": "芹菜素",
+      "english": "Apigenin",
+      "latin": "Apigeninum",
+      "aliases": [
+        "芹菜素",
+        "Apigenin",
+        "Apigeninum"
+      ]
+    },
+    {
+      "chinese": "β-谷甾醇",
+      "english": "beta-sitosterol",
+      "latin": "Beta-sitosterolum",
+      "aliases": [
+        "β-谷甾醇",
+        "谷甾醇",
+        "Beta-sitosterol",
+        "beta-sitosterol",
+        "β-sitosterol",
+        "Beta-sitosterolum"
+      ]
+    },
+    {
+      "chinese": "豆甾醇",
+      "english": "Stigmasterol",
+      "latin": "Stigmasterolum",
+      "aliases": [
+        "豆甾醇",
+        "Stigmasterol",
+        "Stigmasterolum"
+      ]
+    },
+    {
+      "chinese": "黄芩素",
+      "english": "Baicalein",
+      "latin": "Baicaleinum",
+      "aliases": [
+        "黄芩素",
+        "Baicalein",
+        "Baicaleinum"
+      ]
+    },
+    {
+      "chinese": "汉黄芩素",
+      "english": "Wogonin",
+      "latin": "Wogoninum",
+      "aliases": [
+        "汉黄芩素",
+        "Wogonin",
+        "Wogoninum"
+      ]
+    },
+    {
+      "chinese": "熊果酸",
+      "english": "Ursolic acid",
+      "latin": "Acidum ursolicum",
+      "aliases": [
+        "熊果酸",
+        "Ursolic acid",
+        "Acidum ursolicum"
+      ]
+    },
+    {
+      "chinese": "齐墩果酸",
+      "english": "Oleanolic acid",
+      "latin": "Acidum oleanolicum",
+      "aliases": [
+        "齐墩果酸",
+        "Oleanolic acid",
+        "Acidum oleanolicum"
+      ]
+    },
+    {
+      "chinese": "没食子酸",
+      "english": "Gallic acid",
+      "latin": "Acidum gallicum",
+      "aliases": [
+        "没食子酸",
+        "Gallic acid",
+        "Acidum gallicum"
+      ]
+    },
+    {
+      "chinese": "咖啡酸",
+      "english": "Caffeic acid",
+      "latin": "Acidum caffeicum",
+      "aliases": [
+        "咖啡酸",
+        "Caffeic acid",
+        "Acidum caffeicum"
+      ]
+    },
+    {
+      "chinese": "阿魏酸",
+      "english": "Ferulic acid",
+      "latin": "Acidum ferulicum",
+      "aliases": [
+        "阿魏酸",
+        "Ferulic acid",
+        "Acidum ferulicum"
+      ]
+    },
+    {
+      "chinese": "绿原酸",
+      "english": "Chlorogenic acid",
+      "latin": "Acidum chlorogenicum",
+      "aliases": [
+        "绿原酸",
+        "Chlorogenic acid",
+        "Acidum chlorogenicum"
+      ]
+    },
+    {
+      "chinese": "丹参酮IIA",
+      "english": "Tanshinone IIA",
+      "latin": "Tanshinonum IIA",
+      "aliases": [
+        "丹参酮IIA",
+        "丹参酮 IIA",
+        "Tanshinone IIA",
+        "Tanshinonum IIA"
+      ]
+    },
+    {
+      "chinese": "隐丹参酮",
+      "english": "Cryptotanshinone",
+      "latin": "Cryptotanshinonum",
+      "aliases": [
+        "隐丹参酮",
+        "Cryptotanshinone",
+        "Cryptotanshinonum"
+      ]
+    },
+    {
+      "chinese": "丹酚酸B",
+      "english": "Salvianolic acid B",
+      "latin": "Acidum salvianolicum B",
+      "aliases": [
+        "丹酚酸B",
+        "丹酚酸 B",
+        "Salvianolic acid B",
+        "Acidum salvianolicum B"
+      ]
+    },
+    {
+      "chinese": "小檗碱",
+      "english": "Berberine",
+      "latin": "Berberinum",
+      "aliases": [
+        "小檗碱",
+        "黄连素",
+        "Berberine",
+        "Berberinum"
+      ]
+    },
+    {
+      "chinese": "大黄素",
+      "english": "Emodin",
+      "latin": "Emodinum",
+      "aliases": [
+        "大黄素",
+        "Emodin",
+        "Emodinum"
+      ]
+    },
+    {
+      "chinese": "大黄酸",
+      "english": "Rhein",
+      "latin": "Rheinum",
+      "aliases": [
+        "大黄酸",
+        "Rhein",
+        "Rheinum"
+      ]
+    },
+    {
+      "chinese": "甘草酸",
+      "english": "Glycyrrhizic acid",
+      "latin": "Acidum glycyrrhizicum",
+      "aliases": [
+        "甘草酸",
+        "Glycyrrhizic acid",
+        "Acidum glycyrrhizicum"
+      ]
+    },
+    {
+      "chinese": "甘草次酸",
+      "english": "Glycyrrhetinic acid",
+      "latin": "Acidum glycyrrhetinicum",
+      "aliases": [
+        "甘草次酸",
+        "Glycyrrhetinic acid",
+        "Acidum glycyrrhetinicum"
+      ]
+    },
+    {
+      "chinese": "甘草苷",
+      "english": "Liquiritin",
+      "latin": "Liquiritinum",
+      "aliases": [
+        "甘草苷",
+        "Liquiritin",
+        "Liquiritinum"
+      ]
+    },
+    {
+      "chinese": "异甘草素",
+      "english": "Isoliquiritigenin",
+      "latin": "Isoliquiritigeninum",
+      "aliases": [
+        "异甘草素",
+        "Isoliquiritigenin",
+        "Isoliquiritigeninum"
+      ]
+    },
+    {
+      "chinese": "芦丁",
+      "english": "Rutin",
+      "latin": "Rutinum",
+      "aliases": [
+        "芦丁",
+        "芸香苷",
+        "Rutin",
+        "Rutinum"
+      ]
+    },
+    {
+      "chinese": "白藜芦醇",
+      "english": "Resveratrol",
+      "latin": "Resveratrolum",
+      "aliases": [
+        "白藜芦醇",
+        "Resveratrol",
+        "Resveratrolum"
+      ]
+    },
+    {
+      "chinese": "苦参碱",
+      "english": "Matrine",
+      "latin": "Matrinum",
+      "aliases": [
+        "苦参碱",
+        "Matrine",
+        "Matrinum"
+      ]
+    },
+    {
+      "chinese": "氧化苦参碱",
+      "english": "Oxymatrine",
+      "latin": "Oxymatrinum",
+      "aliases": [
+        "氧化苦参碱",
+        "Oxymatrine",
+        "Oxymatrinum"
+      ]
+    },
+    {
+      "chinese": "胡椒碱",
+      "english": "Piperine",
+      "latin": "Piperinum",
+      "aliases": [
+        "胡椒碱",
+        "Piperine",
+        "Piperinum"
+      ]
+    },
+    {
+      "chinese": "桂皮醛",
+      "english": "Cinnamaldehyde",
+      "latin": "Cinnamaldehydum",
+      "aliases": [
+        "桂皮醛",
+        "肉桂醛",
+        "Cinnamaldehyde",
+        "Cinnamaldehydum"
+      ]
+    },
+    {
+      "chinese": "丁香酚",
+      "english": "Eugenol",
+      "latin": "Eugenolum",
+      "aliases": [
+        "丁香酚",
+        "Eugenol",
+        "Eugenolum"
+      ]
+    },
+    {
+      "chinese": "厚朴酚",
+      "english": "Magnolol",
+      "latin": "Magnololum",
+      "aliases": [
+        "厚朴酚",
+        "Magnolol",
+        "Magnololum"
+      ]
+    },
+    {
+      "chinese": "和厚朴酚",
+      "english": "Honokiol",
+      "latin": "Honokiolum",
+      "aliases": [
+        "和厚朴酚",
+        "Honokiol",
+        "Honokiolum"
+      ]
+    },
+    {
+      "chinese": "黄芪甲苷",
+      "english": "Astragaloside IV",
+      "latin": "Astragalosidum IV",
+      "aliases": [
+        "黄芪甲苷",
+        "黄芪皂苷IV",
+        "Astragaloside IV",
+        "Astragalosidum IV"
+      ]
+    },
+    {
+      "chinese": "人参皂苷",
+      "english": "Ginsenoside",
+      "latin": "Ginsenosidum",
+      "aliases": [
+        "人参皂苷",
+        "人参总皂苷",
+        "Ginsenoside",
+        "Ginsenosidum",
+        "Notoginsenoside",
+        "Pseudoginsenoside",
+        "Gypenoside",
+        "Protopanaxadiol",
+        "Protopanaxatriol",
+        "Panaxadiol",
+        "Panaxatriol"
+      ],
+      "searchTerms": [
+        "Ginsenoside",
+        "Notoginsenoside",
+        "Pseudoginsenoside",
+        "Gypenoside",
+        "Protopanaxadiol",
+        "Protopanaxatriol",
+        "Panaxadiol",
+        "Panaxatriol"
+      ],
+      "fuzzy": true
+    },
+    {
+      "chinese": "人参皂苷Rg1",
+      "english": "Ginsenoside Rg1",
+      "latin": "Ginsenosidum Rg1",
+      "aliases": [
+        "人参皂苷Rg1",
+        "人参皂苷 Rg1",
+        "Ginsenoside Rg1",
+        "Ginsenosidum Rg1"
+      ]
+    },
+    {
+      "chinese": "人参皂苷Rb1",
+      "english": "Ginsenoside Rb1",
+      "latin": "Ginsenosidum Rb1",
+      "aliases": [
+        "人参皂苷Rb1",
+        "人参皂苷 Rb1",
+        "Ginsenoside Rb1",
+        "Ginsenosidum Rb1"
+      ]
+    }
+  ]
+}

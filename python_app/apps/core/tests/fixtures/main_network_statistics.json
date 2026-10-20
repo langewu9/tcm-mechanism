@@ -1,0 +1,50 @@
+{
+  "sourceCommit": "078d374852d82ad398e98ff8e97d11f7eb2e3a62",
+  "sourcePath": "src/app/api/network-pharmacology/route.ts",
+  "sourceSha256": "f10d5860b889646cf183125c2b78df7751f7a551136a0f30848226316958ae7c",
+  "generation": "Ran the original main helper functions and herbTargets-to-summary block under Node.js, with fixed raw rows and a fixture prisma.target.findMany response. No Django statistic code was used to generate expected values.",
+  "herbs": ["黄芩"],
+  "disease": "肺纤维化",
+  "herbRows": [
+    {"source": "fixture", "herb": "黄芩", "component": "Alpha", "target": "TP53"},
+    {"source": "fixture", "herb": "黄芩", "component": "Alpha", "target": "AKT1"},
+    {"source": "fixture", "herb": "黄芩", "component": "Alpha", "target": "EGFR"},
+    {"source": "fixture-duplicate", "herb": "黄芩", "component": "Alpha", "target": "TP53"},
+    {"source": "fixture", "herb": "黄芩", "component": "Beta", "target": "TP53"},
+    {"source": "fixture", "herb": "黄芩", "component": "Excluded", "target": "EGFR"}
+  ],
+  "diseaseTargetRows": [
+    {"disease": "肺纤维化", "target": "TP53", "source_file": "fixture"},
+    {"disease": "肺纤维化", "target": "AKT1", "source_file": "fixture"}
+  ],
+  "diseaseHerbRows": [
+    {"disease": "肺纤维化", "herb": "黄芩", "target": "TP53"},
+    {"disease": "肺纤维化", "herb": "黄芩", "target": "FOXO3"}
+  ],
+  "directRows": [
+    {"disease": "肺纤维化", "herb": "黄芩", "target": "TP53"},
+    {"disease": "肺纤维化", "herb": "黄芩", "target": "FOXO3"}
+  ],
+  "annotations": [
+    {"symbol": "TP53", "name": "TP53", "genes": [], "pathways": [{"name": "Apoptosis"}]},
+    {"symbol": "AKT1", "name": "AKT1", "genes": [], "pathways": [{"name": "Growth"}]},
+    {"symbol": "EGFR", "name": "EGFR", "genes": [], "pathways": [{"name": "Excluded pathway"}]}
+  ],
+  "expected": {
+    "summary": {
+      "herb": "黄芩", "herbs": ["黄芩"], "disease": "肺纤维化",
+      "herbTargetCount": 3, "diseaseTargetCount": 3, "strictIntersectionCount": 2,
+      "directAssociationTargetCount": 2, "candidateTargetCount": 3,
+      "componentCount": 3, "pathwayCount": 2, "rowLimit": 12000
+    },
+    "charts": {
+      "components": [{"name": "Alpha", "targets": 2}, {"name": "Beta", "targets": 1}],
+      "pathways": [{"name": "Apoptosis", "targets": 1}, {"name": "Growth", "targets": 1}]
+    },
+    "targetRows": [
+      {"target": "TP53", "matchType": "严格交集", "components": ["Alpha", "Beta"], "pathways": ["Apoptosis"], "herbs": ["黄芩"], "herbEvidenceCount": 3, "diseaseEvidenceCount": 2, "directEvidenceCount": 1},
+      {"target": "AKT1", "matchType": "严格交集", "components": ["Alpha"], "pathways": ["Growth"], "herbs": ["黄芩"], "herbEvidenceCount": 1, "diseaseEvidenceCount": 1, "directEvidenceCount": 0},
+      {"target": "FOXO3", "matchType": "疾病-中药直接关联", "components": [], "pathways": [], "herbs": ["黄芩"], "herbEvidenceCount": 0, "diseaseEvidenceCount": 1, "directEvidenceCount": 1}
+    ]
+  }
+}

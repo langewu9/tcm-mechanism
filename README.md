@@ -1,175 +1,83 @@
 # 岐黄中医药理智能平台
 
-这是一个面向中医医案、方药、成分、靶点、基因和通路分析的全栈网站。项目保留原 FastAPI 数据/模型服务，并新增 Next.js + TypeScript + Tailwind CSS + Prisma 的生产化 Web 应用。
+本仓库正在把已确认的研究平台能力迁移到 **React/Vite 前端 + Django REST Framework 后端**。研究业务和账号由 Django 统一处理，研究数据目标为 PostgreSQL；医案本机/内网模型适配已有首版，但须由部署者提供并配置实际模型服务。
 
-## 技术栈
+## 当前架构
 
-- 前端/全栈站点：Next.js、TypeScript、Tailwind CSS、Recharts、Lucide
-- 数据库：Prisma ORM，默认 SQLite，后续可切换 PostgreSQL
-- 后端服务：FastAPI，继续提供本地药理数据、ChEMBL、Qwen/BianCang 接口
-- 模型：QLUNLP/BianCang-Qwen2.5-7B-Instruct，本地 OpenAI 兼容服务
-- 上传：CSV、XLS、XLSX
-- 导出：分析结果 CSV、PDF
+2026-10-20 本地压测完成：独立 PostgreSQL/Redis、3 个 Gunicorn worker、30,000 个合成任务，容量阶段 36,890 次请求无请求错误或校验失败；19 个阶段另含正式限流验证。混合读写 40/80 并发约 158 次/秒，p95 约 356/730 ms。报告、图表、阶段 CSV 和边界见 [`reports/loadtest-2026-10-20/压测报告.md`](reports/loadtest-2026-10-20/压测报告.md)。这是本机短测，不是公网容量验收，生产配置未改。
 
-## Python 主站迁移（进行中）
+2026-10-20 数据库性能审核：保留业务表划分，新增三个经 6 万行临时表执行计划对照的任务/同步历史索引，前端列表改读摘要再按需获取完整详情。同一批 13 个任务的列表由 644,862 降至 6,186 字节，历史结果与权限保持；两种数据库各 421 项回归通过。详见 [`docs/database-performance-audit-2026-10-20.md`](docs/database-performance-audit-2026-10-20.md)。
 
-按新的技术路线，仓库新增 `python_app/` 作为 Django 5.2 + Django REST Framework + PostgreSQL 的独立应用，当前已包含登录/管理入口、用户隔离的医案与数据集 API、分析任务记录、数据源/版本/证据模型及 OpenAPI 文档。它与现有 Next.js、FastAPI 服务并行运行，尚未替换旧页面，也未迁移历史数据库。
+2026-10-20 基础框架已补充安全 JSON 错误边界、私有响应禁止缓存、输入/共享限流、列表查询优化和独立部署初始化。升级后的 SQLite/PostgreSQL 各 413 项回归通过，本机 Nginx/Gunicorn/TLS 链路通过；UI 样式产物未变。已完成项、依赖公告和未验收范围见 [`docs/framework-audit-2026-10-20.md`](docs/framework-audit-2026-10-20.md)。修改仅保存在本地 Git，未推送。
 
-第一阶段启动方式、接口边界和未完成功能见 [`python_app/README.md`](python_app/README.md)；总体路线见 [`docs/技术栈与阶段实施计划.md`](docs/技术栈与阶段实施计划.md)，Python–R 图表接口草案见 [`docs/r-visualization-contract.md`](docs/r-visualization-contract.md)。目前外部数据 connector、Celery 分析 worker、文件上传、蛋白组学全链路、医案候选分析和 R 图表服务仍是后续阶段，不应把模型骨架视为已经动态更新或生产就绪。
+2026-10-20 业务核验发现并修复共享成分导致中药记录串联、非法 FDR 回退放行；当前 395 项 PostgreSQL/SQLite 回归通过，身份确认仍缺物种和权威目录依据。范围和 main 对照记录见 [`docs/business-result-audit-2026-10-20.md`](docs/business-result-audit-2026-10-20.md)。
 
-## 目录
+2026-10-20 已完成独立 PostgreSQL 本地链路、HIT 原始编号样本与备份恢复演练；当前结果和未完成范围见 [`docs/postgres-acceptance-2026-10-20.md`](docs/postgres-acceptance-2026-10-20.md)。本轮没有改动页面布局或推送远程。
 
-- `src/`: Next.js 全栈网站、页面、API Routes、组件和业务库
-- `prisma/`: Prisma schema、迁移 SQL、seed 脚本、SQLite 开发库
-- `backend/`: 原 FastAPI 服务
-- `tools/`: BianCang 模型下载和 OpenAI 兼容服务脚本
-- `frontend/`: 原静态前端，仍可由 FastAPI 服务访问
-- `TCMPS/`: 医案与网页分析原始材料
-- `manual_render/`: 手册渲染材料，当前按要求保留不移动
+2026-10-19 本轮改动、对应模块位置、验证结果及更新注意事项见 [`docs/changes-2026-10-19.md`](docs/changes-2026-10-19.md)。
 
-## 本地启动
+最新本地修补、服务启动、验收结果与待接依赖见 [`docs/local-acceptance-2026-10-19.md`](docs/local-acceptance-2026-10-19.md)；研究资料归档规则见 [`docs/research-retention.md`](docs/research-retention.md)。
 
-首次安装依赖：
+原表到目录、接口和图表的逐层核对及映射修正见 [`docs/data-consistency-2026-10-19.md`](docs/data-consistency-2026-10-19.md)。
 
-```bat
-cd /d D:\MMDD\tcm_pharmacology_platform
-npm install --cache .\.npm-cache
-npx prisma generate
-npx prisma db push
-npm run prisma:seed
-npm run db:sync -- "本地药理缓存库" 10000
+- `web/`：独立的 React + TypeScript + Vite 前端。首页复用了现有 Next 页面结构和样式，新增了 Django 会话登录入口。
+- `python_app/`：Django 5.2 + Django REST Framework API、服务端会话认证、权限和管理后台。代码按认证、知识目录和研究工作区分模块。
+- `deploy/compose.python.yml`：本地 PostgreSQL 开发服务。
+- 研究数据集、医案和分析任务按所属用户隔离；平台超级管理员可查看所有人的记录。每条记录保留创建者外键，避免删除用户时失去溯源关系。
+
+旧的 Next.js、FastAPI、Prisma 和桌面程序代码暂留在仓库作为提取业务规则的参考。它们尚未逐页接入新的 React 应用，也不是新 Django 平台的运行依赖。页面外观沿用旧首页 CSS；旧研究模块要在逐项迁移后才会成为可用页面。
+
+## 当前已有与待补齐
+
+当前已有公开首页、登录 API、健康检查、知识库规模统计、知识实体/来源证据查询、按用户隔离的数据集与医案 API、分析任务记录和 Django 管理后台。API 错误统一返回 `error.code`、`error.message`、`error.details` 和 `error.requestId`。分析任务已用于运行蛋白组学、数据源同步、网络药理和图表后台链路；医案分析首版也可排入 Celery，但需要部署者提供本机/内网模型端点。
+
+项目仍在迁移完善中：完整 RAG、医案下游药理/组学编排、原始定量矩阵分析、真实旧库导入和 PostgreSQL/R/S3 生产环境验收尚未完成。医案本机模型候选、人工逐项复核和来源证据链已有首版；真实模型由部署者配置。现有数据文件不会自动导入 PostgreSQL。
+
+架构边界、接口分组和下一步迁移入口见 [`docs/architecture-current.md`](docs/architecture-current.md)。
+
+## Linux 本地开发
+
+需要 Python 3.12+、Node.js 和 Docker Compose。先在仓库根目录启动 PostgreSQL：
+
+```bash
+docker compose -f deploy/compose.python.yml up -d postgres
 ```
 
-第三个参数为本次最大读取行数；使用 `--all` 可从持久化游标继续同步到源表末尾。同步可重复运行，实体和关联关系按唯一键幂等更新。API 同步请求传入 `{"reset":true}` 可将游标归零并全量重扫。
+在终端一启动 Django（`python_app/` 目录）：
 
-启动 Next 全栈网站：
-
-```bat
-cd /d D:\MMDD\tcm_pharmacology_platform
-npm run dev
+```bash
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+cp .env.example .env
+python manage.py migrate
+python manage.py createsuperuser
+python manage.py runserver 127.0.0.1:8020
 ```
 
-访问：
+在终端二启动 React（仓库根目录）：
 
-```text
-http://127.0.0.1:3000
+```bash
+cd web
+pnpm install
+pnpm dev
 ```
 
-默认账号：
+打开 Vite 地址（通常为 `http://127.0.0.1:5173/`）。开发服务器会把 `/api/`、`/django-admin/` 和 `/accounts/` 代理给 Django 的 `8020` 端口；`/admin/` 保留给 React 管理页面。前后端尚未配置公网反向代理，不能据此直接部署。
 
-```text
-管理员：admin@qihuang.local / Admin123!
-研究员：user@qihuang.local / User123!
+检查 Django：
+
+```bash
+cd python_app
+python manage.py check
+python manage.py makemigrations --check --dry-run
+python manage.py test
 ```
 
-生产构建：
+不连接 PostgreSQL 时，可用 SQLite 跑 Django 逻辑测试：
 
-```bat
-npm run build
-npm run start
+```bash
+DJANGO_DEBUG=true DATABASE_URL=sqlite:///:memory: python manage.py test
 ```
 
-## FastAPI 与本地模型
-
-启动 FastAPI 数据服务：
-
-```bat
-cd /d D:\MMDD\tcm_pharmacology_platform
-D:\mini\envs\py310\python.exe -m uvicorn backend.main:app --host 127.0.0.1 --port 8010
-```
-
-启动 BianCang 模型服务：
-
-```bat
-cd /d D:\MMDD\tcm_pharmacology_platform
-start_biancang_server.bat
-```
-
-模型服务地址：
-
-```text
-http://127.0.0.1:8000/v1
-```
-
-Next 站点右下角的模型助手会调用 `/api/assistant`，再代理到 FastAPI 的 `/api/scientist/hypothesis`。
-
-## 功能模块
-
-- 首页：按需求文档建立统一视觉入口
-- 登录/注册/退出：Cookie 会话、PBKDF2 密码哈希、角色字段
-- 工作台：数据集、医案、任务和知识库统计
-- 数据管理：CSV/Excel 上传、列表、删除、API 查询
-- 医案管理：医案新增、列表、删除
-- 分析流程：医案或文本输入，生成证候-方剂-药物-成分-靶点-基因-通路链路
-- 可视化：知识库规模图表和分析网络图
-- 管理后台：用户、数据集、分析任务总览
-- API 接入：Next.js 代理 FastAPI，集中测试数据源、ChEMBL、Qwen/BianCang 与 AI Scientist 链路
-- 模型助手：全站浮动 BianCang/Qwen 问答入口
-
-## 关键 API
-
-- `POST /api/auth/register`
-- `POST /api/auth/login`
-- `POST /api/auth/logout`
-- `GET /api/dashboard`
-- `GET/POST /api/datasets`
-- `GET/DELETE /api/datasets/[id]`
-- `GET/POST /api/cases`
-- `DELETE /api/cases/[id]`
-- `GET/POST /api/analysis/tasks`
-- `GET /api/analysis/results/[id]`
-- `GET /api/analysis/results/[id]/export/csv`
-- `GET /api/analysis/results/[id]/export/pdf`
-- `GET /api/admin/users`
-- `GET /api/admin/datasets`
-- `GET /api/admin/tasks`
-- `POST /api/assistant`
-- `GET/POST /api/admin/database-sources`
-- `POST /api/admin/database-sources/[id]/test`
-- `POST /api/admin/database-sources/[id]/sync`
-- `GET /api/integrations/status`
-- `POST /api/integrations/test`
-
-## API 接入控制台
-
-登录 Next 全栈网站后访问：
-
-```text
-http://127.0.0.1:3000/api-integration
-```
-
-该页面会通过 Next API Routes 真实代理调用 FastAPI：
-
-- 健康状态：`/api/health`
-- 数据源状态：`/api/sources`
-- Qwen/BianCang 状态：`/api/qwen/status`、`/api/qwen/models`、`/api/qwen/test`
-- 证据检索：疾病、中药、成分检索
-- 验证工具：靶点交集、成分比对
-- ChEMBL：本地分子检索
-- AI Scientist：研究计划生成样例
-
-## 环境变量
-
-复制 `.env.example` 到 `.env` 后按环境修改：
-
-```text
-DATABASE_URL="file:./dev.db"
-AUTH_SECRET="change-this-to-a-long-random-string"
-NEXT_PUBLIC_FASTAPI_BASE_URL="http://127.0.0.1:8010"
-NEXT_PUBLIC_MODEL_BASE_URL="http://127.0.0.1:8000/v1"
-BIANCANG_MODEL="QLUNLP/BianCang-Qwen2.5-7B-Instruct"
-```
-
-## 部署
-
-更多部署说明见：
-
-- `deploy/README.md`
-- `deploy/FULLSTACK.md`
-
-当前已完成本地验证：
-
-- `npm run build` 通过
-- `npx prisma generate` 通过
-- `npx prisma db push` 通过
-- `npm run prisma:seed` 通过
+`.env.example` 中的密码仅供本地开发；不要把 `.env` 或真实密钥提交到 Git。
