@@ -140,11 +140,11 @@ def main():
 
     columns=["name","concurrency","seconds","requests","successful","successfulPerSecond","p50Ms","p95Ms","p99Ms","maxMs","errors","rateLimited","writes","apiCpuMeanPercent","apiRssPeakMiB","clientCpuMeanPercent"]
     with (OUT / "阶段数据.csv").open("w",encoding="utf-8-sig",newline="") as output:
-        writer=csv.DictWriter(output,fieldnames=columns,extrasaction="ignore");writer.writeheader();writer.writerows(phases)
+        writer=csv.DictWriter(output,fieldnames=columns,extrasaction="ignore",lineterminator="\n");writer.writeheader();writer.writerows(phases)
     (OUT / "metrics.json").write_text(json.dumps(data,ensure_ascii=False,indent=2))
     with (OUT / "资源采样.csv").open("w",encoding="utf-8-sig",newline="") as output:
         fields=sorted({key for sample in resources for key in sample})
-        writer=csv.DictWriter(output,fieldnames=fields);writer.writeheader();writer.writerows(resources)
+        writer=csv.DictWriter(output,fieldnames=fields,lineterminator="\n");writer.writeheader();writer.writerows(resources)
 
     def table_lines(items):
         lines=["| 场景 | 并发 | 请求数 | 成功/秒 | p50 ms | p95 ms | p99 ms | 错误 | 429 |",
