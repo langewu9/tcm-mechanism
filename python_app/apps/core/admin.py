@@ -232,4 +232,17 @@ class AnalysisTaskAdmin(admin.ModelAdmin):
     list_display = ("id", "task_type", "status", "owner", "created_by", "progress", "created_at")
     list_filter = ("task_type", "status")
     search_fields = ("owner__username", "owner__email")
-    readonly_fields = ("created_at", "started_at", "finished_at")
+    # Task records, including source versions, are written by the research
+    # services and workers. Admin access must not rewrite their provenance.
+    readonly_fields = tuple(
+        field.name for field in (*AnalysisTask._meta.fields, *AnalysisTask._meta.many_to_many)
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
