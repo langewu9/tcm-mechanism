@@ -52,7 +52,7 @@ def save_catalog_analysis(*, user, query_type, queries, expected_sha256):
         task = AnalysisTask.objects.create(
             owner=user, created_by=user, task_type=AnalysisTask.TaskType.NETWORK,
             status=AnalysisTask.Status.SUCCEEDED, progress=100, started_at=now, finished_at=now,
-            input_parameters={"analysisKind": "catalog_evidence", "algorithmVersion": "catalog-evidence-0.2",
+            input_parameters={"analysisKind": "catalog_evidence", "algorithmVersion": "catalog-evidence-0.3",
                               "queryType": query_type, "queries": queries, "resultSha256": expected_sha256},
             result={"analysisKind": "catalog_evidence", "queryType": query_type, "queries": queries,
                     "resultSha256": expected_sha256, "capturedAt": now.isoformat(),

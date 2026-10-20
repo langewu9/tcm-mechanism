@@ -78,8 +78,29 @@ result.rawLimits.tablesTruncated.directDiseaseHerbLinks = true;
 const directCsv = parseCsv(networkRawCsv(result, 'directDiseaseHerbLinks'));
 assert.equal(directCsv[1][directCsv[0].indexOf('truncated')], 'true');
 const historical = { ...result, raw: undefined, rawLimits: undefined };
+const current = { ...result, rawLimits: { ...result.rawLimits, formatVersion: 'network-raw-evidence-v2' } };
+const currentCsv = parseCsv(networkRawCsv(current, 'herbLinks'));
+assert.equal(currentCsv[1][currentCsv[0].indexOf('formatVersion')], 'network-raw-evidence-v2');
+assert.equal(currentCsv[1][currentCsv[0].indexOf('sourceRecordId')], 'ct:1');
 assert.equal(networkRawCsv(historical, 'herbLinks'), null);
 const historicalHtml = renderToStaticMarkup(React.createElement(NetworkResultDownloads, { result: historical }));
 assert.ok(historicalHtml.includes('此任务未保存原始侧证据'));
 assert.equal((historicalHtml.match(/<button[^>]*disabled=""/g) || []).length, 5);
 console.log('PASS: side evidence independent of candidates; two edge sources; stable IDs; CSV quoting/formula protection; table/input truncation; unavailable historical exports.');
+if (process.env.TCM_NETWORK_ACCEPTANCE_JSON) {
+  const actual = JSON.parse(fs.readFileSync(process.env.TCM_NETWORK_ACCEPTANCE_JSON, 'utf8'));
+  assert.equal(actual.summary.herb, '石榴皮');
+  assert.equal(actual.summary.herbTargetCount, 29);
+  assert.equal(actual.rawLimits.formatVersion, 'network-raw-evidence-v2');
+  const [columns, ...rows] = parseCsv(networkRawCsv(actual, 'herbLinks'));
+  assert.equal(rows.length, 29);
+  rows.forEach((row, index) => {
+    const get = name => row[columns.indexOf(name)];
+    const original = actual.raw.herbLinks[index];
+    for (const name of ['target', 'herb', 'component', 'sourceRecordId', 'herbSourceRecordId', 'sourceVersion']) {
+      assert.equal(get(name), original[name]);
+    }
+    assert.equal(get('sourceRecordId').split(':')[1], get('herbSourceRecordId').split(':')[1]);
+  });
+  console.log('PASS: actual HTTP response exports exactly 29 source-scoped herb rows with both edge provenances.');
+}

@@ -114,6 +114,7 @@ function qualityReasonLabel(reason: string) {
     log2fc_below_threshold: "log2FC 未达到阈值",
     missing_significance: "缺少显著性数值",
     invalid_significance: "显著性数值非法",
+    invalid_numeric_value: "包含非法统计数值",
     fdr_above_threshold: "FDR 超过阈值",
     p_value_above_threshold: "P 值超过阈值",
     local_target_name_only: "旧库仅有靶点名称，规范基因标识待核对",

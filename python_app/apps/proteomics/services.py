@@ -28,7 +28,7 @@ from apps.proteomics.models import ProteomicsRowResult
 from apps.proteomics.raw_matrix import analyze_raw_matrix
 
 
-ALGORITHM_VERSION = "proteomics-py-1.8"
+ALGORITHM_VERSION = "proteomics-py-1.9"
 MAX_CELL_CHARACTERS = 50_000
 MAX_XLSX_EXPANDED_BYTES = 512 * 1024 * 1024
 PATHWAY_RELATION_TYPES = {
@@ -365,6 +365,7 @@ def _parse_rows(
             invalid_numeric = True
         if invalid_numeric:
             invalid_numeric_row_count += 1
+            reasons.append("invalid_numeric_value")
         for field_name, field_error in (
             ("log2fc", log2fc_error),
             ("p_value", p_error),

@@ -8,6 +8,7 @@ import json
 from django.db.models import Q
 
 from apps.core.models import EvidenceRelation, KnowledgeEntity
+from .herb_row_support import HerbRowSupport
 
 
 HERB_COMPOUND_TYPES = {"contains", "herb_compound", "has_compound"}
@@ -113,6 +114,8 @@ def batch_herb_component_evidence(*, query_type: str, queries: list[str]) -> dic
                 relation_types=COMPOUND_TARGET_TYPES,
                 object_types=[KnowledgeEntity.EntityType.PROTEIN, KnowledgeEntity.EntityType.GENE],
             ) if compound_ids else ([], False)
+            support = HerbRowSupport(herb_edges)
+            target_edges = [relation for relation in target_edges if support.for_target(relation)]
             herbs = matches
             compounds = list({item.object_id: item.object for item in herb_edges}.values())
             targets = list({item.object_id: item.object for item in target_edges}.values())

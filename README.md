@@ -4,6 +4,8 @@
 
 ## 当前架构
 
+2026-10-20 业务核验发现并修复共享成分导致中药记录串联、非法 FDR 回退放行；当前 395 项 PostgreSQL/SQLite 回归通过，身份确认仍缺物种和权威目录依据。范围和 main 对照记录见 [`docs/business-result-audit-2026-10-20.md`](docs/business-result-audit-2026-10-20.md)。
+
 2026-10-20 已完成独立 PostgreSQL 本地链路、HIT 原始编号样本与备份恢复演练；当前结果和未完成范围见 [`docs/postgres-acceptance-2026-10-20.md`](docs/postgres-acceptance-2026-10-20.md)。本轮没有改动页面布局或推送远程。
 
 2026-10-19 本轮改动、对应模块位置、验证结果及更新注意事项见 [`docs/changes-2026-10-19.md`](docs/changes-2026-10-19.md)。

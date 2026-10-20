@@ -10,6 +10,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from apps.core.models import AnalysisTask, EvidenceRelation, KnowledgeEntity, MedicalCase, MedicalCaseCandidate
+from .herb_row_support import HerbRowSupport
 
 
 INPUT_SPLIT = re.compile(r"[,，、;；|/\n\r]+")
@@ -22,8 +23,8 @@ PATHWAY_TYPES = {
     "participatesin", "participates_in", "annotatedtopathway", "annotated_to_pathway",
     "associatedwithpathway", "associated_with_pathway",
 }
-STATISTICS_VERSION = "main-078d374-candidate-statistics-v1"
-RAW_EVIDENCE_VERSION = "network-raw-evidence-v1"
+STATISTICS_VERSION = "main-078d374-candidate-statistics-v2"
+RAW_EVIDENCE_VERSION = "network-raw-evidence-v2"
 RAW_EXPORT_LIMIT = 4000
 
 
@@ -102,13 +103,11 @@ def _raw_side_evidence(herb_relations, target_relations, disease_relations, *, h
     A herb row is a pair of real edges, so both source records are retained.
     The join stops after one sentinel row instead of materializing a Cartesian product.
     """
-    herbs_by_compound = defaultdict(list)
-    for relation in herb_relations:
-        herbs_by_compound[relation.object_id].append(relation)
+    support = HerbRowSupport(herb_relations)
     herb_rows = []
     herb_truncated = False
     for target_relation in target_relations:
-        for herb_relation in herbs_by_compound[target_relation.subject_id]:
+        for herb_relation in support.for_target(target_relation):
             if len(herb_rows) == limit:
                 herb_truncated = True
                 break
@@ -225,32 +224,27 @@ def build_network_pharmacology(
     compound_target_relations = read_relations(
         "compoundTargets", subject_ids=compound_ids, relation_types=COMPOUND_TARGET_TYPES,
     ) if compound_ids else []
+    support = HerbRowSupport(herb_compound_relations)
+    compound_target_relations = [relation for relation in compound_target_relations if support.for_target(relation)]
     disease_target_relations = read_relations(
         "diseaseTargets", subject_ids=disease_ids, relation_types=DISEASE_TARGET_TYPES,
     ) if diseases else []
     compound_by_id = {relation.object_id: relation.object for relation in herb_compound_relations}
     compound_target_counts: dict[int, set[int]] = defaultdict(set)
-    compound_evidence: dict[int, dict] = defaultdict(lambda: {
-        "herbs": set(), "compounds": set(), "sources": [],
-    })
     herb_evidence: dict[int, dict] = defaultdict(lambda: {
         "herbs": set(), "compounds": set(), "sources": [], "count": 0,
     })
     source_releases = {relation.source_release_id for relation in formula_herb_relations}
     for relation in herb_compound_relations:
-        evidence = compound_evidence[relation.object_id]
-        evidence["herbs"].add(relation.subject.label)
-        evidence["compounds"].add(relation.object.label)
-        evidence["sources"].append(_evidence_record(relation))
         source_releases.add(relation.source_release_id)
     for relation in compound_target_relations:
         compound_target_counts[relation.subject_id].add(relation.object_id)
         evidence = herb_evidence[relation.object_id]
-        compound_support = compound_evidence.get(relation.subject_id, {})
+        compound_support = support.for_target(relation)
         evidence["count"] += 1
-        evidence["compounds"].update(compound_support.get("compounds", {relation.subject.label}))
-        evidence["herbs"].update(compound_support.get("herbs", set()))
-        evidence["sources"].extend(compound_support.get("sources", []))
+        evidence["compounds"].add(relation.subject.label)
+        evidence["herbs"].update(item.subject.label for item in compound_support)
+        evidence["sources"].extend(_evidence_record(item) for item in compound_support)
         evidence["sources"].append(_evidence_record(relation))
         source_releases.add(relation.source_release_id)
 
