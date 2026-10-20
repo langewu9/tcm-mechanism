@@ -1,10 +1,11 @@
 from django.contrib import admin
 
 from .models import ProteomicsRowResult
+from apps.core.services.access_audit import SensitiveAdminAuditMixin
 
 
 @admin.register(ProteomicsRowResult)
-class ProteomicsRowResultAdmin(admin.ModelAdmin):
+class ProteomicsRowResultAdmin(SensitiveAdminAuditMixin, admin.ModelAdmin):
     list_display = (
         "task",
         "row_index",
@@ -20,3 +21,8 @@ class ProteomicsRowResultAdmin(admin.ModelAdmin):
     def has_add_permission(self, request):
         return False
 
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False

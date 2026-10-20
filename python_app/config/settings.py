@@ -25,7 +25,7 @@ ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS")
 CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS")
 
 INSTALLED_APPS = [
-    "django.contrib.admin",
+    "config.admin_apps.PlatformAdminConfig",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
@@ -46,6 +46,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "config.access_audit.SensitiveAccessAuditMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -135,6 +136,8 @@ STORAGES = {
     },
 }
 DATASET_UPLOAD_MAX_BYTES = env.int("DATASET_UPLOAD_MAX_BYTES", default=100 * 1024 * 1024)
+DATASET_STORAGE_QUOTA_BYTES = env.int("DATASET_STORAGE_QUOTA_BYTES", default=1024 * 1024 * 1024)
+DATASET_COUNT_QUOTA = env.int("DATASET_COUNT_QUOTA", default=100)
 DATA_UPLOAD_MAX_MEMORY_SIZE = env.int("API_REQUEST_MAX_BYTES", default=1024 * 1024)
 FILE_UPLOAD_MAX_MEMORY_SIZE = 2 * 1024 * 1024
 DATA_UPLOAD_MAX_NUMBER_FILES = 1

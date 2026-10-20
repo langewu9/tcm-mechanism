@@ -122,17 +122,17 @@ class QueryBudgetTests(TestCase):
 
     def test_task_list_query_count_does_not_grow_per_record(self):
         self.tasks(1)
-        with self.assertNumQueries(3):
+        with self.assertNumQueries(4):
             small=self.client.get("/api/v1/research/analysis-tasks/")
         self.tasks(19)
-        with self.assertNumQueries(3):
+        with self.assertNumQueries(4):
             large=self.client.get("/api/v1/research/analysis-tasks/")
         self.assertEqual(len(large.data["results"]),20)
         self.assertEqual(large.data["results"][0]["source_releases"],[self.release.pk])
 
     def test_dataset_owner_labels_do_not_add_queries(self):
         ResearchDataset.objects.bulk_create([ResearchDataset(owner=self.owner,name=f"dataset {i}") for i in range(20)])
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(3):
             response=self.client.get("/api/v1/research/datasets/")
         self.assertEqual(len(response.data["results"]),20)
 

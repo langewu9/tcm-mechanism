@@ -6,10 +6,10 @@ from django.core.checks import Error, Tags, Warning, register
 @register(Tags.security)
 def request_limit_checks(app_configs, **kwargs):
     errors = []
-    for name in ("DATA_UPLOAD_MAX_MEMORY_SIZE", "DATASET_UPLOAD_MAX_BYTES"):
+    for name in ("DATA_UPLOAD_MAX_MEMORY_SIZE", "DATASET_UPLOAD_MAX_BYTES", "DATASET_STORAGE_QUOTA_BYTES", "DATASET_COUNT_QUOTA"):
         value = getattr(settings, name, None)
         if type(value) is not int or value <= 0:
-            errors.append(Error(f"{name} must be a positive byte limit.", id="platform.E001"))
+            errors.append(Error(f"{name} must be a positive limit.", id="platform.E001"))
     return errors
 
 

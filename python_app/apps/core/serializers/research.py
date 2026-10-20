@@ -101,8 +101,12 @@ class ResearchDatasetSerializer(serializers.ModelSerializer):
         validated_data.update(stored, metadata=metadata)
         return stored["storage_key"]
 
+    @transaction.atomic
     def create(self, validated_data):
+        from ..services.upload_quota import check_locked_upload_quota
+
         upload = validated_data.pop("file")
+        check_locked_upload_quota(validated_data["owner"].pk, upload.size)
         storage_key = self._store_upload(validated_data, upload)
         try:
             parsed = self._parse_table(storage_key, validated_data["original_filename"])

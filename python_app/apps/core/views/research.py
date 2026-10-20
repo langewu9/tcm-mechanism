@@ -26,6 +26,7 @@ from apps.proteomics.serializers_rows import ProteomicsRowResultSerializer
 from apps.proteomics.services import ALGORITHM_VERSION
 from ..services.research_retention import dataset_audit, retention_scope, set_archived
 from ..serializers.research import AnalysisTaskSummarySerializer, ResearchDatasetAuditEventSerializer
+from ..services.access_audit import SensitiveReadAuditMixin, mark_sensitive_access
 
 
 class ResearchDashboardView(APIView):
@@ -57,14 +58,17 @@ class ResearchDashboardView(APIView):
             tasks=AnalysisTask.objects.filter(**owner_filter).count(),
         )
         latest_tasks = AnalysisTask.objects.filter(**owner_filter).order_by("-created_at")[:5]
-        return Response(
+        response = Response(
             ResearchDashboardSerializer(
                 {"stats": counts, "latest_tasks": latest_tasks}
             ).data
         )
+        mark_sensitive_access(request, operation="dashboard.view", action="view", resources=latest_tasks)
+        return response
 
 
-class ResearchDatasetViewSet(viewsets.ModelViewSet):
+class ResearchDatasetViewSet(SensitiveReadAuditMixin, viewsets.ModelViewSet):
+    sensitive_resource_type = "dataset"
     queryset = ResearchDataset.objects.none()
     serializer_class = ResearchDatasetSerializer
     permission_classes = [IsAuthenticated]
@@ -85,7 +89,19 @@ class ResearchDatasetViewSet(viewsets.ModelViewSet):
     @transaction.atomic
     def perform_create(self, serializer):
         dataset = serializer.save(owner=self.request.user)
-        dataset_audit(dataset, self.request.user, "created")
+        try:
+            dataset_audit(dataset, self.request.user, "created")
+        except Exception:
+            # A rolled-back upload must not leave an unaccounted storage object.
+            default_storage.delete(dataset.storage_key)
+            raise
+
+    @extend_schema(responses=OpenApiTypes.OBJECT)
+    @action(detail=False, methods=["get"])
+    def quota(self, request):
+        from ..services.upload_quota import upload_quota_usage
+
+        return Response(upload_quota_usage(request.user.pk))
 
     def perform_destroy(self, instance):
         set_archived(instance, actor=self.request.user, archived=True)
@@ -159,7 +175,8 @@ class ResearchDatasetViewSet(viewsets.ModelViewSet):
         return Response(AnalysisTaskSerializer(task).data, status=status.HTTP_202_ACCEPTED)
 
 
-class MedicalCaseViewSet(viewsets.ModelViewSet):
+class MedicalCaseViewSet(SensitiveReadAuditMixin, viewsets.ModelViewSet):
+    sensitive_resource_type = "case"
     queryset = MedicalCase.objects.none()
     serializer_class = MedicalCaseSerializer
     permission_classes = [IsAuthenticated]
@@ -417,7 +434,8 @@ class MedicalCaseViewSet(viewsets.ModelViewSet):
         return Response(MedicalCaseCandidateSerializer(candidate).data)
 
 
-class AnalysisTaskViewSet(viewsets.ReadOnlyModelViewSet):
+class AnalysisTaskViewSet(SensitiveReadAuditMixin, viewsets.ReadOnlyModelViewSet):
+    sensitive_resource_type = "task"
     queryset = AnalysisTask.objects.none()
     serializer_class = AnalysisTaskSerializer
     permission_classes = [IsAuthenticated]
@@ -616,4 +634,5 @@ class VisualizationArtifactDownloadView(APIView):
         response["X-Content-Type-Options"] = "nosniff"
         response["Cache-Control"] = "private, no-store"
         response["Content-Security-Policy"] = "sandbox"
+        mark_sensitive_access(request, operation="artifact.download", action="download", resources=[artifact])
         return response

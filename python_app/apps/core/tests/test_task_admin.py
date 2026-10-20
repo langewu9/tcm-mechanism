@@ -74,7 +74,8 @@ class AnalysisTaskAdminTests(TestCase):
         response = self.client.post(reverse("admin:core_analysistask_change", args=[self.task.pk]), {
             "owner": self.other.pk, "result": '{"forgedResult": true}', "_save": "Save",
         })
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.url.startswith(reverse("admin:login") + "?next="))
         self.assertEqual(self.task_snapshot(), before)
 
     def test_admin_cannot_manually_create_tasks(self):

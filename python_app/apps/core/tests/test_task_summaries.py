@@ -32,7 +32,7 @@ class TaskSummaryTests(TestCase):
         with CaptureQueriesContext(connection) as queries:
             response = self.client.get(self.url)
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(queries), 2)
+        self.assertEqual(len(queries), 3)  # Two reads and one access-evidence insert.
         row = response.data["results"][0]
         self.assertEqual(row["id"], task.pk)
         for field in ("result", "input_parameters", "source_releases"):
@@ -88,10 +88,10 @@ class TaskSummaryTests(TestCase):
         self.assertIsNotNone(first["next"])
         self.assertIsNone(second["next"])
 
-    def test_twenty_summaries_use_two_queries_without_source_prefetch(self):
+    def test_twenty_summaries_use_two_reads_and_one_audit_without_source_prefetch(self):
         for _ in range(20):
             self.task()
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(3):
             response = self.client.get(self.url)
         self.assertEqual(len(response.data["results"]), 20)
 

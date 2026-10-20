@@ -1,5 +1,6 @@
 """Read-only platform overview migrated from the main branch admin page."""
 
+from itertools import chain
 from django.contrib.auth import get_user_model
 from django.db.models import Count, IntegerField, OuterRef, Subquery, Value
 from django.db.models.functions import Coalesce
@@ -10,6 +11,7 @@ from rest_framework.views import APIView
 
 from apps.core.models import AnalysisTask, MedicalCase, ResearchDataset
 from apps.core.permissions import IsPlatformAdministrator
+from apps.core.services.access_audit import mark_sensitive_access
 
 
 class AdminOverviewUserSerializer(serializers.Serializer):
@@ -91,8 +93,10 @@ class AdminOverviewView(APIView):
         ).order_by("-date_joined", "-id")
         datasets = ResearchDataset.objects.select_related("owner").order_by("-created_at", "-id")[:10]
         tasks = AnalysisTask.objects.select_related("owner").order_by("-created_at", "-id")[:10]
-        return Response(
+        response = Response(
             AdminOverviewSerializer(
                 {"users": users, "datasets": datasets, "tasks": tasks}
             ).data
         )
+        mark_sensitive_access(request, operation="admin_overview.view", action="view", resources=chain(users, datasets, tasks))
+        return response

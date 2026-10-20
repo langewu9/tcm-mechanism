@@ -11,3 +11,13 @@ class TaskQueueUnavailable(APIException):
     status_code = 503
     default_code = "task_queue_unavailable"
     default_detail = "任务队列暂不可用，请稍后重试。"
+
+
+class UploadQuotaExceeded(APIException):
+    status_code = 409
+    default_code = "upload_quota_exceeded"
+    default_detail = "上传额度不足，请联系平台管理员调整额度；已有数据会继续保留。"
+
+    def __init__(self, usage):
+        self.usage = usage
+        super().__init__()
