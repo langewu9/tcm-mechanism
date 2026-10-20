@@ -14,6 +14,21 @@ class PlatformAdminAuthenticationForm(AdminAuthenticationForm):
 
 class PlatformAdminSite(AdminSite):
     login_form = PlatformAdminAuthenticationForm
+    index_template = "admin/platform_index.html"
+
+    def get_urls(self):
+        from django.urls import path
+        from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
+        from apps.core.permissions import IsPlatformAdministrator
+
+        return [
+            path("platform-api/schema/", self.admin_view(SpectacularAPIView.as_view(
+                permission_classes=[IsPlatformAdministrator],
+            )), name="platform-api-schema"),
+            path("platform-api/", self.admin_view(SpectacularSwaggerView.as_view(
+                url_name="admin:platform-api-schema", permission_classes=[IsPlatformAdministrator],
+            )), name="platform-api-docs"),
+        ] + super().get_urls()
 
     def has_permission(self, request):
         return super().has_permission(request) and request.user.is_superuser
