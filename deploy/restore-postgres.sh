@@ -28,8 +28,8 @@ if [[ "$ANSWER" != "RESTORE" ]]; then
 fi
 
 COMPOSE=(docker compose --env-file "$ENV_FILE" -f "$ROOT_DIR/deploy/compose.production.yml")
-"${COMPOSE[@]}" stop nginx api worker
+"${COMPOSE[@]}" --profile scheduler stop nginx api worker beat setup
 "${COMPOSE[@]}" exec -T postgres sh -c \
-  'PGPASSWORD="$POSTGRES_PASSWORD" pg_restore --clean --if-exists --no-owner --exit-on-error -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -' \
+  'PGPASSWORD="$POSTGRES_PASSWORD" pg_restore --clean --if-exists --no-owner --exit-on-error --single-transaction -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -' \
   < "$BACKUP"
 echo "Database restore finished. Review PostgreSQL logs, then start services with docker compose up -d."

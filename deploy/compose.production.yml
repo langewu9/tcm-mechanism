@@ -26,6 +26,9 @@ x-django-environment: &django-environment
   CACHE_URL: redis://:${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env.production}@redis:6379/1
   DJANGO_LOGIN_IP_RATE: ${DJANGO_LOGIN_IP_RATE:-30/min}
   DJANGO_LOGIN_ACCOUNT_RATE: ${DJANGO_LOGIN_ACCOUNT_RATE:-10/min}
+  DJANGO_USER_RATE: ${DJANGO_USER_RATE:-600/min}
+  DJANGO_RESEARCH_SUBMISSION_RATE: ${DJANGO_RESEARCH_SUBMISSION_RATE:-120/hour}
+  API_REQUEST_MAX_BYTES: ${API_REQUEST_MAX_BYTES:-1048576}
   SOURCE_SCHEDULED_PREVIEWS_ENABLED: ${SOURCE_SCHEDULED_PREVIEWS_ENABLED:-false}
   S3_STORAGE_ENABLED: "true"
   S3_BUCKET_NAME: ${S3_BUCKET_NAME:?Set S3_BUCKET_NAME in .env.production}
@@ -95,17 +98,32 @@ services:
       start_period: 60s
     networks: [visualization]
 
+  setup:
+    build: *python-build
+    command: ["sh", "-c", "python manage.py check --deploy --fail-level WARNING && python manage.py migrate --noinput && python manage.py collectstatic --noinput"]
+    environment: *django-environment
+    volumes:
+      - django_static:/app/staticfiles
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks: [data]
+
   api:
     build: *python-build
     restart: unless-stopped
-    command: ["sh", "-c", "python manage.py migrate --noinput && python manage.py collectstatic --noinput && exec gunicorn config.wsgi:application --bind 0.0.0.0:8020 --workers 3 --timeout 120 --access-logfile - --error-logfile -"]
+    command: ["gunicorn", "--config", "python:config.gunicorn", "config.wsgi:application"]
     environment:
       <<: *django-environment
       MEDIA_ROOT: /app/var/media
     volumes:
-      - django_static:/app/staticfiles
+      - django_static:/app/staticfiles:ro
     expose: ["8020"]
     depends_on:
+      setup:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
@@ -131,6 +149,8 @@ services:
       DEFAULT_FROM_EMAIL: ""
       ADMIN_NOTIFICATION_EMAILS: ""
     depends_on:
+      setup:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:

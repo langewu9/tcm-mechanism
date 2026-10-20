@@ -4,6 +4,8 @@
 
 ## 当前架构
 
+2026-10-20 基础框架已补充安全 JSON 错误边界、私有响应禁止缓存、输入/共享限流、列表查询优化和独立部署初始化。升级后的 SQLite/PostgreSQL 各 413 项回归通过，本机 Nginx/Gunicorn/TLS 链路通过；UI 样式产物未变。已完成项、依赖公告和未验收范围见 [`docs/framework-audit-2026-10-20.md`](docs/framework-audit-2026-10-20.md)。修改仅保存在本地 Git，未推送。
+
 2026-10-20 业务核验发现并修复共享成分导致中药记录串联、非法 FDR 回退放行；当前 395 项 PostgreSQL/SQLite 回归通过，身份确认仍缺物种和权威目录依据。范围和 main 对照记录见 [`docs/business-result-audit-2026-10-20.md`](docs/business-result-audit-2026-10-20.md)。
 
 2026-10-20 已完成独立 PostgreSQL 本地链路、HIT 原始编号样本与备份恢复演练；当前结果和未完成范围见 [`docs/postgres-acceptance-2026-10-20.md`](docs/postgres-acceptance-2026-10-20.md)。本轮没有改动页面布局或推送远程。

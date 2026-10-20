@@ -135,6 +135,9 @@ STORAGES = {
     },
 }
 DATASET_UPLOAD_MAX_BYTES = env.int("DATASET_UPLOAD_MAX_BYTES", default=100 * 1024 * 1024)
+DATA_UPLOAD_MAX_MEMORY_SIZE = env.int("API_REQUEST_MAX_BYTES", default=1024 * 1024)
+FILE_UPLOAD_MAX_MEMORY_SIZE = 2 * 1024 * 1024
+DATA_UPLOAD_MAX_NUMBER_FILES = 1
 PROTEOMICS_MAX_ROWS = env.int("PROTEOMICS_MAX_ROWS", default=25_000)
 PROTEOMICS_MAX_COLUMNS = env.int("PROTEOMICS_MAX_COLUMNS", default=250)
 PROTEOMICS_MAX_CELLS = env.int("PROTEOMICS_MAX_CELLS", default=1_000_000)
@@ -165,6 +168,10 @@ SECURE_REFERRER_POLICY = "same-origin"
 SECURE_HSTS_SECONDS = env.int("DJANGO_SECURE_HSTS_SECONDS", default=0)
 SECURE_HSTS_INCLUDE_SUBDOMAINS = env.bool("DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS", default=False)
 SECURE_HSTS_PRELOAD = env.bool("DJANGO_SECURE_HSTS_PRELOAD", default=False)
+# Subdomain coverage and browser preloading require a domain owner's explicit
+# decision. Keep HSTS for this host without requiring these optional policies.
+# All other deployment warnings still fail the production setup check.
+SILENCED_SYSTEM_CHECKS = ["security.W005", "security.W021"]
 if env.bool("DJANGO_USE_X_FORWARDED_PROTO", default=False):
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
@@ -178,6 +185,15 @@ REST_FRAMEWORK = {
     "EXCEPTION_HANDLER": "config.api_errors.api_exception_handler",
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework.authentication.SessionAuthentication",
+    ],
+    "DEFAULT_PARSER_CLASSES": [
+        "config.parsers.BoundedJSONParser",
+        "rest_framework.parsers.FormParser",
+        "rest_framework.parsers.MultiPartParser",
+    ],
+    "DEFAULT_THROTTLE_CLASSES": [
+        "apps.core.throttling.PlatformUserThrottle",
+        "apps.core.throttling.ResearchSubmissionThrottle",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
@@ -196,6 +212,8 @@ REST_FRAMEWORK = {
         "chembl": "10/hour",
         "login_ip": env("DJANGO_LOGIN_IP_RATE", default="30/min"),
         "login_account": env("DJANGO_LOGIN_ACCOUNT_RATE", default="10/min"),
+        "platform_user": env("DJANGO_USER_RATE", default="600/min"),
+        "research_submission": env("DJANGO_RESEARCH_SUBMISSION_RATE", default="120/hour"),
     },
 }
 

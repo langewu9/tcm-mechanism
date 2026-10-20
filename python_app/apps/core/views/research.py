@@ -70,7 +70,7 @@ class ResearchDatasetViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         if getattr(self, "swagger_fake_view", False):
             return ResearchDataset.objects.none()
-        queryset = ResearchDataset.objects.all()
+        queryset = ResearchDataset.objects.select_related("owner")
         if not self.request.user.is_superuser:
             queryset = queryset.filter(owner=self.request.user)
         query = self.request.query_params.get("q", "").strip() if self.action == "list" else ""
@@ -165,7 +165,7 @@ class MedicalCaseViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         if getattr(self, "swagger_fake_view", False):
             return MedicalCase.objects.none()
-        queryset = MedicalCase.objects.all()
+        queryset = MedicalCase.objects.select_related("owner", "reviewed_by")
         if not self.request.user.is_superuser:
             queryset = queryset.filter(owner=self.request.user)
         query = self.request.query_params.get("q", "").strip() if self.action == "list" else ""
@@ -424,7 +424,7 @@ class AnalysisTaskViewSet(viewsets.ReadOnlyModelViewSet):
     def get_queryset(self):
         if getattr(self, "swagger_fake_view", False):
             return AnalysisTask.objects.none()
-        queryset = AnalysisTask.objects.select_related("dataset", "medical_case", "owner", "created_by")
+        queryset = AnalysisTask.objects.select_related("owner", "created_by").prefetch_related("source_releases")
         if not self.request.user.is_superuser:
             queryset = queryset.filter(owner=self.request.user)
         return queryset
