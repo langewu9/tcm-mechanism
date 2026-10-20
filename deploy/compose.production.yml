@@ -24,6 +24,7 @@ x-django-environment: &django-environment
   DATABASE_URL: postgres://tcm_platform:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.production}@postgres:5432/tcm_platform
   CELERY_BROKER_URL: redis://:${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env.production}@redis:6379/0
   CACHE_URL: redis://:${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env.production}@redis:6379/1
+  RUNTIME_LOG_DIR: /app/var/runtime-logs
   DJANGO_LOGIN_IP_RATE: ${DJANGO_LOGIN_IP_RATE:-30/min}
   DJANGO_LOGIN_ACCOUNT_RATE: ${DJANGO_LOGIN_ACCOUNT_RATE:-10/min}
   DJANGO_USER_RATE: ${DJANGO_USER_RATE:-600/min}
@@ -122,6 +123,7 @@ services:
       MEDIA_ROOT: /app/var/media
     volumes:
       - django_static:/app/staticfiles:ro
+      - runtime_logs:/app/var/runtime-logs
     expose: ["8020"]
     depends_on:
       setup:
@@ -150,6 +152,8 @@ services:
       EMAIL_HOST_PASSWORD: ""
       DEFAULT_FROM_EMAIL: ""
       ADMIN_NOTIFICATION_EMAILS: ""
+    volumes:
+      - runtime_logs:/app/var/runtime-logs
     depends_on:
       setup:
         condition: service_completed_successfully
@@ -208,6 +212,7 @@ volumes:
   redis_data:
   django_static:
   celery_schedule:
+  runtime_logs:
 
 networks:
   edge:

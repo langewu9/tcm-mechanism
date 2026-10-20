@@ -66,6 +66,7 @@ services:
       - "127.0.0.1:8020:8020"
     volumes:
       - tcm_platform_media:/app/var/media
+      - tcm_platform_runtime_logs:/app/var/runtime-logs
       - ../var/source-databases:/app/var/source-databases:ro
     depends_on:
       postgres:
@@ -98,6 +99,7 @@ services:
       CASE_ANALYSIS_MAX_INPUT_CHARS: ${CASE_ANALYSIS_MAX_INPUT_CHARS:-20000}
     volumes:
       - tcm_platform_media:/app/var/media
+      - tcm_platform_runtime_logs:/app/var/runtime-logs
       - ../var/source-databases:/app/var/source-databases:ro
     depends_on:
       postgres:
@@ -137,6 +139,7 @@ volumes:
   tcm_platform_redisdata:
   tcm_platform_media:
   tcm_platform_celery_schedule:
+  tcm_platform_runtime_logs:
 
 networks:
   visualization:

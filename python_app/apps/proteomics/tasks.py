@@ -4,6 +4,8 @@ from celery import shared_task
 from django.db import transaction
 from django.utils import timezone
 
+from config.runtime_logs import record_runtime_event
+
 from apps.core.models import AnalysisTask
 from apps.proteomics.models import ProteomicsRowResult
 from apps.proteomics.integrations import (
@@ -99,10 +101,12 @@ def run_proteomics_task(task_id: int) -> dict[str, str | int]:
             locked_task.source_releases.set(release_ids)
         return {"status": AnalysisTask.Status.SUCCEEDED, "taskId": task_id}
     except ProteomicsInputError as exc:
+        record_runtime_event("proteomics.rejected", task_id=task_id, exception=exc)
         public_message = str(exc)
         logger.info("Proteomics input rejected task_id=%s reason=%s", task_id, public_message)
         status = AnalysisTask.Status.FAILED
-    except Exception:
+    except Exception as exc:
+        record_runtime_event("proteomics.failed", task_id=task_id, exception=exc)
         logger.exception("Proteomics analysis failed task_id=%s", task_id)
         public_message = "分析失败，请核对输入后重试，或联系平台管理员并提供任务编号。"
         status = AnalysisTask.Status.FAILED

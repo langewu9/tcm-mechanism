@@ -90,6 +90,8 @@ STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 MEDIA_ROOT = (BASE_DIR / env("MEDIA_ROOT", default="var/media")).resolve()
 MEDIA_URL = "media/"
+# Private operational diagnostics, separate from uploads and the business DB.
+RUNTIME_LOG_DIR = Path(env("RUNTIME_LOG_DIR", default=str(BASE_DIR / "var/runtime-logs")))
 PUBLIC_BASE_URL = env(
     "PUBLIC_BASE_URL",
     default="http://127.0.0.1:5173" if DEBUG else "",

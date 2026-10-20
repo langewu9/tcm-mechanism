@@ -17,6 +17,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from config.runtime_logs import record_runtime_event
+
 from ..exceptions import ResourceConflict, TaskQueueUnavailable
 from ..models import AnalysisTask, KnowledgeEntity, MedicalCase, MedicalCaseAuditEvent, MedicalCaseCandidate, ResearchDataset, VisualizationArtifact
 from ..serializers import AnalysisTaskSerializer, CaseAnalysisRequestSerializer, CaseCandidateReviewRequestSerializer, MedicalCaseAuditEventSerializer, MedicalCaseCandidateSerializer, MedicalCaseSerializer, ResearchAssistantRequestSerializer, ResearchDashboardSerializer, ResearchDatasetSerializer, VisualizationRequestSerializer
@@ -164,6 +166,7 @@ class ResearchDatasetViewSet(SensitiveReadAuditMixin, viewsets.ModelViewSet):
 
             run_proteomics_task.apply_async(args=[task.pk])
         except Exception as exc:
+            record_runtime_event("task.queue_unavailable", request=request, task_id=task.pk, exception=exc)
             task.status = AnalysisTask.Status.FAILED
             task.progress = 100
             task.error_summary = "任务队列暂不可用，请稍后重试。"
@@ -349,6 +352,7 @@ class MedicalCaseViewSet(SensitiveReadAuditMixin, viewsets.ModelViewSet):
 
             run_case_analysis_task.apply_async(args=[task.pk])
         except Exception as exc:
+            record_runtime_event("task.queue_unavailable", request=request, task_id=task.pk, exception=exc)
             task.status = AnalysisTask.Status.FAILED
             task.progress = 100
             task.error_summary = "医案分析任务队列暂不可用，请稍后重试。"
@@ -488,6 +492,7 @@ class AnalysisTaskViewSet(SensitiveReadAuditMixin, viewsets.ReadOnlyModelViewSet
 
                 run_visualization_task.apply_async(args=[task.pk])
             except Exception as exc:
+                record_runtime_event("task.queue_unavailable", request=request, task_id=task.pk, exception=exc)
                 task.status = AnalysisTask.Status.FAILED
                 task.progress = 100
                 task.error_summary = "R 图表任务队列暂不可用，请稍后重试。"
@@ -598,6 +603,7 @@ class ResearchAssistantView(APIView):
 
             run_research_assistant_task.apply_async(args=[task.pk])
         except Exception as exc:
+            record_runtime_event("task.queue_unavailable", request=request, task_id=task.pk, exception=exc)
             task.status = AnalysisTask.Status.FAILED
             task.progress = 100
             task.error_summary = "科研助手任务队列暂不可用，请稍后重试。"

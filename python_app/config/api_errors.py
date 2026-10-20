@@ -11,6 +11,8 @@ from django.utils.cache import patch_cache_control, patch_vary_headers
 from django.views.csrf import csrf_failure as default_csrf_failure
 from rest_framework.views import exception_handler as drf_exception_handler
 
+from config.runtime_logs import record_runtime_event
+
 logger = logging.getLogger(__name__)
 
 
@@ -102,10 +104,12 @@ class ApiErrorEnvelopeMiddleware:
                 ))
         try:
             response = self.get_response(request)
-        except Exception:
+        except Exception as exc:
             if not request.path.startswith("/api/"):
                 raise
             logger.exception("Unhandled API exception request_id=%s", request.request_id)
+            record_runtime_event("api.unhandled", request=request, exception=exc, status_code=500)
+            request.runtime_error_recorded = True
             response = api_json_error(
                 request,
                 code="INTERNAL_ERROR",
@@ -126,6 +130,8 @@ class ApiErrorEnvelopeMiddleware:
                 "Unhandled API exception request_id=%s type=%s",
                 request_id_for(request), type(exception).__name__,
             )
+            record_runtime_event("api.unhandled", request=request, exception=exception, status_code=500)
+            request.runtime_error_recorded = True
             return api_json_error(
                 request, code="INTERNAL_ERROR",
                 message="服务器暂时无法处理请求，请稍后重试。", status_code=500
@@ -155,6 +161,8 @@ class ApiErrorEnvelopeMiddleware:
                     if header in original:
                         response[header] = original[header]
         if request.path.startswith("/api/"):
+            if response.status_code >= 500 and not getattr(request, "runtime_error_recorded", False):
+                record_runtime_event("api.server_error", request=request, status_code=response.status_code)
             patch_cache_control(response, private=True, no_store=True)
             patch_vary_headers(response, ["Cookie"])
         response["X-Request-ID"] = request.request_id
