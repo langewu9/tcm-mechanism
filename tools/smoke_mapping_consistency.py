@@ -39,7 +39,8 @@ def main():
         "thresholds": {"log2FcMin": 1, "fdrMax": 0.05, "pValueMax": 0.05},
         "externalReactome": False, "externalString": False, "externalGProfiler": False}, expected=202)
     task = wait_task(owner, queued["id"])
-    assert task["result"]["algorithmVersion"] == "proteomics-py-1.7", "Restart the local worker before this test."
+    from apps.proteomics.services import ALGORITHM_VERSION
+    assert task["result"]["algorithmVersion"] == ALGORITHM_VERSION, "Restart the local worker before this test."
     summary = task["result"]["summary"]
     assert summary["selectedRowCount"] == 3 and summary["databaseMappedCount"] == 0
     assert summary["normalizedCount"] == 1 and summary["unverifiedSymbolCount"] == 1 and summary["unmappedCount"] == 2

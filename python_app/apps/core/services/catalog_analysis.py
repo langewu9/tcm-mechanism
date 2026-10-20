@@ -38,7 +38,9 @@ def save_catalog_analysis(*, user, query_type, queries, expected_sha256):
         raise ValueError("本次检索没有可保存的中药—成分—靶点关系。")
     nodes = [{"id": f"entity:{pk}", "label": entities[pk]["label"], "type": entities[pk]["type"],
               "stableId": entities[pk]["stableId"], "entityId": pk,
-              "sourceReleaseId": entities[pk]["sourceReleaseId"]} for pk in sorted(used)]
+              "sourceReleaseId": entities[pk]["sourceReleaseId"],
+              **{key: entities[pk][key] for key in ("sourceEntityId", "sourceReferences", "identifierStatus", "organism")}}
+             for pk in sorted(used)]
     links = [{"source": f"entity:{record['subjectId']}", "target": f"entity:{record['objectId']}",
               "relation": record["relationType"], "sourceRecordId": record["sourceRecordId"],
               "sourceSlug": record["sourceSlug"], "sourceVersion": record["sourceVersion"],
@@ -50,7 +52,7 @@ def save_catalog_analysis(*, user, query_type, queries, expected_sha256):
         task = AnalysisTask.objects.create(
             owner=user, created_by=user, task_type=AnalysisTask.TaskType.NETWORK,
             status=AnalysisTask.Status.SUCCEEDED, progress=100, started_at=now, finished_at=now,
-            input_parameters={"analysisKind": "catalog_evidence", "algorithmVersion": "catalog-evidence-0.1",
+            input_parameters={"analysisKind": "catalog_evidence", "algorithmVersion": "catalog-evidence-0.2",
                               "queryType": query_type, "queries": queries, "resultSha256": expected_sha256},
             result={"analysisKind": "catalog_evidence", "queryType": query_type, "queries": queries,
                     "resultSha256": expected_sha256, "capturedAt": now.isoformat(),

@@ -488,7 +488,7 @@ class ProteomicsServiceTests(TestCase):
         self.assertEqual(outcome["status"], AnalysisTask.Status.SUCCEEDED)
         self.assertEqual(self.task.status, AnalysisTask.Status.SUCCEEDED)
         self.assertEqual(self.task.progress, 100)
-        self.assertEqual(self.task.result["algorithmVersion"], "proteomics-py-1.7")
+        self.assertEqual(self.task.result["algorithmVersion"], "proteomics-py-1.8")
         self.assertEqual(ProteomicsRowResult.objects.filter(task=self.task).count(), 6)
         self.assertEqual(list(self.task.source_releases.values_list("id", flat=True)), [self.release.pk])
         self.assertEqual(run_proteomics_task.run(self.task.pk)["status"], "skipped")

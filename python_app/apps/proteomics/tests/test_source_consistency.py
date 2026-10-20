@@ -121,3 +121,17 @@ class ProteomicsSourceConsistencyTests(TestCase):
         self.assertTrue(rows[0].external_identifiers)
         self.assertIn(self.release.pk, releases)
         self.assertIn(release.pk, releases)
+
+    def test_source_reported_ids_are_exported_as_unverified_and_never_promoted_to_aliases(self):
+        self.entity(metadata={"identifierStatus": "unverified_symbol", "symbol": "TP53", "sourceEntityId": "T-fixture",
+                              "sourceReferences": [{"namespace": "uniprot", "identifier": "P04637",
+                                                    "status": "source_reported_unverified"}]})
+        result, rows, _ = self.analyze("TP53")
+        self.assertEqual(rows[0].mapping_status, ProteomicsRowResult.MappingStatus.UNVERIFIED)
+        references = {item["namespace"]: item for item in rows[0].external_identifiers}
+        self.assertEqual(references["source_entity"]["identifier"], "T-fixture")
+        self.assertEqual(references["source_reported_uniprot"]["verificationStatus"], "source_reported_unverified")
+        self.assertNotIn("uniprot", references)
+        self.assertEqual(result["summary"]["databaseMappedCount"], 0)
+        _, accession_rows, _ = self.analyze("P04637")
+        self.assertIsNone(accession_rows[0].matched_entity)

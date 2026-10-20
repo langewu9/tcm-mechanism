@@ -28,7 +28,7 @@ from apps.proteomics.models import ProteomicsRowResult
 from apps.proteomics.raw_matrix import analyze_raw_matrix
 
 
-ALGORITHM_VERSION = "proteomics-py-1.7"
+ALGORITHM_VERSION = "proteomics-py-1.8"
 MAX_CELL_CHARACTERS = 50_000
 MAX_XLSX_EXPANDED_BYTES = 512 * 1024 * 1024
 PATHWAY_RELATION_TYPES = {
@@ -478,6 +478,23 @@ def _stable_identifiers_for_entity(entity: KnowledgeEntity) -> list[dict[str, An
         "sourceVersion": identifier.source_release.version,
         "sourceReleaseId": identifier.source_release_id,
     } for identifier in entity.identifiers.all())
+    metadata = entity.metadata if isinstance(entity.metadata, dict) else {}
+    if source_release and metadata.get("sourceEntityId"):
+        identifiers.append({"namespace": "source_entity", "identifier": metadata["sourceEntityId"],
+                            "source": source_release.source.slug, "sourceVersion": source_release.version,
+                            "sourceReleaseId": source_release.pk, "verificationStatus": "source_reported"})
+        # Preserve source claims for review/export without adding them to the
+        # alias lookup or the globally unique canonical identifier table.
+        references = metadata.get("sourceReferences", [])
+        for reference in references[:16] if isinstance(references, list) else []:
+            if not isinstance(reference, dict) or reference.get("namespace") not in {"uniprot", "pubchem", "chembl"}:
+                continue
+            identifier = reference.get("identifier")
+            if not isinstance(identifier, str) or not 1 <= len(identifier) <= 160:
+                continue
+            identifiers.append({"namespace": "source_reported_" + reference["namespace"], "identifier": identifier,
+                                "source": source_release.source.slug, "sourceVersion": source_release.version,
+                                "sourceReleaseId": source_release.pk, "verificationStatus": "source_reported_unverified"})
     unique = {}
     for identifier in identifiers:
         key = (identifier["namespace"], identifier["identifier"], identifier["source"], identifier["sourceVersion"])

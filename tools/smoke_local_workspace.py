@@ -19,7 +19,10 @@ VAR = ROOT / "python_app/var"
 
 
 class LocalClient:
-    def __init__(self, account):
+    def __init__(self, account, *, base_url=BASE, csrf_cookie_name="csrftoken"):
+        assert base_url in {BASE, "http://127.0.0.1:5174", "http://127.0.0.1:8021"}, "Local acceptance endpoints only."
+        self.base = base_url
+        self.csrf_cookie_name = csrf_cookie_name
         self.cookies = http.cookiejar.CookieJar()
         self.http = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(self.cookies))
         self.request("/api/v1/auth/csrf/")
@@ -28,9 +31,9 @@ class LocalClient:
 
     def request(self, path, *, method="GET", data=None, raw=None, content_type="application/json", expected=200):
         assert path.startswith("/") and not path.startswith("//"), "Only same-origin localhost requests are permitted."
-        token = next((item.value for item in self.cookies if item.name == "csrftoken"), "")
+        token = next((item.value for item in self.cookies if item.name == self.csrf_cookie_name), "")
         body = json.dumps(data).encode() if data is not None else raw
-        request = urllib.request.Request(BASE + path, data=body, method=method, headers={"Content-Type": content_type, "Origin": BASE, "Referer": BASE + "/", "X-CSRFToken": token})
+        request = urllib.request.Request(self.base + path, data=body, method=method, headers={"Content-Type": content_type, "Origin": self.base, "Referer": self.base + "/", "X-CSRFToken": token})
         try:
             response = self.http.open(request, timeout=25)
         except urllib.error.HTTPError as error:

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Iterator
 
 from django.conf import settings
+from apps.sources.legacy_identity import read_identity_record
 
 
 BATCH_SIZE = 250
@@ -47,6 +48,13 @@ def validate_sqlite_source_config(config: dict) -> dict[str, str]:
     if not isinstance(target_mode, str) or target_mode not in {"single", "list"}:
         raise SQLiteSourceError("靶点字段内容必须选择 single 或 list。")
     parsed["targetCellMode"] = target_mode
+    metadata_column = config.get("rowMetadataColumn")
+    if metadata_column:
+        if not isinstance(metadata_column, str) or not _IDENTIFIER.fullmatch(metadata_column):
+            raise SQLiteSourceError("来源身份元数据列名无效。")
+        if target_mode != "single":
+            raise SQLiteSourceError("来源身份元数据要求 single 模式，避免将一个编号关联多个靶点。")
+        parsed["rowMetadataColumn"] = metadata_column
     for key, label in expected.items():
         value = config.get(key)
         if not isinstance(value, str) or not value.strip():
@@ -159,6 +167,8 @@ def inspect_sqlite_source(configuration: dict) -> SQLiteSourceSnapshot:
             if not table_columns:
                 raise SQLiteSourceError(f"指定的数据表“{table}”不存在或没有可读取字段。")
             required = {config[key] for key in column_keys}
+            if table_key == "table" and config.get("rowMetadataColumn"):
+                required.add(config["rowMetadataColumn"])
             missing = required - set(table_columns)
             if missing:
                 raise SQLiteSourceError(f"数据表“{table}”缺少所需字段：{', '.join(sorted(missing))}。")
@@ -177,12 +187,13 @@ def inspect_sqlite_source(configuration: dict) -> SQLiteSourceSnapshot:
     return SQLiteSourceSnapshot(checksum, path.stat().st_size, row_count, tuple(columns), table_row_counts)
 
 
-def iter_source_rows(configuration: dict) -> Iterator[tuple[int, object, object, object]]:
+def iter_source_rows(configuration: dict, *, include_metadata=False) -> Iterator[tuple]:
     path, config = _source_path(configuration)
     connection = _connect(path)
+    extra_column = f", {_quoted(config['rowMetadataColumn'])}" if include_metadata and config.get("rowMetadataColumn") else ""
     query = (
         f"SELECT rowid AS __source_rowid, {_quoted(config['herbColumn'])}, "
-        f"{_quoted(config['compoundColumn'])}, {_quoted(config['targetColumn'])} "
+        f"{_quoted(config['compoundColumn'])}, {_quoted(config['targetColumn'])}{extra_column} "
         f"FROM {_quoted(config['table'])} WHERE rowid > ? ORDER BY rowid LIMIT ?"
     )
     cursor = -(2**63)
@@ -197,15 +208,22 @@ def iter_source_rows(configuration: dict) -> Iterator[tuple[int, object, object,
             for row in rows:
                 row_id = int(row[0])
                 cursor = row_id
-                yield row_id, row[1], row[2], row[3]
+                if extra_column:
+                    try:
+                        metadata = read_identity_record(row[4], row_id)
+                    except ValueError as exc:
+                        raise SQLiteSourceError(str(exc)) from exc
+                    yield row_id, row[1], row[2], row[3], metadata
+                else:
+                    yield row_id, row[1], row[2], row[3]
     finally:
         connection.close()
 
 
-def iter_configured_rows(configuration: dict) -> Iterator[tuple[str, int, object, object, object]]:
+def iter_configured_rows(configuration: dict, *, include_metadata=False) -> Iterator[tuple]:
     """Yield rows from the three-table schema produced by main's cache_builder.py."""
     _, config = _source_path(configuration)
-    yield from (("herb", *row) for row in iter_source_rows(configuration))
+    yield from (("herb", *row) for row in iter_source_rows(configuration, include_metadata=include_metadata))
     table_specs = (
         ("diseaseTarget", "diseaseTargetTable", "diseaseColumn", "diseaseTargetColumn", "diseaseSourceColumn"),
         ("diseaseHerbTarget", "diseaseHerbTargetTable", "diseaseHerbColumn", "diseaseHerbHerbColumn", "diseaseHerbTargetColumn"),

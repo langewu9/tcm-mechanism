@@ -4,6 +4,8 @@
 
 ## 当前架构
 
+2026-10-20 已完成独立 PostgreSQL 本地链路、HIT 原始编号样本与备份恢复演练；当前结果和未完成范围见 [`docs/postgres-acceptance-2026-10-20.md`](docs/postgres-acceptance-2026-10-20.md)。本轮没有改动页面布局或推送远程。
+
 2026-10-19 本轮改动、对应模块位置、验证结果及更新注意事项见 [`docs/changes-2026-10-19.md`](docs/changes-2026-10-19.md)。
 
 最新本地修补、服务启动、验收结果与待接依赖见 [`docs/local-acceptance-2026-10-19.md`](docs/local-acceptance-2026-10-19.md)；研究资料归档规则见 [`docs/research-retention.md`](docs/research-retention.md)。

@@ -48,6 +48,7 @@ def _visible_relations(
 
 def _entity_record(entity: KnowledgeEntity) -> dict:
     release = entity.source_release
+    metadata = entity.metadata if isinstance(entity.metadata, dict) else {}
     return {
         "id": entity.pk,
         "stableId": entity.stable_id,
@@ -55,10 +56,15 @@ def _entity_record(entity: KnowledgeEntity) -> dict:
         "sourceReleaseId": entity.source_release_id,
         "sourceSlug": release.source.slug if release else None,
         "sourceVersion": release.version if release else None,
+        "sourceEntityId": metadata.get("sourceEntityId"),
+        "sourceReferences": metadata.get("sourceReferences", []),
+        "identifierStatus": metadata.get("identifierStatus"),
+        "organism": entity.organism,
     }
 
 
 def _relation_record(relation: EvidenceRelation) -> dict:
+    metadata = relation.metadata if isinstance(relation.metadata, dict) else {}
     return {
         "id": relation.pk,
         "subjectId": relation.subject_id,
@@ -73,6 +79,8 @@ def _relation_record(relation: EvidenceRelation) -> dict:
         "sourceSlug": relation.source_release.source.slug,
         "sourceVersion": relation.source_release.version,
         "sourceRecordId": relation.source_record_id,
+        "sourceOrigin": metadata.get("sourceOrigin"),
+        "sourceIdentity": metadata.get("sourceIdentity"),
         "score": float(relation.score) if relation.score is not None else None,
     }
 
