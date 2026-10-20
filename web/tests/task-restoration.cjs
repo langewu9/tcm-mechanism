@@ -13,7 +13,7 @@ subject.require=name=>{
   };
 };
 subject._compile(ts.transpileModule(fs.readFileSync(filename,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,filename);
-const {restoreProteomicsTasks,restoreGalleryJobs}=subject.exports;
+const {restoreProteomicsTasks,restoreGalleryJobs,restoreLatestAssistantTask}=subject.exports;
 const summary=(id,type='visualization',parent=10,key='proteomics_volcano')=>({
   id,task_type:type,parent_task:parent,status:'succeeded',
   display_parameters:{analysisKind:'r_visualization',parentTaskId:String(parent),chartKey:key},
@@ -24,6 +24,9 @@ function reset(values){rows=values;requested=[];listError=null;details=new Map(v
 }]));}
 (async()=>{
   reset([]);assert.equal((await restoreProteomicsTasks()).task,null);assert.deepEqual(requested,[]);
+  assert.equal(await restoreLatestAssistantTask(),null);
+  reset([summary(50,'research_assistant',null),summary(49,'research_assistant',null)]);
+  assert.equal((await restoreLatestAssistantTask()).id,50);assert.deepEqual(requested,[50]);
   reset([summary(17,'network',null),summary(16,'visualization',10,'unneeded-chart'),summary(15,'visualization',99),
     summary(14,'visualization',10,'proteomics_go_kegg_enrichment'),summary(13),summary(12),summary(10,'proteomics',null),summary(5,'proteomics',null)]);
   const restored=await restoreProteomicsTasks();

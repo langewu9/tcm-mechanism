@@ -30,6 +30,9 @@ async function rejects(action, code, status) {
   await getAnalysisTaskSummaries(2,41);
   assert.equal(calls[0].url,'/api/v1/research/analysis-tasks/summaries/?page=2&parent_task=41&task_type=visualization');
   assert.equal(calls[0].options.credentials,'same-origin');
+  reset([json({count:0,next:null,previous:null,results:[]})]);
+  await getAnalysisTaskSummaries(1,undefined,'research_assistant');
+  assert.equal(calls[0].url,'/api/v1/research/analysis-tasks/summaries/?page=1&task_type=research_assistant');
   for (const [action, endpoint, body] of [
     [() => runReactomeEnrichment(41), '/api/v1/analysis/pathway-enrichment/', {source_task_id:41,consent:true}],
     [() => runStringNetwork(41,700), '/api/v1/analysis/string-network/', {source_task_id:41,required_score:700,consent:true}],

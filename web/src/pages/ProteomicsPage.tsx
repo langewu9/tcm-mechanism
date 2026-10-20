@@ -620,7 +620,7 @@ function ProteomicsResultView({
       <p>{result.unmapped.join("、")}{result.unmappedTruncated ? "……（其余可在逐行 QC 中查看）" : ""}</p></details>}
 
     <section className="proteomics-result-section">
-      <div className="case-list-heading"><div><h3 className="section-title-sm">逐行筛选结果</h3><p className="section-help">任务共处理 {result.qc.inputRowCount} 行；当前预览 {result.rows.length} 行。</p></div>
+      <div className="case-list-heading"><div><h3 className="section-title-sm">逐行筛选结果</h3><p className="section-help">任务共处理 {result.qc.inputRowCount} 行；{showRows && !rowPage ? "正在读取逐行结果…" : `当前显示 ${showRows ? rowPage?.results.length ?? 0 : Math.min(result.rows.length, 20)} 行。`}</p></div>
         <button className="btn btn-secondary" type="button" onClick={onToggleRows}>{showRows ? "收起完整结果" : "查看逐行 QC"}</button></div>
       {!showRows && <div className="table-scroll"><table className="data-table"><thead><tr><th>原始标识</th><th>规范标识</th><th>稳定 ID</th><th>映射状态</th><th>log2FC</th><th>FDR</th><th>方向</th></tr></thead><tbody>
         {result.rows.slice(0, 20).map((row) => <tr key={row.index}><td>{row.originalLabel}</td><td>{row.symbol || "—"}</td><td>{formatExternalIdentifiers(row.externalIdentifiers)}</td><td>{mappingStatusLabel(row.mappingStatus)}</td><td>{formatNumber(row.log2FoldChange)}</td><td>{formatNumber(row.fdr)}</td><td>{row.direction || "—"}</td></tr>)}
@@ -628,7 +628,7 @@ function ProteomicsResultView({
       {result.previewTruncated && !showRows && <p className="section-help">预览超过 500 行；打开逐行 QC 可分页读取完整结果。</p>}
       {showRows && <>
         {rowPage ? <div className="table-scroll"><table className="data-table"><thead><tr><th>行</th><th>原始标识</th><th>规范标识</th><th>稳定 ID</th><th>映射状态</th><th>log2FC</th><th>FDR</th><th>筛选</th><th>排除/警告</th></tr></thead><tbody>
-          {rowPage.results.map((row) => <tr key={row.row_index}><td>{row.row_index + 1}</td><td>{row.original_label || "—"}</td><td>{row.normalized_symbol || "—"}</td><td>{formatExternalIdentifiers(row.external_identifiers)}</td><td>{mappingStatusLabel(row.mapping_status)}</td><td>{formatNumber(row.log2_fold_change)}</td><td>{formatNumber(row.fdr)}</td><td>{row.selected ? "通过" : "排除"}</td><td>{[...row.exclusion_reasons, ...row.qc_warnings].map(qualityReasonLabel).join("、") || "—"}</td></tr>)}
+          {rowPage.results.map((row) => <tr key={row.row_index}><td>{row.row_index + 1}</td><td>{row.original_label || "—"}</td><td>{row.normalized_symbol || "—"}</td><td>{formatExternalIdentifiers(row.external_identifiers)}</td><td>{mappingStatusLabel(row.mapping_status)}</td><td>{formatNumber(row.log2_fold_change)}</td><td>{formatNumber(row.fdr)}</td><td>{row.selected ? "通过" : "排除"}</td><td>{[...new Set([...row.exclusion_reasons, ...row.qc_warnings].map(qualityReasonLabel))].join("、") || "—"}</td></tr>)}
         </tbody></table></div> : <p className="section-help">正在读取逐行结果…</p>}
         {rowPage && <div className="case-pagination"><button className="btn btn-secondary" type="button" disabled={!rowPage.previous} onClick={() => onRowPageChange(Math.max(1, rowPageNumber - 1))}>上一页</button>
           <span>第 {rowPageNumber} 页 / 共 {rowPage.count} 行</span><button className="btn btn-secondary" type="button" disabled={!rowPage.next} onClick={() => onRowPageChange(rowPageNumber + 1)}>下一页</button></div>}
@@ -638,7 +638,7 @@ function ProteomicsResultView({
 }
 
 function ProteomicsVisualizationResult({ task, title, alt }: { task: AnalysisTask; title: string; alt: string }) {
-  if (["queued", "running"].includes(task.status)) return <p className="section-help" role="status">R 富集图表任务 #{task.id} 正在后台执行（{task.progress}%）。</p>;
+  if (["queued", "running"].includes(task.status)) return <p className="section-help" role="status">R 绘图任务 #{task.id} 正在后台执行（{task.progress}%）。</p>;
   if (task.status === "failed") return <div className="notice-error" role="alert">R 图表生成失败：{task.error_summary}</div>;
   const value = task.result as { rendererVersion?: string; artifacts?: Array<{ id: number; format: string; downloadUrl: string }> };
   const artifacts = value.artifacts ?? [];

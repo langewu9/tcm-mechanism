@@ -15,6 +15,12 @@ function isVisualization(summary: AnalysisTaskSummary, parentId: number) {
     && Number(summary.display_parameters.parentTaskId) === parentId;
 }
 
+export async function restoreLatestAssistantTask() {
+  const page = await getAnalysisTaskSummaries(1, undefined, "research_assistant");
+  const latest = page.results.find(item => item.task_type === "research_assistant");
+  return latest ? hydrate(latest) : null;
+}
+
 export async function restoreProteomicsTasks() {
   const page = await getAnalysisTaskSummaries();
   const latest = page.results.find(item => item.task_type === "proteomics");

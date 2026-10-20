@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Database, Download, FileSpreadsheet, Archive, RotateCcw, Upload } from "lucide-react";
 import { deleteDataset, getDatasets, restoreDataset, uploadDataset, type DatasetPage, type ResearchDataset } from "../api/datasets";
 import { ApiError, apiRequestBlob } from "../api/client";
+import { useConfirmation } from "../components/ConfirmationDialog";
+import { datasetUploadErrorMessage } from "../utils/validation-errors";
 
 function errorMessage(error: unknown) {
   return error instanceof ApiError ? error.message : "请求未完成，请稍后重试。";
@@ -28,6 +30,7 @@ function DatasetProvenance({ item }: { item: ResearchDataset }) {
 }
 
 export function DatasetsPage() {
+  const { confirm, confirmation } = useConfirmation();
   const [page, setPage] = useState<DatasetPage | null>(null);
   const [archived, setArchived] = useState(false);
   const [pageNumber, setPageNumber] = useState(1);
@@ -93,7 +96,7 @@ export function DatasetsPage() {
       setArchived(false);
       reloadDatasets(1);
     } catch (cause) {
-      if (mounted.current) setUploadMessage({ text: errorMessage(cause), failed: true });
+      if (mounted.current) setUploadMessage({ text: datasetUploadErrorMessage(cause), failed: true });
     } finally {
       mutationInFlight.current = false;
       if (mounted.current) setUploading(false);
@@ -102,8 +105,12 @@ export function DatasetsPage() {
 
   async function removeDataset(item: ResearchDataset) {
     if (mutationInFlight.current) return;
-    if (!window.confirm(item.archived_at ? `恢复数据集“${item.name}”到正常列表？` : `归档数据集“${item.name}”？原文件和分析结果将保留，已提交任务继续运行。`)) return;
     mutationInFlight.current = true;
+    if (!await confirm({
+      title: item.archived_at ? "恢复数据集" : "归档数据集",
+      description: item.archived_at ? `恢复数据集“${item.name}”到正常列表？` : `归档数据集“${item.name}”？原文件和分析结果将保留，已提交任务继续运行。`,
+      confirmLabel: item.archived_at ? "确认恢复" : "确认归档",
+    })) { mutationInFlight.current = false; return; }
     setDeletingId(item.id);
     setError(null);
     setNotice(null);
@@ -149,6 +156,7 @@ export function DatasetsPage() {
   const count = loading ? "…" : page ? page.count.toLocaleString("zh-CN") : "—";
 
   return <>
+    {confirmation}
     <div className="page-heading">
       <div className="page-heading-copy">
         <p className="page-kicker">Data assets</p>

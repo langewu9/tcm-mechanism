@@ -5,6 +5,7 @@ import { approveMedicalCase, createMedicalCase, deleteMedicalCase, getMedicalCas
 import { getAnalysisTask, type AnalysisTask } from "../api/datasets";
 import { type Session } from "../api/auth";
 import { ApiError } from "../api/client";
+import { useConfirmation } from "../components/ConfirmationDialog";
 
 function valueOf(data: Record<string, unknown>, key: string) {
   const value = data[key];
@@ -64,6 +65,7 @@ function taskStatusLabel(task: AnalysisTask | null) {
 }
 
 export function CasesPage() {
+  const { confirm, confirmation } = useConfirmation();
   const user = useOutletContext<NonNullable<Session["user"]>>();
   const mounted = useRef(false);
   const mutationInFlight = useRef(false);
@@ -192,8 +194,12 @@ export function CasesPage() {
 
   async function removeCase(item: MedicalCase) {
     if (mutationInFlight.current) return;
-    if (!window.confirm(item.archived_at ? `恢复医案“${item.title}”？` : `归档医案“${item.title}”？正文、来源和分析记录将保留，已提交任务继续运行。`)) return;
     mutationInFlight.current = true;
+    if (!await confirm({
+      title: item.archived_at ? "恢复医案" : "归档医案",
+      description: item.archived_at ? `恢复医案“${item.title}”？` : `归档医案“${item.title}”？正文、来源和分析记录将保留，已提交任务继续运行。`,
+      confirmLabel: item.archived_at ? "确认恢复" : "确认归档",
+    })) { mutationInFlight.current = false; return; }
     setDeletingId(item.id);
     setError(null);
     setNotice(null);
@@ -247,8 +253,8 @@ export function CasesPage() {
 
   async function approveCase(item: MedicalCase) {
     if (mutationInFlight.current) return;
-    if (!window.confirm(`确认审核通过“${item.title}”？这会记录审核账号和时间。`)) return;
     mutationInFlight.current = true;
+    if (!await confirm({ title: "审核医案", description: `确认审核通过“${item.title}”？这会记录审核账号和时间。`, confirmLabel: "确认审核" })) { mutationInFlight.current = false; return; }
     setReviewingId(item.id);
     setError(null);
     setNotice(null);
@@ -352,6 +358,7 @@ export function CasesPage() {
   const mutating = saving || deletingId !== null || reviewingId !== null;
 
   return <>
+      {confirmation}
       <div className="page-heading">
         <div className="page-heading-copy">
           <p className="page-kicker">Medical cases</p>

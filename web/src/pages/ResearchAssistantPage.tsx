@@ -1,9 +1,10 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Bot, CircleHelp, LoaderCircle, Search, X } from "lucide-react";
 import { ApiError } from "../api/client";
 import { createResearchAssistantTask } from "../api/assistant";
 import { getAnalysisTask, type AnalysisTask } from "../api/datasets";
+import { restoreLatestAssistantTask } from "../api/task-restoration";
 import { searchCatalogEntities, type KnowledgeEntity, type KnowledgeSearchPage } from "../api/catalog";
 
 const entityTypes = [
@@ -41,6 +42,29 @@ export function ResearchAssistantPage() {
   const [task, setTask] = useState<AnalysisTask | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [restoring, setRestoring] = useState(true);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
+  const [restoreAttempt, setRestoreAttempt] = useState(0);
+  const [pollError, setPollError] = useState<string | null>(null);
+  const [pollAttempt, setPollAttempt] = useState(0);
+  const taskGeneration = useRef(0);
+  const submissionInFlight = useRef(false);
+
+  useEffect(() => {
+    let active = true;
+    const generation = taskGeneration.current;
+    setRestoring(true); setRestoreError(null);
+    void restoreLatestAssistantTask().then((saved) => {
+      if (!active || generation !== taskGeneration.current || !saved) return;
+      setTask(saved);
+      // Restoration never restores model consent or resubmits a saved question.
+      const question = saved.input_parameters.question;
+      if (typeof question === "string") setQuestion((current) => current || question.slice(0, 2000));
+    }).catch((cause: unknown) => {
+      if (active && generation === taskGeneration.current) setRestoreError(errorMessage(cause));
+    }).finally(() => { if (active) setRestoring(false); });
+    return () => { active = false; };
+  }, [restoreAttempt]);
 
   useEffect(() => {
     const draft = (location.state as { draftQuestion?: unknown } | null)?.draftQuestion;
@@ -49,11 +73,19 @@ export function ResearchAssistantPage() {
 
   useEffect(() => {
     if (!task || !["queued", "running"].includes(task.status)) return;
+    let active = true;
+    const generation = taskGeneration.current;
     const timer = window.setTimeout(() => {
-      void getAnalysisTask(task.id).then(setTask).catch((cause: unknown) => setError(errorMessage(cause)));
+      void getAnalysisTask(task.id).then((updated) => {
+        if (!active || generation !== taskGeneration.current) return;
+        if (updated.id !== task.id || updated.task_type !== "research_assistant") throw new Error("任务身份不一致。");
+        setTask(updated); setPollError(null);
+      }).catch((cause: unknown) => {
+        if (active && generation === taskGeneration.current) setPollError(errorMessage(cause));
+      });
     }, 1500);
-    return () => window.clearTimeout(timer);
-  }, [task]);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [task, pollAttempt]);
 
   async function searchKnowledge(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -71,7 +103,10 @@ export function ResearchAssistantPage() {
 
   async function submitQuestion(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!question.trim() || !selected.length) return;
+    if (!question.trim() || !selected.length || restoring || submissionInFlight.current) return;
+    submissionInFlight.current = true;
+    taskGeneration.current += 1;
+    setRestoreError(null); setPollError(null);
     setError(null);
     setTask(null);
     setBusy(true);
@@ -84,7 +119,7 @@ export function ResearchAssistantPage() {
       }));
       setAllowModel(false);
     } catch (cause) { setError(errorMessage(cause)); }
-    finally { setBusy(false); }
+    finally { submissionInFlight.current = false; setBusy(false); }
   }
 
   const result = task?.status === "succeeded" ? task.result as AssistantResult : null;
@@ -98,6 +133,8 @@ export function ResearchAssistantPage() {
 
       <div className="page-heading"><div className="page-heading-copy"><p className="page-kicker">Evidence-grounded assistant</p><h1 className="page-title">科研助手</h1><p className="page-description">先选取已启用来源版本的本地知识记录，再基于这些证据进行问答；不会自动猜测实体或补造数据库结果。</p></div><Link to="/research" className="btn btn-secondary"><Search size={16} />浏览知识目录</Link></div>
       {error && <div className="notice-error workspace-notice" role="alert">{error}</div>}
+      {restoring && <p className="notice-info workspace-notice" role="status">正在读取最近的助手任务…</p>}
+      {restoreError && <div className="notice-error workspace-notice" role="alert"><p>最近任务读取失败：{restoreError}</p><button className="btn btn-secondary" type="button" disabled={restoring || busy} onClick={() => setRestoreAttempt((value) => value + 1)}>重新读取历史任务</button></div>}
       <div className="case-workspace-grid">
         <section className="panel case-form">
           <div className="panel-header"><div><h2 className="section-title-sm">选择本地证据</h2><p className="section-help">最多选 8 个实体，平台只会附带这些实体及其有来源版本的关系。</p></div><span className="page-heading-icon"><Search size={19} /></span></div>
@@ -117,12 +154,13 @@ export function ResearchAssistantPage() {
             <div className="panel-header"><div><h2 className="section-title-sm">提出研究问题</h2><p className="section-help">问题和任务结果会归属于当前账号，保留任务号及引用的数据来源版本。</p></div><span className="page-heading-icon"><Bot size={19} /></span></div>
             <label className="form-label" htmlFor="assistant-question">问题<textarea className="field case-textarea" id="assistant-question" maxLength={2000} value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="例如：本地记录中有哪些黄芪—成分—靶点关系？证据来自哪些版本？" required /></label>
             <label className="proteomics-consent"><input type="checkbox" checked={allowModel} onChange={(event) => setAllowModel(event.target.checked)} /><span><strong>同意将本次问题和已选本地证据发送给平台配置的本机/内网模型</strong><small>默认不调用模型；只会发送这次问题和页面列出的目录记录，不发送医案或上传文件。模型生成内容仍需人工核对。</small></span></label>
-            <div className="case-form-footer"><p>未勾选时只保存并返回本地目录证据，不生成模型回答。</p><button className="btn btn-primary" type="submit" disabled={busy || !selected.length || !question.trim()}>{busy ? <LoaderCircle size={15} className="spin" /> : <Bot size={15} />}{busy ? "正在提交…" : "检索并分析"}</button></div>
+            <div className="case-form-footer"><p>未勾选时只保存并返回本地目录证据，不生成模型回答。</p><button className="btn btn-primary" type="submit" disabled={busy || restoring || !selected.length || !question.trim()}>{busy ? <LoaderCircle size={15} className="spin" /> : <Bot size={15} />}{busy ? "正在提交…" : "检索并分析"}</button></div>
           </form>
           {!task && <div className="panel empty-state"><CircleHelp size={25} /><strong>等待问题</strong><p>先选实体，再提交问题。需要模型时，提交前可以单独同意本次发送。</p></div>}
           {task && <section className="panel assistant-task-result" aria-live="polite">
             <div className="case-list-heading"><div><p className="page-kicker">Task #{task.id}</p><h2 className="section-title-sm">{task.status === "queued" || task.status === "running" ? "正在整理证据" : task.status === "succeeded" ? "证据与回答" : "任务未完成"}</h2></div><span className={`status-badge ${task.status === "succeeded" ? "status-success" : task.status === "failed" ? "status-warning" : ""}`}>{task.status}{["queued", "running"].includes(task.status) ? ` · ${task.progress}%` : ""}</span></div>
             {task.status === "failed" && <div className="notice-error" role="alert">{task.error_summary}</div>}
+            {pollError && <div className="notice-error" role="alert"><p>暂时无法读取任务进度：{pollError} 任务未重新提交。</p><button className="btn btn-secondary" type="button" onClick={() => { setPollError(null); setPollAttempt((value) => value + 1); }}>重新读取任务</button></div>}
             {result && <>
               {result.answer && <><h3 className="section-title-sm">模型回答</h3><p className="assistant-answer">{result.answer}</p><p className="section-help">模型：{result.model?.name ?? "未知"} · 版本：{result.model?.version ?? "未知"}。内容为研究假设，须回看引用记录。</p></>}
               {!result.answer && <p className="section-help">已完成本地目录检索。本次没有调用生成式模型。</p>}

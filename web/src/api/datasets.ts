@@ -296,8 +296,10 @@ export const runProteomicsAnalysis = (datasetId: number, request: ProteomicsRunR
   apiRequest<AnalysisTask>(`/api/v1/research/datasets/${datasetId}/analyze/`, { method: "POST", body: request });
 export const getAnalysisTasks = (page = 1, parentTaskId?: number) =>
   apiRequest<AnalysisTaskPage>(`/api/v1/research/analysis-tasks/?page=${page}${parentTaskId === undefined ? "" : `&parent_task=${parentTaskId}&task_type=visualization`}`);
-export const getAnalysisTaskSummaries = (page = 1, parentTaskId?: number) =>
-  apiRequest<AnalysisTaskSummaryPage>(`/api/v1/research/analysis-tasks/summaries/?page=${page}${parentTaskId === undefined ? "" : `&parent_task=${parentTaskId}&task_type=visualization`}`);
+export const getAnalysisTaskSummaries = (page = 1, parentTaskId?: number, taskType?: AnalysisTask["task_type"]) => {
+  const requestedType = taskType ?? (parentTaskId === undefined ? undefined : "visualization");
+  return apiRequest<AnalysisTaskSummaryPage>(`/api/v1/research/analysis-tasks/summaries/?page=${page}${parentTaskId === undefined ? "" : `&parent_task=${parentTaskId}`}${requestedType === undefined ? "" : `&task_type=${requestedType}`}`);
+};
 export const getAnalysisTask = (id: number) =>
   apiRequest<AnalysisTask>(`/api/v1/research/analysis-tasks/${id}/`);
 export const getProteomicsRows = (taskId: number, page = 1) =>
