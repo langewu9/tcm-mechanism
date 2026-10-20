@@ -37,13 +37,11 @@ export const demoModules = [
   { key: "analysis", label: "证候—方药分析", route: "/analysis", stages: ["教学研究问题", "规则示例", "证据边界"], gap: "真实证候方药链路依赖目录，不能作为诊断系统。", input: { query: "虚构医案中的咳嗽和口干如何展示证据链？", case: demoCase, network: demoNetwork } },
   { key: "assistant", label: "科研助手", route: "/assistant", stages: ["选择演示证据", "输入演示问题", "模板回答与引用"], gap: "模型按原要求保持不动；本次是模板展示，不是推理。", input: { question: "演示中药甲有哪些关联靶点？", evidenceIds: ["DEMO-REL-1", "DEMO-REL-2"], modelInvoked: false } },
   { key: "sources", label: "动态更新与主键统一", route: "/admin/sources", stages: ["预览版本差异", "复核歧义映射", "演示确认应用"], gap: "真实同步需合法数据源、人工确认与备份；定时预览当前未启用。", input: { source: "DEMO_PROVIDER", version: "DEMO-V2", mappings: [{ canonicalId: "DEMO:G1", sourceId: "DEMO_A:001", status: "reviewed" }, { canonicalId: null, sourceId: "DEMO_B:002", status: "ambiguous" }], diff: { added: 2, changed: 1, ambiguous: 1 } } },
-  { key: "integrations", label: "接口接入监测", route: "/api-integration", stages: ["读取模拟状态", "区分配置/可达", "查看失败示例"], gap: "演示灯不是健康检查；模型与外部接口需独立配置/测试。", input: { services: [{ name: "演示 API", state: "simulated_ok" }, { name: "演示 R", state: "simulated_ok" }, { name: "模型", state: "not_tested" }, { name: "外部接口", state: "not_tested" }] } },
   { key: "accounts", label: "账号与系统管理", route: "/admin", stages: ["模拟角色", "查看权限说明", "回到真实登录"], gap: "角色演示不授予权限；生产注册邮件、账号隔离及管理员权限需验收。", input: { roles: ["研究者", "管理员"], authenticationBypassed: false, credentialsIncluded: false } },
 ] as const;
 export type DemoModuleKey = (typeof demoModules)[number]["key"];
 export function moduleForPath(path: string) {
   if (path === "/network-pharmacology") return demoModules.find(module => module.key === "network");
-  if (path === "/admin/integrations") return demoModules.find(module => module.key === "integrations");
   return demoModules.find(module => module.route === path);
 }
 export function evaluateDemo(key: DemoModuleKey, query = "演示", fc = 1, fdr = 0.05) {

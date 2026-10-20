@@ -5,11 +5,12 @@ const ts = load('typescript');
 for (const extension of ['.ts', '.tsx']) require.extensions[extension] = (module, filename) => module._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText, filename);
 const { demoModules, demoNetwork, demoProteinRows, evaluateDemo, moduleForPath, R_CHARTS } = load('./src/demo/catalog.ts');
 const { readDemoManifest } = load('./src/components/RDemoGallery.tsx');
-assert.equal(demoModules.length, 11);
-assert.equal(new Set(demoModules.map(item => item.key)).size, 11);
+assert.equal(demoModules.length, 10);
+assert.equal(new Set(demoModules.map(item => item.key)).size, 10);
 for (const module of demoModules) { assert.equal(module.stages.length, 3); assert.ok(module.gap); assert.ok(module.input); assert.equal(moduleForPath(module.route).key, module.key); }
 assert.equal(moduleForPath('/network-pharmacology').key,'network');
-assert.equal(moduleForPath('/admin/integrations').key,'integrations');
+assert.equal(moduleForPath('/admin/integrations'), undefined);
+assert.equal(moduleForPath('/api-integration'), undefined);
 assert.equal(moduleForPath('/unknown'), undefined);
 assert.equal(evaluateDemo('research','DEMO_GENE').matches.length, 2);
 assert.equal(evaluateDemo('research','不存在').matches.length, 0);
@@ -40,4 +41,4 @@ assert.equal(acceptanceConfig.server.proxy['^/api/'].target,'http://127.0.0.1:80
 const proxies = Object.keys(defaultConfig.server.proxy);
 assert.ok(proxies.some(key=>key.startsWith('^') && new RegExp(key).test('/api/v1/health/')));
 assert.ok(!proxies.some(key=>key.startsWith('^') ? new RegExp(key).test('/api-integration') : '/api-integration'.startsWith(key)));
-console.log('PASS: 11 isolated demo modules, filters, graphs, role boundary, strict 14-chart manifest and API route proxy.');
+console.log('PASS: 10 isolated research demo modules, filters, graphs, role boundary, strict 14-chart manifest and API route proxy.');

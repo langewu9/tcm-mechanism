@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowRight, BookOpenCheck, Database, Download, FileSearch, Network } from "lucide-react";
+import { ArrowRight, BookOpenCheck, Database, Download, Network } from "lucide-react";
 import { getHomeStats } from "../api/catalog";
 import { HeroScroll } from "../components/HeroScroll";
 import { HomeMetric } from "../components/HomeMetric";
@@ -37,7 +37,7 @@ export function HomePage() {
       <div className="product-hero-paper" aria-hidden="true" /><div className="product-hero-watermark" aria-hidden="true"><span>远</span><span>志</span></div>
       <div className="product-hero-content"><p className="hero-kicker">Traditional medicine, computational evidence</p><h1>远志 AI Scientist</h1>
         <p className="hero-lead">平台从知识目录、来源追溯和研究者工作区开始建设；文件上传与蛋白组学首版已接通，其余分析能力逐步迁入。</p>
-        <div className="hero-actions"><Link to="/cases" className="hero-primary">进入研究工作台 <ArrowRight size={18} /></Link><Link to="/demo" className="hero-secondary">查看交付演示</Link><a href="/api/docs/" className="hero-secondary"><FileSearch size={17} /> 查看平台接口</a></div>
+        <div className="hero-actions"><Link to="/cases" className="hero-primary">进入研究工作台 <ArrowRight size={18} /></Link><Link to="/demo" className="hero-secondary">查看交付演示</Link></div>
       </div>
       <HeroScroll /><div className="hero-metrics" aria-label="知识库规模">{metrics.map((item) => <HomeMetric key={item.label} {...item} />)}</div>
     </section>

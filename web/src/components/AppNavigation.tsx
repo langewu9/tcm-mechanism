@@ -1,6 +1,6 @@
 // Navigation markup and labels ported from origin/main@078d374 AppNavigation.
 import { Link, useLocation } from "react-router-dom";
-import { Activity, BarChart3, Bot, Database, FileSearch, FileText, FlaskConical, LayoutDashboard, PlugZap, ShieldCheck } from "lucide-react";
+import { Activity, BarChart3, Bot, Database, FileSearch, FileText, FlaskConical, LayoutDashboard, ShieldCheck } from "lucide-react";
 
 const primary = [
   { href: "/dashboard", label: "研究总览", shortLabel: "总览", icon: LayoutDashboard },
@@ -14,18 +14,15 @@ const primary = [
   { href: "/demo", label: "交付演示", shortLabel: "演示", icon: FlaskConical },
 ];
 const admin = [
-  { href: "/api-integration", label: "接入监测", shortLabel: "接入", icon: PlugZap },
   { href: "/admin", label: "系统管理", shortLabel: "管理", icon: ShieldCheck },
 ];
 type NavigationItem = (typeof primary)[number];
 
 function NavLink({ item, compact = false }: { item: NavigationItem; compact?: boolean }) {
   const { pathname } = useLocation();
-  const isAdminIntegrationRoute = pathname === "/admin/integrations" || pathname.startsWith("/admin/integrations/");
   const active = pathname === item.href
-    || (pathname.startsWith(`${item.href}/`) && !(item.href === "/admin" && isAdminIntegrationRoute))
-    || (item.href === "/visualization" && pathname === "/network-pharmacology")
-    || (item.href === "/api-integration" && pathname === "/admin/integrations");
+    || pathname.startsWith(`${item.href}/`)
+    || (item.href === "/visualization" && pathname === "/network-pharmacology");
   const Icon = item.icon;
   return <Link to={item.href} aria-current={active ? "page" : undefined}
     className={`${compact ? "mobile-nav-item" : "side-nav-item"}${active ? " is-active" : ""}`}

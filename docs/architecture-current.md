@@ -1,5 +1,7 @@
 # 当前架构与模块边界
 
+维护工具入口现集中到 Django 后台：首页不再提供接口文档按钮，工作台和公开演示不再展示接入监测。文档 `/django-admin/platform-api/`、监测 `/django-admin/platform-integrations/` 均只对超级管理员开放，原业务接口及单次外部测试确认规则保留；前端旧监测地址回到研究总览。详见 [维护工具迁移与安全边界](security-boundary-audit-quota-2026-10-20.md)。
+
 2026-10-20 安全边界补充：维护后台仅限有效的 staff 超级管理员；研究记录只读，新增敏感读取审计和可在用户管理页调整的上传额度（默认每人 1 GiB、100 个数据集）。`0026/0027` 新增审计与账号额度表，旧研究记录未重写；成功的敏感读取现在额外写一条访问证据。范围与验证见 [安全修补说明](security-boundary-audit-quota-2026-10-20.md)。
 
 2026-10-20 性能审核补充：新增私有分页 `/api/v1/research/analysis-tasks/summaries/`，当前前端只为实际展示任务获取完整详情，旧完整接口兼容保留。`0025` 增加任务用户/时间、全局时间、来源同步时间索引并固定并列排序；业务表未拆分、历史结果未重算。两种数据库各 421 项回归通过，实际列表字节数和临时表计划见 [数据库性能审核](database-performance-audit-2026-10-20.md)。
@@ -33,7 +35,7 @@
 
 开发代理已经配置；Django 自带后台挂载在 `/django-admin/`，React `/admin/...` 是平台管理页面；生产 Nginx 按此分流。开发 Compose 中 R Plumber 只有 Celery worker 接入其私有网络，R 不挂载媒体卷、不连接 PostgreSQL，也没有宿主机公开端口。生产 Compose 另配置 Gunicorn、React 静态镜像、Nginx HTTPS、私有 S3 存储、TLS 证书挂载和服务分层网络；证书申请/续签需按部署说明自行配置。PostgreSQL 备份、校验和显式确认恢复脚本也已加入。当前环境不能访问 Docker daemon，因此这些生产容器、TLS、对象存储和恢复流程尚无实机验证。
 
-原 `src/` Next.js 页面、组件和 CSS 尚留在仓库中供迁移参考。`web/` 当前有首页、登录/注册页、科研知识检索、医案、数据集、文本证候分析、蛋白组学、网络药理工作台和管理员 API 接入监测；共享工作台导航保留原有模块标签和视觉样式，React Router 接管页面路由，首页统计从 Django 计数 API 获取。文本分析页面复刻 main 的四组关键词规则，结果来自 Django 本地知识关系和来源版本快照；网络药理页按本地来源证据计算中药靶点与疾病靶点交集，并展示统计图和证据下载。旧研究组件并没有自动成为已接通页面；接入时要逐个核对它调用的接口和后端业务。根目录旧 Next.js `pnpm build` 目前仍失败：`src/app/page.tsx` 引用仓库中缺失的 `@/lib/prisma`；当前 Django 分支的前端构建入口是 `web/` 的 Vite build。
+原 `src/` Next.js 页面、组件和 CSS 尚留在仓库中供迁移参考。`web/` 当前有首页、登录/注册页、科研知识检索、医案、数据集、文本证候分析、蛋白组学、网络药理工作台和系统管理页面；接口文档与接入监测仅保留在 Django 维护后台，共享工作台导航保留研究模块标签和视觉样式，React Router 接管页面路由，首页统计从 Django 计数 API 获取。文本分析页面复刻 main 的四组关键词规则，结果来自 Django 本地知识关系和来源版本快照；网络药理页按本地来源证据计算中药靶点与疾病靶点交集，并展示统计图和证据下载。旧研究组件并没有自动成为已接通页面；接入时要逐个核对它调用的接口和后端业务。根目录旧 Next.js `pnpm build` 目前仍失败：`src/app/page.tsx` 引用仓库中缺失的 `@/lib/prisma`；当前 Django 分支的前端构建入口是 `web/` 的 Vite build。
 
 ## 后端模块
 
@@ -108,7 +110,7 @@ API 按模块分组：
 - 研究者可分别勾选外部分析；默认关闭。MyGene.info/Reactome 链路最多处理 500 个通过筛选的人类标识；GO/KEGG 通过 g:Profiler 提供独立同意项，最多发送 500 个显著规范化符号和 25,000 个全输入表可识别符号作为自定义统计背景；STRING PPI 是另一独立同意项，最多提交 200 个规范化标识，默认置信度 700/1000，可由用户调整；在返回的物理互作图上计算唯一邻居 degree 与归一化无权 Brandes betweenness，最多处理 400 个节点、19,900 条边和 8 MiB 响应。完整上传文件、原始统计矩阵、账号和医案不发送。GO/KEGG 使用人类物种、GO 三个分支与 KEGG、FDR ≤ 0.05 多重检验校正，并在任务中记录查询/背景规模、GeneRatio、命中标识和 g:Profiler 服务/数据版本；接口拒绝跨域重定向。g:Profiler 原始未校正 p 值未由服务返回，界面明确显示只有 FDR 校正值。MyGene 精确符号先匹配，模糊多结果保留为歧义；Reactome/STRING 查询结果和可用时的数据库版本进入任务溯源。默认会先读取 STRING 当前版本，再通过官方版本专属地址查询；配置 `STRING_DB_VERSION` 可固定到指定版本。STRING 的外部 PPI 结果与本地来源网络 degree 分开展示，不混作同一指标。g:Profiler 富集请求契约由模拟测试验证；2026-10-03 使用 5 个公开合成基因符号和 25 个自定义背景标识完成一次官方 POST smoke test，返回可追溯版本但没有 FDR≤0.05 条目。这验证了连通性和协议，不替代真实项目文件与 main 输出逐项核对。
 - `/admin/sources` 仅平台超级管理员可访问；Reactome 人类通路目录、UniProt 人类 reviewed 蛋白目录、PubChem 化学属性、STRING 人类标识映射和 main `backend/cache_builder.py` 生成的旧 SQLite 三表（中药—成分—靶点、疾病—靶点、疾病—中药—靶点）可在该页管理。Reactome/UniProt 预览生成 release 与 SHA-256，人工应用前复核并幂等写入；UniProt accession 与基因/蛋白别名作为独立版本化标识记录，优先关联唯一已有靶点，冲突项维持歧义。PubChem 只读取管理员在 Django Admin 配置的 CID—compound stable ID 映射，不按名称猜测；预览返回属性与差异，应用时重新读取并复核映射/响应哈希，将属性写入成分 metadata 并登记版本化 CID。STRING 连接器不下载 STRING 全量人类蛋白目录，也不新建或合并实体；它只对明确标注为人类或已有 UniProt reviewed 人类来源 ID 的本地基因/蛋白查询 STRING ID，保存版本、查询映射和 SHA-256，展示匹配样例/本地重名/归属冲突；管理员确认后幂等写入全局唯一的 STRING identifier，归属冲突不自动改绑。SQLite 只读打开配置目录内的相对路径，检查三表/列映射和文件校验值，按批次导入中药、成分、疾病、靶点及来源关系；重复来源通过唯一键更新，删除项软停用，版本、操作者、状态和计数进入审计。无任意绝对路径或连接串接口。Reactome 当前目录 2,883 条已在临时 SQLite 验证；UniProt 20,431 条已完整导入临时 SQLite 并验证重复应用幂等；PubChem PUG REST 的 6 个 main seed CID 响应已校验，1 个 CID 的预览/应用/重复预览已在一次性 SQLite 验证，临时库已删除；STRING v12.5 官方 API 的单条 TP53 标识映射实测通过，10 项模拟 connector/权限/幂等测试通过，但尚未对真实本地目录或 PostgreSQL 执行同步；PubChem 数据未写入开发或生产数据库；三表 SQLite 仅以合成表验证，真实旧库不在仓库。
 - `/admin` 仅平台超级管理员可访问，迁移 main 管理页的只读用户列表、角色、启用状态、数据集/医案/任务数量，以及最近 10 项数据集和分析任务。用户列表的注册和最近登录时间来自 Django 用户字段；敏感的用户和资产全量汇总由 `/api/v1/admin/overview/` 服务端强制超级管理员权限，页面隐藏入口不作为授权依据。
-- `/admin/integrations` 仅平台超级管理员可访问，沿用 main 的 API 状态与单项连接测试界面。疾病、中药、成分、靶点交集及成分比对检查复用当前 Django 服务；靶点交集只计算、不创建正式任务。ChEMBL 和本机模型测试使用固定合成测试文本，需每次同意并限流。状态接口只返回 Django/数据库、启用数据源数量和本机模型配置，不返回密钥；AI Scientist 因 main 所需 Excel/SQLite 文件未随仓库提供，明确标记为待迁移。
+- `/django-admin/platform-integrations/` 仅平台超级管理员可访问，承接 main 的 API 状态与单项连接测试；原 React `/admin/integrations` 和 `/api-integration` 已退出研究者工作区并跳回总览。疾病、中药、成分、靶点交集及成分比对检查复用当前 Django 服务；靶点交集只计算、不创建正式任务。ChEMBL 和本机模型测试使用固定合成测试文本，需每次同意并限流。状态接口只返回 Django/数据库、启用数据源数量和本机模型配置，不返回密钥；AI Scientist 因 main 所需 Excel/SQLite 文件未随仓库提供，明确标记为待迁移。
 - `/analysis` 需要登录：复刻 main 的四组证候关键词规则和稳定排序，支持任务名称、可选医案绑定、问题输入、最近八项任务、证据/网络及 CSV/PDF 导出。最多遍历 500 条启用来源关系，结果冻结算法、规则出处、关系记录和来源版本/校验值；无命中、目录缺失或同名歧义分别提示，不回退到首条证候。规则候选不会自动确诊或写入医案候选；绑定医案时保留原所有者，记录实际操作人、内容哈希及审计。
 - `/network-pharmacology` 需要登录；通过本地知识实体与证据关系计算中药成分靶点、疾病靶点严格交集和显式疾病—中药直接关联。每个靶点展示来源、版本、原始记录号和关系类型，结果写入当前用户的 `AnalysisTask` 并锁定所用来源版本；不会在无匹配数据时套用示例规则。本地交集本身不代表显著性富集或 PPI；单独的 Reactome 富集和 STRING 物理互作需研究者主动提交外部分析任务。
 - 完成的网络药理交集任务可以请求 R 柱状图；蛋白组学 GO/KEGG 结果也能请求 R 气泡图，worker 仅发送最多 100 条经过校验的图表摘要，并在图中显示 g:Profiler 版本；HTML 产物附对应数据表。R 可产出 SVG/PDF/PNG/HTML。文件 SHA-256、输入摘要哈希和 renderer 版本均入库，可在权限检查后预览 SVG 或下载。R runtime 和 Docker image 尚未实跑，当前 Python worker 用模拟 R 响应测试私有文件持久化/下载。

@@ -46,7 +46,7 @@ export function DemoCenterPage() {
   return <main className="site-home demo-center" id="main-content">
     <a className="skip-link" href="#demo-content">跳到演示内容</a>
     <header className="site-nav"><Link className="site-brand" to="/">远志 AI Scientist</Link><nav aria-label="演示导航"><Link to="/">返回首页</Link><Link to="/dashboard">真实工作区</Link><button type="button" className="btn btn-secondary" onClick={() => downloadKey("all-modules", demoModules)}>下载全部模块 key</button></nav></header>
-    <div className="demo-content" id="demo-content"><div className="page-heading"><div className="page-heading-copy"><p className="page-kicker">Delivery demo workspace</p><h1 className="page-title">交付演示中心</h1><p className="page-description">11 个模块场景、14 种 R 图表；本页仅展示合成数据，不依赖业务数据库或模型服务。</p></div><FlaskConical size={28} /></div>
+    <div className="demo-content" id="demo-content"><div className="page-heading"><div className="page-heading-copy"><p className="page-kicker">Delivery demo workspace</p><h1 className="page-title">交付演示中心</h1><p className="page-description">{demoModules.length} 个模块场景、14 种 R 图表；本页仅展示合成数据，不依赖业务数据库或模型服务。</p></div><FlaskConical size={28} /></div>
       <p className="notice-warning">演示完成不等于真实业务验收通过。数据源、模型和生产部署问题在各模块下方单独列明。</p>
       <nav className="demo-module-grid" aria-label="模块演示选择">{demoModules.map(module => <button type="button" className={`btn ${module.key === selected.key ? "btn-primary" : "btn-secondary"}`} key={module.key} aria-pressed={module.key === selected.key} onClick={() => setParams({ module: module.key })}>{module.label}</button>)}</nav>
       <Scenario key={selected.key} moduleKey={selected.key} />
