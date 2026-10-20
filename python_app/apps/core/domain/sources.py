@@ -82,7 +82,10 @@ class SyncRun(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ["-created_at"]
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(fields=["source", "-created_at", "-id"], name="sync_source_created_id_idx")
+        ]
 
     def __str__(self) -> str:
         return f"{self.source.slug} · {self.status} · {self.created_at:%Y-%m-%d %H:%M}"

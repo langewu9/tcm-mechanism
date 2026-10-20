@@ -51,7 +51,7 @@ class DataSourceListView(generics.ListCreateAPIView):
         return SQLiteSourceCreateSerializer if self.request.method == "POST" else self.serializer_class
 
     def get_queryset(self):
-        latest_runs = SyncRun.objects.filter(source_id=OuterRef("pk")).order_by("-created_at")
+        latest_runs = SyncRun.objects.filter(source_id=OuterRef("pk")).order_by("-created_at", "-id")
         return DataSource.objects.annotate(
             latest_run_status=Subquery(latest_runs.values("status")[:1]),
             latest_run_at=Subquery(latest_runs.values("created_at")[:1]),

@@ -4,6 +4,8 @@ from django.conf import settings
 from django.core.files.storage import default_storage
 from django.db import transaction
 from django.db.models import Count, Q
+from django.db.models.fields.json import KeyTextTransform
+from django.db.models.functions import JSONObject, Substr
 from django.http import FileResponse, HttpResponse
 from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
@@ -23,7 +25,7 @@ from apps.proteomics.models import ProteomicsRowResult
 from apps.proteomics.serializers_rows import ProteomicsRowResultSerializer
 from apps.proteomics.services import ALGORITHM_VERSION
 from ..services.research_retention import dataset_audit, retention_scope, set_archived
-from ..serializers.research import ResearchDatasetAuditEventSerializer
+from ..serializers.research import AnalysisTaskSummarySerializer, ResearchDatasetAuditEventSerializer
 
 
 class ResearchDashboardView(APIView):
@@ -424,10 +426,26 @@ class AnalysisTaskViewSet(viewsets.ReadOnlyModelViewSet):
     def get_queryset(self):
         if getattr(self, "swagger_fake_view", False):
             return AnalysisTask.objects.none()
-        queryset = AnalysisTask.objects.select_related("owner", "created_by").prefetch_related("source_releases")
+        queryset = AnalysisTask.objects.select_related("owner", "created_by")
+        if self.action == "summaries":
+            queryset = queryset.defer("input_parameters", "result").annotate(
+                list_display_parameters=JSONObject(
+                    name=Substr(KeyTextTransform("name", "input_parameters"), 1, 200),
+                    analysisKind=Substr(KeyTextTransform("analysisKind", "input_parameters"), 1, 80),
+                    chartKey=Substr(KeyTextTransform("chartKey", "input_parameters"), 1, 48),
+                    parentTaskId=Substr(KeyTextTransform("parentTaskId", "input_parameters"), 1, 20),
+                )
+            )
+        else:
+            queryset = queryset.prefetch_related("source_releases")
         if not self.request.user.is_superuser:
             queryset = queryset.filter(owner=self.request.user)
         return queryset
+
+    @extend_schema(responses=AnalysisTaskSummarySerializer(many=True))
+    @action(detail=False, methods=["get"], serializer_class=AnalysisTaskSummarySerializer)
+    def summaries(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
 
     @action(detail=True, methods=["post"], url_path="visualizations")
     def visualizations(self, request, pk=None):

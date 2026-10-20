@@ -3,7 +3,6 @@ import { Link } from "react-router-dom";
 import { Activity, ArrowLeft, Download, Play, RefreshCw } from "lucide-react";
 import {
   getAnalysisTask,
-  getAnalysisTasks,
   getDatasets,
   getProteomicsRows,
   exportProteomicsResults,
@@ -13,6 +12,7 @@ import {
   type ProteomicsRowPage,
   type ResearchDataset,
 } from "../api/datasets";
+import { restoreProteomicsTasks } from "../api/task-restoration";
 import { ApiError } from "../api/client";
 import { createVisualization } from "../api/network";
 import { StringNetworkResult } from "../components/StringNetworkResult";
@@ -178,29 +178,17 @@ export function ProteomicsPage() {
 
   useEffect(() => {
     let active = true;
-    Promise.all([getDatasets(), getAnalysisTasks()])
-      .then(([datasetResponse, taskResponse]) => {
+    Promise.all([getDatasets(), restoreProteomicsTasks()])
+      .then(([datasetResponse, restored]) => {
         if (!active) return;
         setDatasets(datasetResponse.results);
         if (datasetResponse.results.length) setDatasetId(datasetResponse.results[0].id);
-        const latestTask = taskResponse.results.find((item) => item.task_type === "proteomics");
+        const latestTask = restored.task;
         if (latestTask) {
           setTask(latestTask);
           if (latestTask.dataset) setDatasetId(latestTask.dataset);
-          const latestVisualization = taskResponse.results.find((item) =>
-            item.task_type === "visualization"
-            && item.input_parameters.analysisKind === "r_visualization"
-            && item.input_parameters.chartKey === "proteomics_go_kegg_enrichment"
-            && Number(item.input_parameters.parentTaskId) === latestTask.id,
-          );
-          if (latestVisualization) setVisualizationTask(latestVisualization);
-          const latestVolcanoVisualization = taskResponse.results.find((item) =>
-            item.task_type === "visualization"
-            && item.input_parameters.analysisKind === "r_visualization"
-            && item.input_parameters.chartKey === "proteomics_volcano"
-            && Number(item.input_parameters.parentTaskId) === latestTask.id,
-          );
-          if (latestVolcanoVisualization) setVolcanoVisualizationTask(latestVolcanoVisualization);
+          if (restored.visualizationTask) setVisualizationTask(restored.visualizationTask);
+          if (restored.volcanoVisualizationTask) setVolcanoVisualizationTask(restored.volcanoVisualizationTask);
         }
       })
       .catch((cause: unknown) => { if (active) setError(errorMessage(cause)); })

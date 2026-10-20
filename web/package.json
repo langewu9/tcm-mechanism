@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "test:api": "node tests/api-contracts.cjs",
-    "test:research": "node tests/research-requests.cjs && node tests/catalog-evidence-figures.cjs",
+    "test:research": "node tests/research-requests.cjs && node tests/catalog-evidence-figures.cjs && node tests/task-restoration.cjs",
     "test:r": "node tests/r-analysis-catalog.cjs",
     "test:demo": "node tests/demo-center.cjs",
     "check:delivery": "node tests/delivery-assets.cjs",

@@ -277,8 +277,12 @@ class AnalysisTask(models.Model):
     finished_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        ordering = ["-created_at"]
-        indexes = [models.Index(fields=["owner", "status"], name="task_owner_status_idx")]
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(fields=["owner", "status"], name="task_owner_status_idx"),
+            models.Index(fields=["owner", "-created_at", "-id"], name="task_owner_created_id_idx"),
+            models.Index(fields=["-created_at", "-id"], name="task_created_id_idx"),
+        ]
 
     def __str__(self) -> str:
         return f"{self.get_task_type_display()} · {self.status}"

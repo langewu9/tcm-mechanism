@@ -226,6 +226,11 @@ export type AnalysisTask = {
 };
 
 export type AnalysisTaskPage = { count: number; next: string | null; previous: string | null; results: AnalysisTask[] };
+export type AnalysisTaskSummary = Pick<AnalysisTask,
+  "id" | "task_type" | "status" | "dataset" | "medical_case" | "parent_task" |
+  "progress" | "error_summary" | "created_at" | "started_at" | "finished_at"
+> & { display_parameters: { name: string | null; analysisKind: string | null; chartKey: string | null; parentTaskId: string | null } };
+export type AnalysisTaskSummaryPage = Omit<AnalysisTaskPage, "results"> & { results: AnalysisTaskSummary[] };
 export type ProteomicsRow = {
   row_index: number;
   original_label: string;
@@ -291,6 +296,8 @@ export const runProteomicsAnalysis = (datasetId: number, request: ProteomicsRunR
   apiRequest<AnalysisTask>(`/api/v1/research/datasets/${datasetId}/analyze/`, { method: "POST", body: request });
 export const getAnalysisTasks = (page = 1, parentTaskId?: number) =>
   apiRequest<AnalysisTaskPage>(`/api/v1/research/analysis-tasks/?page=${page}${parentTaskId === undefined ? "" : `&parent_task=${parentTaskId}&task_type=visualization`}`);
+export const getAnalysisTaskSummaries = (page = 1, parentTaskId?: number) =>
+  apiRequest<AnalysisTaskSummaryPage>(`/api/v1/research/analysis-tasks/summaries/?page=${page}${parentTaskId === undefined ? "" : `&parent_task=${parentTaskId}&task_type=visualization`}`);
 export const getAnalysisTask = (id: number) =>
   apiRequest<AnalysisTask>(`/api/v1/research/analysis-tasks/${id}/`);
 export const getProteomicsRows = (taskId: number, page = 1) =>

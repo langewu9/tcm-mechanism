@@ -322,6 +322,26 @@ class AnalysisTaskSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class AnalysisTaskSummarySerializer(serializers.ModelSerializer):
+    """List metadata only; full parameters, evidence and results stay in detail."""
+
+    owner_id = serializers.ReadOnlyField()
+    task_type = serializers.CharField(read_only=True)
+    status = serializers.CharField(read_only=True)
+    owner_username = serializers.CharField(source="owner.username", read_only=True)
+    requested_by_id = serializers.ReadOnlyField(source="created_by_id")
+    display_parameters = serializers.JSONField(source="list_display_parameters", read_only=True)
+
+    class Meta:
+        model = AnalysisTask
+        fields = [
+            "id", "owner_id", "owner_username", "requested_by_id", "task_type", "status",
+            "dataset", "medical_case", "parent_task", "display_parameters", "progress",
+            "error_summary", "created_at", "started_at", "finished_at",
+        ]
+        read_only_fields = fields
+
+
 class NetworkPharmacologyRequestSerializer(serializers.Serializer):
     herb = serializers.CharField(max_length=1200)
     disease = serializers.CharField(max_length=300)

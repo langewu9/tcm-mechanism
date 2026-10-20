@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { getAnalysisTask, getAnalysisTasks, type AnalysisTask } from "../api/datasets";
+import { getAnalysisTask, getAnalysisTaskSummaries, type AnalysisTask } from "../api/datasets";
+import { restoreGalleryJobs } from "../api/task-restoration";
 import { createVisualization } from "../api/network";
 import { ApiError } from "../api/client";
 import { RDemoGallery } from "./RDemoGallery";
@@ -56,14 +57,11 @@ export function RAnalysisGallery({ taskId }: { taskId: number }) {
   useEffect(() => {
     const current = ++generation.current;
     setParent(null); setJobs({}); setError(null); setBusy(null);
-    Promise.all([getAnalysisTask(taskId), getAnalysisTasks(1, taskId)]).then(([source, page]) => {
+    Promise.all([getAnalysisTask(taskId), getAnalysisTaskSummaries(1, taskId)]).then(async ([source, page]) => {
+      if (generation.current !== current) return;
+      const restored = await restoreGalleryJobs(page.results, taskId, new Set(rChartCatalog(source).map(chart => chart.key)));
       if (generation.current !== current) return;
       setParent(source);
-      const restored: Record<string, AnalysisTask> = {};
-      for (const job of page.results) {
-        const key = job.input_parameters.chartKey;
-        if (job.task_type === "visualization" && job.parent_task === taskId && typeof key === "string" && !restored[key]) restored[key] = job;
-      }
       setJobs(restored);
     }).catch(cause => { if (generation.current === current) setError(cause instanceof ApiError ? cause.message : "R 分析目录加载失败。"); });
     return () => { generation.current++; };
