@@ -144,7 +144,8 @@ export function ResearchToolTabs() {
     } else if (active === "pathway") {
       resetResults(); await run(() => searchReactomeCatalog(query.trim()), setPathways);
     } else if (active === "intersection") {
-      resetResults(); await run(() => runNetworkPharmacology({ herb: herbs, disease }), setNetwork);
+      const generation = toolGeneration.current;
+      resetResults(); await run(() => runNetworkPharmacology({ herb: herbs, disease }, { isActive: () => currentTool() && toolGeneration.current === generation }), setNetwork);
     } else if (active === "disease") {
       resetResults(); await run(() => searchDiseaseEvidence(query.trim()), setDiseaseEvidence);
     } else {

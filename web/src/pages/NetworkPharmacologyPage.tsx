@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { Activity, ArrowLeft, Network, RefreshCw } from "lucide-react";
 import { getAnalysisTask, type AnalysisTask } from "../api/datasets";
 import { createVisualization, runNetworkPharmacology, runReactomeEnrichment, runStringNetwork, type NetworkPharmacologyResult } from "../api/network";
@@ -11,6 +11,7 @@ import { ReactomeEnrichmentResult, readReactomeEnrichment } from "../components/
 import { StringTaskResult } from "../components/StringNetworkResult";
 import { RAnalysisGallery } from "../components/RAnalysisGallery";
 import { RDemoGallery } from "../components/RDemoGallery";
+import { waitForCompleteTask } from "../api/complete-evidence";
 
 type QueryTask = { sourceTaskId: number; task: AnalysisTask };
 
@@ -26,6 +27,8 @@ function verifyTaskSource(task: AnalysisTask, sourceTaskId: number, kind: string
 
 export function NetworkPharmacologyPage() {
   const location = useLocation();
+  const [params, setParams] = useSearchParams();
+  const savedNetworkId = params.get("networkTask");
   const [herb, setHerb] = useState("");
   const [disease, setDisease] = useState("");
   const [result, setResult] = useState<NetworkPharmacologyResult | null>(null);
@@ -36,6 +39,7 @@ export function NetworkPharmacologyPage() {
   const [shareWithString, setShareWithString] = useState(false);
   const [requiredScore, setRequiredScore] = useState(700);
   const [busy, setBusy] = useState(false);
+  const [localProgress, setLocalProgress] = useState("");
   const [pathwaySubmitting, setPathwaySubmitting] = useState(false);
   const [stringSubmitting, setStringSubmitting] = useState(false);
   const [visualizationSubmitting, setVisualizationSubmitting] = useState(false);
@@ -60,6 +64,35 @@ export function NetworkPharmacologyPage() {
   function isCurrentQuery(generation: number, sourceTaskId: number) {
     return mounted.current && queryGeneration.current === generation && currentSourceTaskId.current === sourceTaskId;
   }
+
+  useEffect(() => {
+    if (!savedNetworkId || localSubmissionInFlight.current) return;
+    const generation = ++queryGeneration.current;
+    let active = true;
+    setResult(null); setError(null); setBusy(true);
+    setLocalProgress("正在读取已保存的本地分析…");
+    async function restore() {
+      try {
+        if (!/^[1-9]\d*$/.test(savedNetworkId!) || !Number.isSafeInteger(Number(savedNetworkId))) throw new Error("网络药理任务编号无效。");
+        const source = await getAnalysisTask(Number(savedNetworkId));
+        if (!active || !mounted.current || queryGeneration.current !== generation) return;
+        if (source.id !== Number(savedNetworkId) || source.task_type !== "network" || source.input_parameters.analysisKind === "catalog_evidence") throw new Error("该任务不是网络药理分析，请从对应目录查询打开。");
+        const task = await waitForCompleteTask(source, {
+          isActive: () => active && mounted.current && queryGeneration.current === generation,
+          onTask: current => setLocalProgress(`任务 #${current.id} · ${current.status} · ${current.progress}%`),
+          onReadError: () => setLocalProgress("任务进度读取失败，正在重试读取已有任务…"),
+        });
+        if (!active || !mounted.current || queryGeneration.current !== generation) return;
+        const data = task.result as unknown as NetworkPharmacologyResult;
+        if (!data.summary || !Array.isArray(data.targets) || !data.network) throw new Error("任务没有可展示的网络药理结果。");
+        currentSourceTaskId.current = task.id;
+        setResult({ ...data, taskId: task.id }); setHerb(data.summary.herb); setDisease(data.summary.disease);
+      } catch (cause) { if (active && mounted.current && queryGeneration.current === generation) setError(cause instanceof Error ? cause.message : "历史分析读取失败，请刷新重试。"); }
+      finally { if (active && mounted.current && queryGeneration.current === generation) setBusy(false); }
+    }
+    void restore();
+    return () => { active = false; };
+  }, [savedNetworkId]);
 
   useEffect(() => {
     if (!location.state || typeof location.state !== "object") return;
@@ -113,6 +146,7 @@ export function NetworkPharmacologyPage() {
     currentSourceTaskId.current = null;
     submittingGeneration.current = { pathway: null, string: null, visualization: null };
     setBusy(true);
+    setLocalProgress("正在提交完整本地分析…");
     setError(null);
     setPollingError(null);
     setResult(null);
@@ -124,18 +158,26 @@ export function NetworkPharmacologyPage() {
     setVisualizationSubmitting(false);
     setShareWithReactome(false);
     setShareWithString(false);
+    let rememberedTask = 0;
     try {
       const latest = await runNetworkPharmacology({
         herb,
         disease,
         ...(caseContext ? { source_case_id: caseContext.caseId, source_candidate_id: caseContext.candidateId } : {}),
+      }, {
+        isActive: () => mounted.current && queryGeneration.current === generation,
+        onTask: task => { if (mounted.current && queryGeneration.current === generation) {
+          setLocalProgress(`任务 #${task.id} · ${task.status === "queued" ? "排队中" : task.status === "running" ? "正在读取完整证据" : "已完成"} · ${task.progress}%`);
+          if (rememberedTask !== task.id) { rememberedTask = task.id; setParams(current => { const next = new URLSearchParams(current); next.set("networkTask", String(task.id)); return next; }, { replace: true }); }
+        } },
+        onReadError: () => { if (mounted.current && queryGeneration.current === generation) setLocalProgress("任务进度暂时读取失败，正在重试读取已有任务…"); },
       });
       if (mounted.current && queryGeneration.current === generation) {
         currentSourceTaskId.current = latest.taskId;
         setResult(latest);
       }
     } catch (cause) {
-      if (mounted.current && queryGeneration.current === generation) setError(errorMessage(cause));
+      if (mounted.current && queryGeneration.current === generation) setError(cause instanceof Error ? cause.message : errorMessage(cause));
     } finally {
       localSubmissionInFlight.current = false;
       if (mounted.current && queryGeneration.current === generation) setBusy(false);
@@ -208,6 +250,7 @@ export function NetworkPharmacologyPage() {
 
       <div className="page-heading"><div className="page-heading-copy"><p className="page-kicker">Network pharmacology</p><h1 className="page-title">中药—疾病靶点交集</h1><p className="page-description">在已导入的本地知识目录中匹配中药成分靶点和疾病靶点，展示关系证据与来源版本。</p></div><Link to="/" className="btn btn-secondary"><ArrowLeft size={16} />返回首页</Link></div>
       {error && <div className="notice-error workspace-notice" role="alert">{error}</div>}
+      {busy && <p className="section-help" role="status">{localProgress}</p>}
       {pollingError && <div className="notice-error workspace-notice" role="status">{pollingError}</div>}
       <div className="case-workspace-grid">
         <form className="panel case-form" onSubmit={(event) => void submit(event)}>

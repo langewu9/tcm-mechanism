@@ -16,6 +16,32 @@ from apps.core.services.visualization import VisualizationInputError, execute_vi
 logger = logging.getLogger(__name__)
 
 
+@shared_task(name="core.complete_evidence")
+def run_complete_evidence_task(task_id: int):
+    claimed = AnalysisTask.objects.filter(
+        pk=task_id, task_type=AnalysisTask.TaskType.NETWORK,
+        input_parameters__complete=True, status=AnalysisTask.Status.QUEUED,
+    ).update(status=AnalysisTask.Status.RUNNING, progress=5, started_at=timezone.now())
+    if not claimed:
+        return {"status": "skipped", "taskId": task_id}
+    from .services.complete_evidence import CompleteEvidenceInputError, execute_complete_evidence
+    from .services.catalog_analysis import CatalogSnapshotChanged
+    from .services.network_pharmacology import NetworkPharmacologyInputError
+    try:
+        execute_complete_evidence(AnalysisTask.objects.select_related("owner").get(pk=task_id))
+        return {"status": "succeeded", "taskId": task_id}
+    except (CompleteEvidenceInputError, CatalogSnapshotChanged, NetworkPharmacologyInputError) as exc:
+        message = str(exc)
+        record_runtime_event("complete_evidence.rejected", task_id=task_id, exception=exc)
+    except Exception as exc:
+        message = "完整本地分析失败，请重试或联系管理员并提供任务编号。"
+        record_runtime_event("complete_evidence.failed", task_id=task_id, exception=exc)
+        logger.exception("Complete evidence task failed task_id=%s", task_id)
+    AnalysisTask.objects.filter(pk=task_id, status=AnalysisTask.Status.RUNNING).update(
+        status=AnalysisTask.Status.FAILED, progress=100, error_summary=message, finished_at=timezone.now())
+    return {"status": "failed", "taskId": task_id}
+
+
 @shared_task(name="core.analyze_medical_case")
 def run_case_analysis_task(task_id: int) -> dict[str, str | int]:
     claimed = AnalysisTask.objects.filter(

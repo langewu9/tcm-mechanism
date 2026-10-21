@@ -24,7 +24,8 @@ const moduleUnderTest = new Module(filename);
 moduleUnderTest.require = name => {
   if (name === 'react/jsx-runtime') return {jsx,jsxs:jsx,Fragment:'Fragment'};
   if (name === 'react') return fakeReact;
-  if (name === 'react-router-dom') return {Link:'Link', useLocation:()=>({key:'current',state:null})};
+  if (name === 'react-router-dom') return {Link:'Link', useLocation:()=>({key:'current',state:null}), useSearchParams:()=>[new URLSearchParams(),()=>{}]};
+  if (name === '../api/complete-evidence') return {waitForCompleteTask:async task=>task};
   if (name === 'lucide-react') return {Activity:'Activity',ArrowLeft:'ArrowLeft',Network:'Network',RefreshCw:'RefreshCw'};
   if (name === '../api/client') return {ApiError:class extends Error {}};
   if (name === '../api/datasets') return {getAnalysisTask:enqueue(pollCalls)};

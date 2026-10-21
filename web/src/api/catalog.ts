@@ -19,6 +19,7 @@ export const searchReactomeCatalog = (query: string) => apiRequest<ReactomeCatal
 );
 
 export type DashboardTask = {
+  analysis_kind?: string;
   id: number;
   title: string;
   summary: string;
@@ -179,6 +180,6 @@ export function searchHerbComponentEvidence(queryType: HerbEvidenceSearch["query
 export function saveHerbEvidenceAnalysis(evidence: HerbEvidenceSearch) {
   return apiRequest<AnalysisTask>("/api/v1/catalog/herb-evidence/analyses/", {
     method: "POST",
-    body: { queryType: evidence.queryType, queries: evidence.results.map(item => item.query), expectedResultSha256: evidence.resultSha256 },
+    body: { queryType: evidence.queryType, queries: evidence.results.map(item => item.query), expectedResultSha256: evidence.resultSha256, complete: true },
   });
 }

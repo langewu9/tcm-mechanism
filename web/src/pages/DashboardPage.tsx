@@ -108,7 +108,7 @@ export function DashboardPage() {
         <div className="panel-header"><div><h2 id="dashboard-latest-title" className="section-title-sm">最近分析</h2><p className="section-help">最近保存的五项任务</p></div><Link to="/analysis" className="text-xs font-bold text-cinnabar">文本分析</Link></div>
         {loading ? <div className="empty-state min-h-56" role="status">正在读取研究数据…</div>
           : error ? <div className="empty-state min-h-56" role="status"><strong>未能读取最近任务</strong><p>请稍后刷新页面重试。</p></div>
-          : dashboard?.latest_tasks.length ? <div className="divide-y divide-cinnabar/10">{dashboard.latest_tasks.map((task) => <Link to={taskRoutes[task.task_type]} key={task.id} className="block px-5 py-4 hover:bg-cinnabar/5">
+          : dashboard?.latest_tasks.length ? <div className="divide-y divide-cinnabar/10">{dashboard.latest_tasks.map((task) => <Link to={task.task_type === "network" ? task.analysis_kind === "catalog_evidence" ? `/research?catalogTask=${task.id}` : `/network-pharmacology?networkTask=${task.id}` : taskRoutes[task.task_type]} key={task.id} className="block px-5 py-4 hover:bg-cinnabar/5">
             <div className="flex items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-2">
                 <p className="truncate text-sm font-bold">{task.title}</p>

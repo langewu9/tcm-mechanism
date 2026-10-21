@@ -1,0 +1,38 @@
+// Real API wrappers; synthetic same-origin responses, no backend/provider calls.
+const fs=require('node:fs'),path=require('node:path'),{createRequire}=require('node:module'),assert=require('node:assert/strict');
+const load=createRequire(path.join(__dirname,'..','package.json')),ts=load('typescript');
+require.extensions['.ts']=(module,filename)=>module._compile(ts.transpileModule(fs.readFileSync(filename,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,filename);
+const {waitForCompleteTask,snapshotDownloadUrl,getSnapshotPage}=load('./src/api/complete-evidence.ts');
+const {runNetworkPharmacology}=load('./src/api/network.ts');
+const {saveHerbEvidenceAnalysis}=load('./src/api/catalog.ts');
+global.window={setTimeout:fn=>{queueMicrotask(fn);return 1;}};
+let replies=[],calls=[];
+global.fetch=async(url,options)=>{calls.push({url,options});const reply=replies.shift();assert.ok(reply,'Unexpected request '+url);if(reply instanceof Error)throw reply;return reply;};
+const json=(payload,status=200)=>new Response(JSON.stringify(payload),{status,headers:{'Content-Type':'application/json'}});
+const task=(status='queued',id=71)=>({id,task_type:'network',status,progress:status==='succeeded'?100:5,input_parameters:{analysisKind:'network_pharmacology',complete:true},result:status==='succeeded'?{snapshot:{complete:true},summary:{herb:'H'},targets:[]}: {}});
+const reset=values=>{calls=[];replies=values;};
+(async()=>{
+  reset([json({csrfToken:'synthetic'}),json(task(),202),new Error('synthetic transient failure'),json(task('running')),json(task('succeeded'))]);
+  const seen=[],reads=[];
+  const result=await runNetworkPharmacology({herb:'H',disease:'D'},{onTask:t=>seen.push(t.status),onReadError:()=>reads.push(true)});
+  assert.equal(result.taskId,71);assert.equal(reads.length,1);
+  assert.deepEqual(seen,['queued','running','succeeded']);
+  assert.equal(calls.filter(call=>call.options.method==='POST').length,1,'Polling retry never repeats a task submission');
+  assert.ok(calls.slice(2).every(call=>call.url==='/api/v1/research/analysis-tasks/71/'));
+  assert.deepEqual(JSON.parse(calls[1].options.body),{herb:'H',disease:'D',complete:true});
+  reset([json({csrfToken:'synthetic'}),json(task(),202)]);
+  await saveHerbEvidenceAnalysis({queryType:'herb',results:[{query:'H'}],resultSha256:'a'.repeat(64)});
+  assert.equal(JSON.parse(calls[1].options.body).complete,true);
+  reset([json(task('succeeded',99))]);
+  await assert.rejects(()=>waitForCompleteTask(task()),/编号或类型不一致/);
+  reset([json({error:{code:'NOT_FOUND',message:'record unavailable'}},404)]);
+  await assert.rejects(()=>waitForCompleteTask(task()),/record unavailable/);
+  assert.equal(calls.length,1,'Missing/private task does not get polled forever');
+  reset([]);await assert.rejects(()=>waitForCompleteTask({...task('failed'),error_summary:'请拆分查询'}),/请拆分查询/);assert.equal(calls.length,0);
+  await assert.rejects(()=>waitForCompleteTask(task(),{isActive:()=>false}),/后台任务仍保留/);assert.equal(calls.length,0,'Unmount/query switch stops GET polling');
+  assert.equal(snapshotDownloadUrl(71,'herbLinks','csv'),'/api/v1/research/analysis-tasks/71/snapshot-export/?file_format=csv&table=herbLinks');
+  reset([json({taskId:71,results:[]})]);await getSnapshotPage(71,'evidenceRecords',2);
+  assert.equal(calls[0].url,'/api/v1/research/analysis-tasks/71/snapshot-rows/?table=evidenceRecords&page=2&page_size=20');
+  assert.equal(calls[0].options.credentials,'same-origin');
+  console.log('PASS: complete-task POST, transient GET-only retry, identity/permission/failure/cancellation guards, paged private snapshots and streaming download URLs.');
+})().catch(error=>{console.error(error.stack);process.exitCode=1;});

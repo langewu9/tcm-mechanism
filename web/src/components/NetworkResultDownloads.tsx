@@ -1,6 +1,8 @@
 import { Download, FileJson, Table2 } from "lucide-react";
 import type { NetworkPharmacologyResult, NetworkRawTable } from "../api/network";
 import { downloadText as download, encodeCsv as csv } from "../utils/downloads";
+import { snapshotDownloadUrl } from "../api/complete-evidence";
+import { SnapshotEvidence } from "./SnapshotEvidence";
 
 export function networkTargetsCsv(result: NetworkPharmacologyResult) {
   return csv([
@@ -55,6 +57,15 @@ const rawTables = [
 ] as const;
 
 export function NetworkResultDownloads({ result }: { result: NetworkPharmacologyResult }) {
+  if (result.snapshot?.complete) return <section aria-label="本次候选靶点与证据下载">
+    <div className="source-record-actions">
+      {[{ key: "targets", label: "全部候选靶点 CSV" }, { key: "targetSources", label: "全部候选来源 CSV" }, ...rawTables.map(table => ({ key: table.key, label: table.label }))].map(table =>
+        <a key={table.key} className="btn btn-secondary" href={snapshotDownloadUrl(result.taskId, table.key, "csv")} download><Download size={15} />{table.label}</a>)}
+      <a className="btn btn-secondary" href={snapshotDownloadUrl(result.taskId)} download><FileJson size={15} />完整快照 JSONL</a>
+    </div>
+    <p className="section-help">本次统计使用完整后台输入。页面表格、来源摘要和图可只展示部分；以上下载包含该任务冻结的全部对应记录，不受页面 1,000 / 4,000 行及每靶点 30 条来源摘要的限制。来源引用可能重复，不能将导出行数当成独立证据数量。</p>
+    <SnapshotEvidence taskId={result.taskId} snapshot={result.snapshot} />
+  </section>;
   return <section aria-label="本次候选靶点与证据下载">
     <div className="source-record-actions">
       <button className="btn btn-secondary" type="button" disabled={!result.targets.length} onClick={() => download(`network-targets-task-${result.taskId}.csv`, networkTargetsCsv(result), "text/csv;charset=utf-8")}><Table2 size={15} />候选靶点 CSV</button>

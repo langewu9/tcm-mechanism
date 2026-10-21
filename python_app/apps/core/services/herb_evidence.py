@@ -35,7 +35,7 @@ def _visible_relations(
     ).filter(
         (Q(subject__source_release__isnull=True) | Q(subject__source_release__source__enabled=True))
         & (Q(object__source_release__isnull=True) | Q(object__source_release__source__enabled=True))
-    ).select_related("subject", "object", "source_release", "source_release__source")
+    ).select_related("subject__source_release__source", "object__source_release__source", "source_release__source")
     if subject_ids is not None:
         queryset = queryset.filter(subject_id__in=subject_ids)
     if object_ids is not None:
@@ -56,10 +56,12 @@ def _entity_record(entity: KnowledgeEntity) -> dict:
     return {
         "id": entity.pk,
         "stableId": entity.stable_id,
+        "entityType": entity.entity_type,
         "label": entity.label,
         "sourceReleaseId": entity.source_release_id,
         "sourceSlug": release.source.slug if release else None,
         "sourceVersion": release.version if release else None,
+        "sourceChecksumSha256": release.checksum_sha256 if release else None,
         "sourceEntityId": metadata.get("sourceEntityId"),
         "sourceReferences": metadata.get("sourceReferences", []),
         "identifierStatus": metadata.get("identifierStatus"),
@@ -83,13 +85,15 @@ def _relation_record(relation: EvidenceRelation) -> dict:
         "sourceSlug": relation.source_release.source.slug,
         "sourceVersion": relation.source_release.version,
         "sourceRecordId": relation.source_record_id,
+        "sourceRowId": metadata.get("sourceRowId"),
+        "sourceChecksumSha256": relation.source_release.checksum_sha256,
         "sourceOrigin": metadata.get("sourceOrigin"),
         "sourceIdentity": metadata.get("sourceIdentity"),
         "score": float(relation.score) if relation.score is not None else None,
     }
 
 
-def batch_herb_component_evidence(*, query_type: str, queries: list[str]) -> dict:
+def batch_herb_component_evidence(*, query_type: str, queries: list[str], relation_limit=MAX_RELATIONS, match_limit=MAX_MATCHES) -> dict:
     result_items = []
     for raw_query in queries:
         query = raw_query.strip()
@@ -99,10 +103,10 @@ def batch_herb_component_evidence(*, query_type: str, queries: list[str]) -> dic
                 entity_type=entity_type,
                 is_active=True,
                 label__iexact=query,
-            )).select_related("source_release", "source_release__source").order_by("stable_id")[:MAX_MATCHES + 1]
+            )).select_related("source_release", "source_release__source").order_by("stable_id")[:match_limit + 1]
         )
-        matches_truncated = len(matches) > MAX_MATCHES
-        matches = matches[:MAX_MATCHES]
+        matches_truncated = len(matches) > match_limit
+        matches = matches[:match_limit]
         matched_ids = {item.pk for item in matches}
 
         if query_type == "herb":
@@ -110,12 +114,14 @@ def batch_herb_component_evidence(*, query_type: str, queries: list[str]) -> dic
                 subject_ids=matched_ids,
                 relation_types=HERB_COMPOUND_TYPES,
                 object_types=[KnowledgeEntity.EntityType.COMPOUND],
+                limit=relation_limit,
             ) if matched_ids else ([], False)
             compound_ids = {item.object_id for item in herb_edges}
             target_edges, target_edges_truncated = _visible_relations(
                 relation_types=COMPOUND_TARGET_TYPES,
                 object_types=[KnowledgeEntity.EntityType.PROTEIN, KnowledgeEntity.EntityType.GENE],
                 herb_relations=herb_edges,
+                limit=relation_limit,
             ) if compound_ids else ([], False)
             support = HerbRowSupport(herb_edges)
             target_edges = [relation for relation in target_edges if support.for_target(relation)]
@@ -127,10 +133,12 @@ def batch_herb_component_evidence(*, query_type: str, queries: list[str]) -> dic
                 object_ids=matched_ids,
                 relation_types=HERB_COMPOUND_TYPES,
                 subject_types=[KnowledgeEntity.EntityType.HERB],
+                limit=relation_limit,
             ) if matched_ids else ([], False)
             target_edges, target_edges_truncated = _visible_relations(
                 subject_ids=matched_ids,
                 relation_types=COMPOUND_TARGET_TYPES,
+                limit=relation_limit,
                 object_types=[KnowledgeEntity.EntityType.PROTEIN, KnowledgeEntity.EntityType.GENE],
             ) if matched_ids else ([], False)
             herbs = list({item.subject_id: item.subject for item in herb_edges}.values())

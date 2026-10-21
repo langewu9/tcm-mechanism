@@ -17,6 +17,24 @@ def save_catalog_analysis(*, user, query_type, queries, expected_sha256):
     snapshot = batch_herb_component_evidence(query_type=query_type, queries=queries)
     if snapshot["resultSha256"] != expected_sha256:
         raise CatalogSnapshotChanged("目录数据已更新，请重新检索后再保存关系图。")
+    if any(item["truncated"] for item in snapshot["results"]):
+        raise ValueError("预览未包含全部输入，请使用完整后台分析。")
+    result, release_ids = catalog_result(snapshot)
+    now = timezone.now()
+    with transaction.atomic():
+        task = AnalysisTask.objects.create(
+            owner=user, created_by=user, task_type=AnalysisTask.TaskType.NETWORK,
+            status=AnalysisTask.Status.SUCCEEDED, progress=100, started_at=now, finished_at=now,
+            input_parameters={"analysisKind": "catalog_evidence", "algorithmVersion": "catalog-evidence-0.4",
+                              "queryType": query_type, "queries": queries, "resultSha256": expected_sha256},
+            result=result,
+        )
+        task.source_releases.set(sorted(release_ids))
+    return task
+
+
+def catalog_result(snapshot):
+    """Graph is a bounded display projection; caller separately freezes ALL rows."""
     entities, records = {}, {}
     for item in snapshot["results"]:
         for group, kind in (("herbs", "herb"), ("compounds", "compound"), ("targets", "target")):
@@ -47,21 +65,11 @@ def save_catalog_analysis(*, user, query_type, queries, expected_sha256):
               "sourceReleaseId": record["sourceReleaseId"], "evidenceId": record["id"]} for record in selected]
     release_ids = {record["sourceReleaseId"] for record in selected}
     release_ids.update(entities[pk]["sourceReleaseId"] for pk in used if entities[pk]["sourceReleaseId"])
-    now = timezone.now()
-    with transaction.atomic():
-        task = AnalysisTask.objects.create(
-            owner=user, created_by=user, task_type=AnalysisTask.TaskType.NETWORK,
-            status=AnalysisTask.Status.SUCCEEDED, progress=100, started_at=now, finished_at=now,
-            input_parameters={"analysisKind": "catalog_evidence", "algorithmVersion": "catalog-evidence-0.4",
-                              "queryType": query_type, "queries": queries, "resultSha256": expected_sha256},
-            result={"analysisKind": "catalog_evidence", "queryType": query_type, "queries": queries,
-                    "resultSha256": expected_sha256, "capturedAt": now.isoformat(),
+    return {"analysisKind": "catalog_evidence", "queryType": snapshot["queryType"], "queries": [item["query"] for item in snapshot["results"]],
+                    "resultSha256": snapshot["resultSha256"], "capturedAt": timezone.now().isoformat(),
                     "network": {"nodes": nodes, "links": links}, "evidenceRecords": selected,
                     "counts": {"nodes": len(nodes), "evidenceRecords": len(selected),
                                "returnedEvidenceRecords": len(records),
                                "uniqueEdges": len({tuple(sorted((link['source'], link['target']))) for link in links})},
                     "limits": {"queryTruncated": any(item["truncated"] for item in snapshot["results"]),
-                               "graphTruncated": len(selected) < len(records)}},
-        )
-        task.source_releases.set(sorted(release_ids))
-    return task
+                               "graphTruncated": len(selected) < len(records)}}, release_ids

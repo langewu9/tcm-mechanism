@@ -2,11 +2,12 @@
 
 from .domain.accounts import ResearcherProfile
 from .domain.knowledge import EntityIdentifier, EvidenceRelation, KnowledgeEntity
-from .domain.research import AnalysisTask, MedicalCase, MedicalCaseAuditEvent, MedicalCaseCandidate, ResearchDataset, ResearchDatasetAuditEvent, ResearchDatasetRow, VisualizationArtifact
+from .domain.research import AnalysisSnapshotRow, AnalysisTask, MedicalCase, MedicalCaseAuditEvent, MedicalCaseCandidate, ResearchDataset, ResearchDatasetAuditEvent, ResearchDatasetRow, VisualizationArtifact
 from .domain.sources import DataSource, SourceRelease, SyncRun
 from .domain.security import ResearchUploadQuota, SensitiveAccessEvent
 
 __all__ = [
+    "AnalysisSnapshotRow",
     "AnalysisTask",
     "DataSource",
     "EntityIdentifier",

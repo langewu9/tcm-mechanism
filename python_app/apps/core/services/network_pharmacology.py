@@ -37,15 +37,20 @@ def parse_herb_names(value: str) -> list[str]:
     return list(dict.fromkeys(part.strip() for part in INPUT_SPLIT.split(value) if part.strip()))
 
 
-def _entity_matches(entity_type: str, labels: list[str]) -> tuple[list[KnowledgeEntity], set[str]]:
+def _entity_matches(entity_type: str, labels: list[str], *, complete=False) -> tuple[list[KnowledgeEntity], set[str]]:
     matches = []
     matched_labels = set()
     for label in labels:
+        match_limit = 1000 if complete else 10
         exact = list(KnowledgeEntity.objects.filter(
             entity_type=entity_type, is_active=True, label__iexact=label,
         ).filter(
             Q(source_release__isnull=True) | Q(source_release__source__enabled=True)
-        ).order_by("stable_id")[:10])
+        ).select_related("source_release__source").order_by("stable_id")[:match_limit + 1])
+        if len(exact) > match_limit:
+            raise NetworkPharmacologyInputError("同名来源实体超过后台保护额度，请缩小查询范围。" if complete
+                                              else "同名来源实体超过预览额度，请使用完整后台分析。")
+        exact = exact[:match_limit]
         if exact:
             matches.extend(exact)
             matched_labels.add(label)
@@ -63,12 +68,15 @@ def _evidence_record(relation: EvidenceRelation) -> dict:
         "sourceVersion": release.version,
         "evidenceType": relation.evidence_type,
         "sourceRecordId": relation.source_record_id,
+        "relationId": relation.pk,
+        "sourceReleaseId": relation.source_release_id,
+        "sourceChecksumSha256": release.checksum_sha256,
         "relationType": relation.relation_type,
         "score": float(relation.score) if relation.score is not None else None,
     }
 
 
-def _relation_query(*, subject_ids=None, object_ids=None, relation_types, limit, herb_relations=None):
+def _relation_query(*, subject_ids=None, object_ids=None, relation_types, limit, herb_relations=None, object_types=None):
     queryset = EvidenceRelation.objects.filter(
         is_active=True,
         subject__is_active=True,
@@ -78,11 +86,13 @@ def _relation_query(*, subject_ids=None, object_ids=None, relation_types, limit,
     ).filter(
         (Q(subject__source_release__isnull=True) | Q(subject__source_release__source__enabled=True))
         & (Q(object__source_release__isnull=True) | Q(object__source_release__source__enabled=True))
-    ).select_related("subject", "object", "source_release", "source_release__source")
+    ).select_related("subject__source_release__source", "object__source_release__source", "source_release__source")
     if subject_ids is not None:
         queryset = queryset.filter(subject_id__in=subject_ids)
     if object_ids is not None:
         queryset = queryset.filter(object_id__in=object_ids)
+    if object_types is not None:
+        queryset = queryset.filter(object__entity_type__in=object_types)
     if herb_relations is not None:
         queryset = supported_target_queryset(queryset, herb_relations)
     return list(queryset.order_by("id")[:limit])
@@ -180,16 +190,21 @@ def build_network_pharmacology(
     *, user, herb_query: str, disease_query: str, row_limit: int = 12000,
     source_case_candidate: MedicalCaseCandidate | None = None,
     persist: bool = True,
+    complete: bool = False, capture_relations=None, capture_entities=None,
 ) -> dict:
     relation_limits = {}
 
     def read_relations(stage, **kwargs):
         rows = _relation_query(**kwargs, limit=row_limit + 1)
         relation_limits[stage] = len(rows) > row_limit
+        if complete and relation_limits[stage]:
+            raise NetworkPharmacologyInputError("输入关系超过后台保护额度，请拆分查询；本次不会保存部分分析结果。")
+        if capture_relations is not None:
+            capture_relations(stage, rows[:row_limit])
         return rows[:row_limit]
 
     requested_names = parse_herb_names(herb_query)
-    requested_herbs, matched_herb_names = _entity_matches(KnowledgeEntity.EntityType.HERB, requested_names)
+    requested_herbs, matched_herb_names = _entity_matches(KnowledgeEntity.EntityType.HERB, requested_names, complete=complete)
     if source_case_candidate:
         formulas = [source_case_candidate.entity] if source_case_candidate.entity_id else []
         matched_formula_names = {
@@ -197,13 +212,14 @@ def build_network_pharmacology(
             if source_case_candidate.entity and name.casefold() == source_case_candidate.entity.label.casefold()
         }
     else:
-        formulas, matched_formula_names = _entity_matches(KnowledgeEntity.EntityType.FORMULA, requested_names)
+        formulas, matched_formula_names = _entity_matches(KnowledgeEntity.EntityType.FORMULA, requested_names, complete=complete)
     if source_case_candidate and source_case_candidate.entity_id not in {item.pk for item in formulas}:
         raise NetworkPharmacologyInputError("已确认方剂未包含在本次查询中，或其来源记录当前不可用。")
     formula_herb_relations = read_relations(
         "formulaHerbs",
         subject_ids={item.pk for item in formulas},
         relation_types=FORMULA_HERB_TYPES,
+        object_types=[KnowledgeEntity.EntityType.HERB],
     ) if formulas else []
     formula_herb_relations = [
         relation for relation in formula_herb_relations
@@ -215,10 +231,12 @@ def build_network_pharmacology(
     herbs_by_id = {item.pk: item for item in [*requested_herbs, *formula_herbs]}
     herbs = list(herbs_by_id.values())
     herb_names = [item.label for item in herbs]
-    diseases, matched_disease_names = _entity_matches(KnowledgeEntity.EntityType.DISEASE, [disease_query.strip()])
+    diseases, matched_disease_names = _entity_matches(KnowledgeEntity.EntityType.DISEASE, [disease_query.strip()], complete=complete)
     herb_ids = {item.pk for item in herbs}
     disease_ids = {item.pk for item in diseases}
     selected_herbs_by_stable_id = {item.stable_id: item.label for item in herbs}
+    if capture_entities is not None:
+        capture_entities([*formulas, *herbs, *diseases])
 
     herb_compound_relations = read_relations(
         "herbCompounds", subject_ids=herb_ids, relation_types=HERB_COMPOUND_TYPES,
@@ -308,6 +326,8 @@ def build_network_pharmacology(
         disease_data = disease_evidence.get(entity_id, {})
         sources = (herb_data.get("sources", []) or []) + (disease_data.get("sources", []) or []) + pathway_sources_by_target.get(entity_id, [])
         targets.append({
+            **({"entityId": target.pk, "stableId": target.stable_id, "organism": target.organism,
+                "sourceReleaseId": target.source_release_id} if complete else {}),
             "target": target.label,
             "normalizedTarget": target.label.strip().upper(),
             "matchType": "严格交集" if entity_id in strict_ids else "疾病—中药直接关联",
@@ -320,7 +340,7 @@ def build_network_pharmacology(
             "herbEvidenceCount": herb_data.get("count", 0),
             "diseaseEvidenceCount": disease_data.get("count", 0),
             "directEvidenceCount": disease_data.get("directCount", 0),
-            "sources": sources[:30],
+            "sources": sources if complete else sources[:30],
         })
 
     # Main builds both charts from candidate rows rather than every herb target.
@@ -388,14 +408,16 @@ def build_network_pharmacology(
             "sourceSlug": relation.source_release.source.slug,
         })
 
-    raw_limit = min(row_limit, RAW_EXPORT_LIMIT)
+    raw_limit = row_limit if complete else min(row_limit, RAW_EXPORT_LIMIT)
     raw, raw_truncated = _raw_side_evidence(
         herb_compound_relations, compound_target_relations, disease_target_relations,
         herbs_by_stable_id=selected_herbs_by_stable_id, limit=raw_limit,
     )
+    if complete and any(raw_truncated.values()):
+        raise NetworkPharmacologyInputError("证据组合超过后台保护额度，请拆分查询；本次不会保存部分分析结果。")
     result = {
         "summary": summary,
-        "targets": targets[:1000],
+        "targets": targets if complete else targets[:1000],
         "raw": raw,
         "rawLimits": {
             "formatVersion": RAW_EVIDENCE_VERSION,
@@ -427,6 +449,9 @@ def build_network_pharmacology(
     }
     if not persist:
         return result
+
+    if any(relation_limits.values()):
+        raise NetworkPharmacologyInputError("输入关系达到预览上限，请使用完整后台分析；本次不会保存部分分析结果。")
 
     with transaction.atomic():
         owner = user

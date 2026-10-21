@@ -251,6 +251,7 @@ class ResearchAssistantRequestSerializer(serializers.Serializer):
 
 
 class DashboardTaskSerializer(serializers.ModelSerializer):
+    analysis_kind = serializers.CharField(source="input_parameters.analysisKind", read_only=True, default="")
     title = serializers.SerializerMethodField()
     summary = serializers.SerializerMethodField()
     task_type = serializers.CharField(read_only=True)
@@ -258,7 +259,7 @@ class DashboardTaskSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = AnalysisTask
-        fields = ["id", "title", "summary", "task_type", "status", "created_at"]
+        fields = ["id", "title", "summary", "task_type", "status", "created_at", "analysis_kind"]
         read_only_fields = fields
 
     def get_title(self, obj) -> str:
@@ -347,6 +348,7 @@ class AnalysisTaskSummarySerializer(serializers.ModelSerializer):
 
 
 class NetworkPharmacologyRequestSerializer(serializers.Serializer):
+    complete = serializers.BooleanField(required=False, default=False)
     herb = serializers.CharField(max_length=1200)
     disease = serializers.CharField(max_length=300)
     limit = serializers.IntegerField(required=False, default=12000, min_value=500, max_value=30000)

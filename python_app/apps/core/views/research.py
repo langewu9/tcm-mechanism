@@ -4,9 +4,9 @@ from django.conf import settings
 from django.core.files.storage import default_storage
 from django.db import transaction
 from django.db.models import Count, Q
-from django.db.models.fields.json import KeyTextTransform
+from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import JSONObject, Substr
-from django.http import FileResponse, HttpResponse
+from django.http import FileResponse, HttpResponse, StreamingHttpResponse
 from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
@@ -14,6 +14,7 @@ from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -438,6 +439,12 @@ class MedicalCaseViewSet(SensitiveReadAuditMixin, viewsets.ModelViewSet):
         return Response(MedicalCaseCandidateSerializer(candidate).data)
 
 
+class SnapshotPagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = "page_size"
+    max_page_size = 100
+
+
 class AnalysisTaskViewSet(SensitiveReadAuditMixin, viewsets.ReadOnlyModelViewSet):
     sensitive_resource_type = "task"
     queryset = AnalysisTask.objects.none()
@@ -458,6 +465,9 @@ class AnalysisTaskViewSet(SensitiveReadAuditMixin, viewsets.ReadOnlyModelViewSet
                     parentTaskId=Substr(KeyTextTransform("parentTaskId", "input_parameters"), 1, 20),
                 )
             )
+        elif self.action == "snapshot_rows":
+            queryset = queryset.defer("input_parameters", "result").annotate(
+                frozen_snapshot_manifest=KeyTransform("snapshot", "result"))
         else:
             queryset = queryset.prefetch_related("source_releases")
         if not self.request.user.is_superuser:
@@ -468,6 +478,45 @@ class AnalysisTaskViewSet(SensitiveReadAuditMixin, viewsets.ReadOnlyModelViewSet
     @action(detail=False, methods=["get"], serializer_class=AnalysisTaskSummarySerializer)
     def summaries(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
+
+    @extend_schema(parameters=[OpenApiParameter("table", OpenApiTypes.STR), OpenApiParameter("page", OpenApiTypes.INT),
+                               OpenApiParameter("page_size", OpenApiTypes.INT)], responses=OpenApiTypes.OBJECT)
+    @action(detail=True, methods=["get"], url_path="snapshot-rows")
+    def snapshot_rows(self, request, pk=None):
+        from ..services.snapshot_exports import snapshot_table
+        task = self.get_object()
+        name = request.query_params.get("table", "evidenceRecords")
+        manifest, rows = snapshot_table(task, name)
+        paginator = SnapshotPagination()
+        page = paginator.paginate_queryset(rows, request, view=self)
+        response = paginator.get_paginated_response([{"ordinal": row.ordinal, "payload": row.payload} for row in page])
+        response.data.update(taskId=task.pk, table=name, snapshotSha256=manifest["sha256"],
+                             tableSha256=manifest["tables"][name]["sha256"], complete=True)
+        return response
+
+    @extend_schema(parameters=[OpenApiParameter("table", OpenApiTypes.STR),
+                               OpenApiParameter("file_format", OpenApiTypes.STR, enum=["csv", "jsonl"])],
+                   responses={(200, "text/csv"): OpenApiTypes.BINARY, (200, "application/x-ndjson"): OpenApiTypes.BINARY})
+    @action(detail=True, methods=["get"], url_path="snapshot-export")
+    def snapshot_export(self, request, pk=None):
+        from ..services.snapshot_exports import csv_chunks, jsonl_chunks, snapshot_manifest, snapshot_table
+        task = self.get_object()
+        manifest = snapshot_manifest(task)
+        table = request.query_params.get("table")
+        export_format = request.query_params.get("file_format", "jsonl")
+        if export_format not in {"csv", "jsonl"}:
+            raise ValidationError({"file_format": "完整快照仅支持 csv 或 jsonl。"})
+        if table:
+            snapshot_table(task, table)
+        if export_format == "csv" and not table:
+            raise ValidationError({"table": "CSV 导出必须指定证据表。"})
+        response = StreamingHttpResponse(csv_chunks(task, table) if export_format == "csv" else jsonl_chunks(task, table),
+                    content_type="text/csv; charset=utf-8" if export_format == "csv" else "application/x-ndjson; charset=utf-8")
+        suffix = f"-{table}" if table else ""
+        response["Content-Disposition"] = f'attachment; filename="snapshot-task-{task.pk}{suffix}.{export_format}"'
+        response["X-Snapshot-Sha256"] = manifest["sha256"]
+        response["X-Content-Type-Options"] = "nosniff"
+        return response
 
     @action(detail=True, methods=["post"], url_path="visualizations")
     def visualizations(self, request, pk=None):

@@ -1,9 +1,11 @@
 import { apiRequest } from "./client";
 import type { AnalysisTask } from "./datasets";
+import { waitForCompleteTask, type CompleteTaskOptions, type EvidenceSnapshot } from "./complete-evidence";
 
 export type NetworkRawTable = "herbLinks" | "diseaseTargets" | "diseaseHerbLinks" | "directDiseaseHerbLinks";
 
 export type NetworkPharmacologyResult = {
+  snapshot?: EvidenceSnapshot;
   taskId: number;
   summary: {
     herb: string;
@@ -81,8 +83,13 @@ export type ReactomeEnrichmentResult = {
   retrievedAt: string;
 };
 
-export const runNetworkPharmacology = (input: { herb: string; disease: string; source_case_id?: number; source_candidate_id?: number }) =>
-  apiRequest<NetworkPharmacologyResult>("/api/v1/analysis/network-pharmacology/", { method: "POST", body: input });
+export async function runNetworkPharmacology(input: { herb: string; disease: string; source_case_id?: number; source_candidate_id?: number }, options?: CompleteTaskOptions) {
+  const queued = await apiRequest<AnalysisTask>("/api/v1/analysis/network-pharmacology/", { method: "POST", body: { ...input, complete: true } });
+  const task = await waitForCompleteTask(queued, options);
+  const result = task.result as unknown as NetworkPharmacologyResult;
+  if (!result.snapshot?.complete || !result.summary || !Array.isArray(result.targets)) throw new Error("任务尚无完整本地分析快照。");
+  return { ...result, taskId: task.id };
+}
 
 export const runReactomeEnrichment = (sourceTaskId: number) =>
   apiRequest<AnalysisTask>("/api/v1/analysis/pathway-enrichment/", { method: "POST", body: { source_task_id: sourceTaskId, consent: true } });

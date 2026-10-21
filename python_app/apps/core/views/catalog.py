@@ -11,7 +11,7 @@ from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.views import APIView
 
-from ..models import DataSource, EvidenceRelation, KnowledgeEntity
+from ..models import AnalysisTask, DataSource, EvidenceRelation, KnowledgeEntity
 from ..serializers import DataSourceSerializer, EvidenceRelationSerializer, KnowledgeEntitySerializer
 from ..serializers.research import AnalysisTaskSerializer
 from ..services.disease_names import ALIAS_DATA, disease_entity_queryset, expand_disease_queries, matched_disease_queries
@@ -226,6 +226,7 @@ class BatchHerbEvidenceView(APIView):
 
 class CatalogAnalysisRequestSerializer(BatchHerbEvidenceRequestSerializer):
     expectedResultSha256 = serializers.RegexField(r"^[a-f0-9]{64}$")
+    complete = serializers.BooleanField(required=False, default=False)
 
 
 class CatalogResultConflict(APIException):
@@ -237,12 +238,23 @@ class CatalogResultConflict(APIException):
 class CatalogEvidenceAnalysisView(APIView):
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(request=CatalogAnalysisRequestSerializer, responses={201: AnalysisTaskSerializer})
+    @extend_schema(request=CatalogAnalysisRequestSerializer, responses={201: AnalysisTaskSerializer, 202: AnalysisTaskSerializer})
     def post(self, request):
         parameters = CatalogAnalysisRequestSerializer(data=request.data)
         parameters.is_valid(raise_exception=True)
         values = parameters.validated_data
         from ..services.catalog_analysis import CatalogSnapshotChanged, save_catalog_analysis
+        if values["complete"]:
+            # Validate the preview again inside the worker's consistent read.
+            from ..services.complete_evidence import VERSION, dispatch_complete_task
+            task = AnalysisTask.objects.create(owner=request.user, created_by=request.user,
+                task_type=AnalysisTask.TaskType.NETWORK, input_parameters={
+                    "analysisKind": "catalog_evidence", "algorithmVersion": VERSION,
+                    "complete": True, "queryType": values["queryType"], "queries": values["queries"],
+                    "expectedResultSha256": values["expectedResultSha256"],
+                })
+            dispatch_complete_task(task, request=request)
+            return Response(AnalysisTaskSerializer(task).data, status=202)
         try:
             task = save_catalog_analysis(user=request.user, query_type=values["queryType"],
                                          queries=values["queries"], expected_sha256=values["expectedResultSha256"])

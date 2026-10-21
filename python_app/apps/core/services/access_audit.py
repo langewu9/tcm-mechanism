@@ -69,7 +69,7 @@ class SensitiveReadAuditMixin:
             audit_action = "list"
         elif hasattr(self, "_sensitive_object"):
             resources = [self._sensitive_object]
-            audit_action = {"download": "download", "export": "export"}.get(action, "view")
+            audit_action = {"download": "download", "export": "export", "snapshot_export": "export"}.get(action, "view")
         else:
             return response
         mark_sensitive_access(request, operation=f"{self.sensitive_resource_type}.{action}", action=audit_action, resources=resources)
