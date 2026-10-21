@@ -108,6 +108,23 @@ class CatalogAnalysisTests(APITestCase):
         self.client.force_authenticate(None)
         self.assertIn(self.save({"resultSha256": "0" * 64}).status_code, [401, 403])
 
+    def test_complete_original_compound_names_are_searchable_up_to_entity_limit(self):
+        for label in ('Peiminine,Simperialine', 'X' * 300):
+            with self.subTest(label_length=len(label)):
+                self.compound.label = label
+                self.compound.save(update_fields=['label'])
+                query = {'queryType': 'compound', 'queries': [label]}
+                snapshot = self.search(query)
+                self.assertEqual(snapshot['results'][0]['matches'][0]['id'], self.compound.pk)
+                self.assertEqual({row['id'] for row in snapshot['results'][0]['relations']}, {row.pk for row in self.records})
+                self.assertEqual(self.save(snapshot, query).status_code, 201)
+        for kind, length in [('herb', 121), ('compound', 301)]:
+            response = self.client.post(reverse('batch-herb-evidence'), {'queryType': kind, 'queries': ['X' * length]}, format='json')
+            self.assertEqual(response.status_code, 400)
+            self.assertIn('queries', response.data['error']['details'])
+        response = self.client.post(reverse('batch-herb-evidence'), {'queryType': 'compound', 'queries': ['X'] * 13}, format='json')
+        self.assertEqual(response.status_code, 400)
+
     def test_graph_limit_is_reported_and_source_records_remain_identifiable(self):
         with patch("apps.core.services.catalog_analysis.MAX_GRAPH_RECORDS", 2):
             response = self.save()

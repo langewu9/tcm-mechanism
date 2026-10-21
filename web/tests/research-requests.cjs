@@ -138,8 +138,28 @@ evidence.results.push({query:'未导入中药',matches:[],herbs:[],compounds:[],
   assert.equal(downloads[1][1].trim().split('\r\n').length,3,'Same label with distinct IDs remains separate');
   assert.ok(downloads[1][1].includes('fixture:21') && downloads[1][1].includes('fixture:22'));
   assert.deepEqual(JSON.parse(downloads[2][1]),evidence,'JSON retains per-query evidence and truncation');
+  // Real chemical names contain commas/slashes; only an explicit newline
+  // separates compounds. The existing herb separator behavior is retained.
+  tab('component');
+  const chemical='Peiminine,Simperialine';
+  const longChemical='(3S,5R,10S,13R,14R,17R)-17-[(1R)-1,5-dimethyl-4-methylenehexyl]-4,4,10,13,14-pentamethyl-2,3,5,6,7,11,12,15,16,17-decahydro-1H-cyclopenta[a]phenanthren-3-ol';
+  input('research-query',chemical);submit();
+  assert.deepEqual(named('searchHerbComponentEvidence').at(-1).args,['compound',[chemical]],'Comma in an original compound name is literal');
+  named('searchHerbComponentEvidence').at(-1).resolve({queryType:'compound',results:[]});await flush();
+  assert.equal(find(n=>n.props?.id==='research-query').type,'textarea','Compound batches need an explicit line delimiter');
+  input('research-query',`${longChemical}\n${chemical}\n${chemical}\nA/B;C|D`);submit();
+  assert.deepEqual(named('searchHerbComponentEvidence').at(-1).args,['compound',[longChemical,chemical,'A/B;C|D']]);
+  named('searchHerbComponentEvidence').at(-1).resolve({queryType:'compound',results:[]});await flush();
+  const beforeInvalid=named('searchHerbComponentEvidence').length;
+  input('research-query','X'.repeat(301));submit();
+  assert.equal(named('searchHerbComponentEvidence').length,beforeInvalid,'Compound length remains bounded');
+  input('research-query',Array.from({length:13},(_,i)=>`Compound-${i}`).join('\n'));submit();
+  assert.equal(named('searchHerbComponentEvidence').length,beforeInvalid,'Compound batch remains bounded at twelve');
+  tab('herb');input('research-query','黄芩,甘草/人参');submit();
+  assert.deepEqual(named('searchHerbComponentEvidence').at(-1).args,['herb',['黄芩','甘草','人参']]);
+  named('searchHerbComponentEvidence').at(-1).resolve(evidence);await flush();
   submit();for(const hook of hooks) hook?.cleanup?.();const previousWrites=writes;
-  named('searchHerbComponentEvidence')[2].resolve(evidence);for(let i=0;i<8;i++) await Promise.resolve();
+  named('searchHerbComponentEvidence').at(-1).resolve(evidence);for(let i=0;i<8;i++) await Promise.resolve();
   assert.equal(writes,previousWrites,'Unmounted workbench receives no state writes');
   console.log('PASS: duplicate search/task/pagination guards; stale tab and detail responses; invalid evidence identity; per-call consent; cleanup; main herb summary; entity-ID export deduplication.');
 })().catch(error=>{console.error(error.stack);process.exitCode=1;});

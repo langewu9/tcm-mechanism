@@ -155,12 +155,14 @@ class DiseaseAliasSearchView(APIView):
 class BatchHerbEvidenceRequestSerializer(serializers.Serializer):
     queryType = serializers.ChoiceField(choices=["herb", "compound"])
     queries = serializers.ListField(
-        child=serializers.CharField(max_length=120, trim_whitespace=True),
+        child=serializers.CharField(max_length=300, trim_whitespace=True),
         min_length=1,
         max_length=12,
     )
 
     def validate_queries(self, values):
+        if self.initial_data.get('queryType') == 'herb' and any(len(value) > 120 for value in values):
+            raise serializers.ValidationError('每个中药名称最多 120 个字符。')
         distinct = list(dict.fromkeys(value.strip() for value in values if value.strip()))
         if not distinct:
             raise serializers.ValidationError("请至少输入一个有效名称。")

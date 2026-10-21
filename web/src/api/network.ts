@@ -17,6 +17,9 @@ export type NetworkPharmacologyResult = {
     unmatchedFormulas?: string[];
     unresolvedFormulas?: string[];
     disease: string;
+    expandedDiseaseQueries?: string[];
+    diseaseAliasSource?: string;
+    diseaseAliasSourceCommit?: string;
     matchedDiseases: string[];
     unmatchedDiseases: string[];
     diseaseTargetCount: number;

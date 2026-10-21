@@ -12,6 +12,7 @@ from django.utils import timezone
 from apps.core.models import AnalysisTask, EvidenceRelation, KnowledgeEntity, MedicalCase, MedicalCaseCandidate
 from .herb_row_query import supported_target_queryset
 from .herb_row_support import HerbRowSupport
+from .disease_names import ALIAS_DATA, MAX_QUERY_LENGTH, expand_disease_queries
 
 
 INPUT_SPLIT = re.compile(r"[,，、;；|/\n\r]+")
@@ -24,7 +25,7 @@ PATHWAY_TYPES = {
     "participatesin", "participates_in", "annotatedtopathway", "annotated_to_pathway",
     "associatedwithpathway", "associated_with_pathway",
 }
-STATISTICS_VERSION = "main-078d374-candidate-statistics-v3"
+STATISTICS_VERSION = "main-078d374-candidate-statistics-v4"
 RAW_EVIDENCE_VERSION = "network-raw-evidence-v2"
 RAW_EXPORT_LIMIT = 4000
 
@@ -231,7 +232,15 @@ def build_network_pharmacology(
     herbs_by_id = {item.pk: item for item in [*requested_herbs, *formula_herbs]}
     herbs = list(herbs_by_id.values())
     herb_names = [item.label for item in herbs]
-    diseases, matched_disease_names = _entity_matches(KnowledgeEntity.EntityType.DISEASE, [disease_query.strip()], complete=complete)
+    # Reuse main's explicit disease alias table, retaining exact catalogue
+    # matching. An alias never establishes identity between molecular targets.
+    # Longer existing API names retain their original literal lookup behavior.
+    try:
+        disease_queries = (expand_disease_queries(disease_query) if len(disease_query.strip()) <= MAX_QUERY_LENGTH
+                           else [disease_query.strip()])
+    except ValueError as exc:
+        raise NetworkPharmacologyInputError(str(exc)) from exc
+    diseases, matched_disease_names = _entity_matches(KnowledgeEntity.EntityType.DISEASE, disease_queries, complete=complete)
     herb_ids = {item.pk for item in herbs}
     disease_ids = {item.pk for item in diseases}
     selected_herbs_by_stable_id = {item.stable_id: item.label for item in herbs}
@@ -375,8 +384,11 @@ def build_network_pharmacology(
             if formula.pk not in {relation.subject_id for relation in formula_herb_relations}
         ],
         "disease": disease_query.strip(),
+        "expandedDiseaseQueries": disease_queries,
+        "diseaseAliasSource": ALIAS_DATA["source"],
+        "diseaseAliasSourceCommit": ALIAS_DATA["sourceCommit"],
         "matchedDiseases": [item.label for item in diseases],
-        "unmatchedDiseases": [] if disease_query.strip() in matched_disease_names else [disease_query.strip()],
+        "unmatchedDiseases": [] if matched_disease_names else [disease_query.strip()],
         "diseaseTargetCount": len(disease_evidence),
         "herbTargetCount": len(herb_evidence),
         "strictIntersectionCount": len(strict_ids),
@@ -461,6 +473,9 @@ def build_network_pharmacology(
             "requestedNames": requested_names,
             "formulas": [item.stable_id for item in formulas],
             "disease": disease_query.strip(),
+            "expandedDiseaseQueries": disease_queries,
+            "diseaseAliasSource": ALIAS_DATA["source"],
+            "diseaseAliasSourceCommit": ALIAS_DATA["sourceCommit"],
             "rowLimit": row_limit,
             "statisticsVersion": STATISTICS_VERSION,
             "rawEvidenceVersion": RAW_EVIDENCE_VERSION,
