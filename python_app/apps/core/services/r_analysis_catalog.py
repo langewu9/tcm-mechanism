@@ -97,6 +97,9 @@ def build_catalog_payload(task, chart_key):
             nodes = {key: value for key, value in nodes.items() if key in used}
         title = {'evidence_network': '中药—成分—靶点—疾病证据网络', 'gene_pathway_network': '基因—通路证据网络', 'gene_pathway_distribution': '通路关联基因分布（非富集检验）'}[chart_key]
         subtitle = f'本地登记关系 · 来源版本数 {task.source_releases.count()} · 不推测缺失关系'
+        limits = result.get('limits') or {}
+        if limits.get('nodesTruncated') or limits.get('linksTruncated'):
+            subtitle += ' · 原任务网络已裁剪，完整证据见任务导出'
         if result.get('analysisKind') == 'catalog_evidence' and chart_key == 'evidence_network':
             title = '中药—成分—靶点目录关系图'
             subtitle = f'旧表登记关系 · 来源版本数 {task.source_releases.count()} · 非实验验证，靶点名称未必已标准化'

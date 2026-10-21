@@ -427,6 +427,12 @@ def build_network_pharmacology(
     )
     if complete and any(raw_truncated.values()):
         raise NetworkPharmacologyInputError("证据组合超过后台保护额度，请拆分查询；本次不会保存部分分析结果。")
+    # The graph is only a display projection. Independent slices could leave
+    # links whose endpoint was cut from nodes. Never change the full evidence
+    # or statistics when selecting the endpoint-safe display subset.
+    display_nodes = list(nodes.values())[:2000]
+    display_ids = {node['id'] for node in display_nodes}
+    display_links = [link for link in links if link['source'] in display_ids and link['target'] in display_ids][:4000]
     result = {
         "summary": summary,
         "targets": targets if complete else targets[:1000],
@@ -437,7 +443,8 @@ def build_network_pharmacology(
             "tablesTruncated": raw_truncated,
             "inputRelationsTruncated": relation_limits,
         },
-        "network": {"nodes": list(nodes.values())[:2000], "links": links[:4000]},
+        "network": {"nodes": display_nodes, "links": display_links,
+                    "projectionVersion": "endpoint-safe-1", "totalNodeCount": len(nodes), "totalLinkCount": len(links)},
         "charts": {
             "overlap": [
                 {"name": "中药靶点", "value": len(herb_evidence)},
@@ -456,7 +463,8 @@ def build_network_pharmacology(
         },
         "limits": {
             "targetsTruncated": len(targets) > 1000,
-            "linksTruncated": len(links) > 4000,
+            "nodesTruncated": len(display_nodes) < len(nodes),
+            "linksTruncated": len(display_links) < len(links),
         },
     }
     if not persist:

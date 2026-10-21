@@ -57,7 +57,8 @@ const tick = () => {const callbacks=[...timers.values()]; timers.clear(); for(co
   const firstSubmit = find(node=>node.type==='form').props.onSubmit;
   firstSubmit({preventDefault(){}}); firstSubmit({preventDefault(){}}); render();
   assert.equal(localCalls.length,1,'Synchronous duplicate local task blocked');
-  localCalls[0].resolve(source(1)); await flush();
+  localCalls[0].resolve({...source(1),limits:{...source(1).limits,nodesTruncated:true}}); await flush();
+  assert.equal(find(node=>node.type==='Graph').props.knownTruncated,true,'Node-only clipping is disclosed to the existing graph');
   consent(); const firstClick = button('Reactome 通路富集').props.onClick; firstClick(); firstClick(); render();
   assert.equal(externalCalls.length,1,'Synchronous duplicate POST blocked');
   assert.deepEqual(externalCalls[0].args,[1],'External task uses the persisted query ID, not page target labels');

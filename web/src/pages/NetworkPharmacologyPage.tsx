@@ -277,7 +277,7 @@ export function NetworkPharmacologyPage() {
               </div>
               <NetworkResultDownloads result={result} />
               <NetworkPharmacologyCharts key={result.taskId} result={result} reactome={reactomeResult} />
-              <KnowledgeNetworkGraph network={result.network} knownTruncated={result.limits.linksTruncated || result.limits.targetsTruncated} />
+              <KnowledgeNetworkGraph network={result.network} knownTruncated={result.limits.nodesTruncated || result.limits.linksTruncated || result.limits.targetsTruncated} />
               {(result.summary.unmatchedHerbs.length > 0 || result.summary.unmatchedDiseases.length > 0 || Boolean(result.summary.unresolvedFormulas?.length)) && <div className="notice-error" role="status">{result.summary.unmatchedHerbs.length > 0 ? `未匹配中药或方剂：${result.summary.unmatchedHerbs.join("、")}。` : ""}{result.summary.unmatchedDiseases.length > 0 ? `未匹配疾病：${result.summary.unmatchedDiseases.join("、")}。` : ""}{result.summary.unresolvedFormulas?.length ? `已匹配方剂但本地没有带来源版本的组成关系：${result.summary.unresolvedFormulas.join("、")}。` : ""}当前按知识目录中的精确名称匹配，请检查数据源导入结果和实体名称。</div>}
               {result.summary.matchedFormulas?.length ? <p className="section-help">方剂 {result.summary.matchedFormulas.join("、")} 已按本地组成关系展开为中药：{result.summary.matchedHerbs.join("、") || "暂无可追溯组成"}。</p> : null}
               {result.targets.length ? <div className="case-list-items">{result.targets.map((target, index) => <article className="panel source-record" key={`${target.normalizedTarget}-${index}`}>
@@ -285,7 +285,7 @@ export function NetworkPharmacologyPage() {
                 <p className="section-help">中药证据 {target.herbEvidenceCount} 条 · 疾病证据 {target.diseaseEvidenceCount} 条 · 直接关联 {target.directEvidenceCount} 条</p>
                 <ul className="proteomics-pathways">{target.sources.slice(0, 8).map((source, index) => <li key={`${source.sourceRecordId}-${index}`}><strong>{source.source} · {source.sourceVersion}</strong><span>{source.relationType} / {source.evidenceType} / {source.sourceRecordId}</span></li>)}</ul>
               </article>)}</div> : <div className="panel empty-state"><strong>没有可报告的交集</strong><p>当前已导入来源没有提供足够的关系证据；系统不会用示例规则生成候选靶点。</p></div>}
-              {(result.limits.targetsTruncated || result.limits.linksTruncated) && <p className="section-help">结果过大，页面仅展示了部分网络节点或靶点。</p>}
+              {(result.limits.nodesTruncated || result.limits.targetsTruncated || result.limits.linksTruncated) && <p className="section-help">页面网络图和靶点表可能只展示部分记录；完整证据以该任务的冻结导出为准。</p>}
               {result.targets.length >= 2 && <section className="case-form-fields external-analysis-options" aria-label="可选外部分析">
                 <label className="proteomics-consent"><input type="checkbox" checked={shareWithReactome} onChange={(event) => setShareWithReactome(event.target.checked)} /><span><strong>同意提交基因标识到 MyGene.info 与 Reactome</strong><small>仅提交当前页面列出的候选靶点，最多 500 个；不提交医案或完整数据文件。</small></span></label>
                 <div className="source-record-actions"><button className="btn btn-secondary" type="button" disabled={!shareWithReactome || pathwaySubmitting || result.targets.length > 500 || result.limits.targetsTruncated || Boolean(pathwayTask && ["queued", "running"].includes(pathwayTask.status))} onClick={() => void requestPathways()}>{pathwaySubmitting ? "正在创建 Reactome 任务…" : "Reactome 通路富集"}</button>{result.targets.length > 500 || result.limits.targetsTruncated ? <span className="section-help">Reactome 最多接收 500 个完整显示的靶点；当前结果过多，请缩小范围。</span> : null}</div>

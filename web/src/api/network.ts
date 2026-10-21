@@ -52,9 +52,9 @@ export type NetworkPharmacologyResult = {
     tablesTruncated: Record<NetworkRawTable, boolean>;
     inputRelationsTruncated: Partial<Record<"formulaHerbs" | "herbCompounds" | "compoundTargets" | "diseaseTargets" | "pathways", boolean>>;
   };
-  network: { nodes: Array<{ id: string; label: string; type: string }>; links: Array<{ source: string; target: string; relation: string; sourceRecordId: string; sourceSlug: string }> };
+  network: { nodes: Array<{ id: string; label: string; type: string }>; links: Array<{ source: string; target: string; relation: string; sourceRecordId: string; sourceSlug: string }>; projectionVersion?: string; totalNodeCount?: number; totalLinkCount?: number };
   charts: { overlap: Array<{ name: string; value: number }>; components: Array<{ name: string; targets: number }>; pathways: Array<{ name: string; targets: number }> };
-  limits: { targetsTruncated: boolean; linksTruncated: boolean };
+  limits: { targetsTruncated: boolean; linksTruncated: boolean; nodesTruncated?: boolean };
 };
 
 export type ReactomePathway = {

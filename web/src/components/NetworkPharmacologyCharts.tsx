@@ -63,6 +63,7 @@ function CountChart({ panel, title, caption, data, unit = "靶点", emptyMessage
 export function candidateComposition(result: NetworkPharmacologyResult) {
   const { strictIntersectionCount: strict, directAssociationTargetCount: direct, candidateTargetCount: total } = result.summary;
   if (result.limits?.targetsTruncated || ![strict, direct, total].every((value) => Number.isSafeInteger(value) && value >= 0)
+    || Object.values(result.rawLimits?.inputRelationsTruncated ?? {}).some(Boolean)
     || strict > total || direct > total || strict + direct < total) return null;
   return { strict, directOnly: total - strict, overlap: strict + direct - total, total };
 }
