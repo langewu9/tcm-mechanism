@@ -10,6 +10,7 @@ import { runNetworkPharmacology, type NetworkPharmacologyResult } from "../api/n
 import { downloadText, encodeCsv } from "../utils/downloads";
 import { ComponentComparisonResults } from "./ComponentComparisonResults";
 import { DiseaseEvidenceResults } from "./DiseaseEvidenceResults";
+import { DiseaseEvidenceSnapshot } from "./DiseaseEvidenceSnapshot";
 import { NetworkPharmacologyCharts } from "./NetworkPharmacologyCharts";
 import { NetworkResultDownloads } from "./NetworkResultDownloads";
 import { PaginatedTable } from "./PaginatedTable";
@@ -41,9 +42,10 @@ const csvDownload = (name: string, headers: string[], rows: Parameters<typeof en
 const errorMessage = (cause: unknown) => cause instanceof ApiError ? cause.message : "请求未完成，请稍后重试。";
 
 export function ResearchToolTabs() {
-  const [pageParams] = useSearchParams();
-  const [active, setActive] = useState<Action>("herb");
-  const [query, setQuery] = useState(examples.herb ?? "");
+  const [pageParams, setPageParams] = useSearchParams();
+  const savedDiseaseTask = pageParams.get("diseaseTask");
+  const [active, setActive] = useState<Action>(savedDiseaseTask ? "disease" : "herb");
+  const [query, setQuery] = useState((savedDiseaseTask ? examples.disease : examples.herb) ?? "");
   const [herbs, setHerbs] = useState(examples.herb ?? "");
   const [disease, setDisease] = useState(examples.disease ?? "");
   const [detected, setDetected] = useState("甘草酸、甘草苷、人参皂苷Rg1");
@@ -78,7 +80,12 @@ export function ResearchToolTabs() {
   const displayedRequest = requestId.current;
   const selectedTool = tools.find((tool) => tool.id === active)!;
   const hasResult = Boolean(evidence || chembl || comparison || pathways || network || diseaseEvidence || entityPage
-    || ((active === "herb" || active === "component") && pageParams.has("catalogTask")));
+    || ((active === "herb" || active === "component") && pageParams.has("catalogTask"))
+    || (active === "disease" && Boolean(savedDiseaseTask)));
+
+  useEffect(() => {
+    if (savedDiseaseTask && active !== "disease") changeTool("disease");
+  }, [savedDiseaseTask]);
 
   useEffect(() => {
     mounted.current = true;
@@ -147,7 +154,9 @@ export function ResearchToolTabs() {
       const generation = toolGeneration.current;
       resetResults(); await run(() => runNetworkPharmacology({ herb: herbs, disease }, { isActive: () => currentTool() && toolGeneration.current === generation }), setNetwork);
     } else if (active === "disease") {
-      resetResults(); await run(() => searchDiseaseEvidence(query.trim()), setDiseaseEvidence);
+      resetResults();
+      setPageParams(previous => { const next = new URLSearchParams(previous); next.delete("diseaseTask"); return next; }, { replace: true });
+      await run(() => searchDiseaseEvidence(query.trim()), setDiseaseEvidence);
     } else {
       const type = entityType;
       resetResults(); setActiveQuery(query.trim()); setActiveType(type); setPageNumber(1);
@@ -241,6 +250,7 @@ export function ResearchToolTabs() {
           </>}
         </>}
         {!busy && (active === "herb" || active === "component") && <CatalogEvidenceFigures evidence={evidence} />}
+        {!busy && active === "disease" && <DiseaseEvidenceSnapshot evidence={diseaseEvidence} onRestoreQuery={setQuery} />}
       </section>
     </div>
   </div>;

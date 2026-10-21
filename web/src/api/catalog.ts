@@ -137,6 +137,7 @@ export type DiseaseEvidenceLink = {
 };
 
 export type DiseaseEvidenceSearch = {
+  resultSha256: string;
   query: string;
   expandedQueries: string[];
   aliasSource: string;
@@ -154,6 +155,12 @@ export type DiseaseEvidenceSearch = {
 
 export function searchDiseaseEvidence(query: string) {
   return apiRequest<DiseaseEvidenceSearch>(`/api/v1/catalog/diseases/evidence-search/?${new URLSearchParams({ query })}`);
+}
+
+export function saveDiseaseEvidenceAnalysis(evidence: DiseaseEvidenceSearch) {
+  return apiRequest<AnalysisTask>("/api/v1/catalog/diseases/evidence-analyses/", {
+    method: "POST", body: { query: evidence.query, expectedResultSha256: evidence.resultSha256 },
+  });
 }
 
 export function searchCatalogEntities(query: string, entityType: string, page = 1) {

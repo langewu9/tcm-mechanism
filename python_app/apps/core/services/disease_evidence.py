@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from django.db.models import Q
 
 from apps.core.models import EvidenceRelation, KnowledgeEntity
+from .herb_evidence import _entity_record as snapshot_entity_record, _relation_record as snapshot_relation_record
 from .disease_names import (
     ALIAS_DATA,
     disease_entity_queryset,
@@ -19,6 +22,10 @@ MAX_RELATIONS = 1200
 DISEASE_HERB_TYPE = "disease_herb"
 DISEASE_TARGET_TYPES = {"disease_target", "disease_herb_target"}
 TARGET_ENTITY_TYPES = [KnowledgeEntity.EntityType.GENE, KnowledgeEntity.EntityType.PROTEIN]
+
+
+def disease_relation_snapshot(relation):
+    return {**snapshot_relation_record(relation), "evidenceText": relation.evidence_text, "organism": relation.organism}
 
 
 def _entity_record(entity: KnowledgeEntity) -> dict:
@@ -48,7 +55,7 @@ def _relation_record(relation: EvidenceRelation) -> dict:
     }
 
 
-def _visible_relations(disease_ids: set[int]) -> tuple[list[EvidenceRelation], bool]:
+def _visible_relations(disease_ids: set[int], *, limit=MAX_RELATIONS) -> tuple[list[EvidenceRelation], bool]:
     queryset = EvidenceRelation.objects.filter(
         is_active=True,
         subject__is_active=True,
@@ -74,8 +81,8 @@ def _visible_relations(disease_ids: set[int]) -> tuple[list[EvidenceRelation], b
         "relation_type", "subject__label", "subject__stable_id", "object__label",
         "object__stable_id", "source_release__source__slug", "source_release__version",
         "source_record_id", "id",
-    )[: MAX_RELATIONS + 1])
-    return records[:MAX_RELATIONS], len(records) > MAX_RELATIONS
+    )[: limit + 1])
+    return records[:limit], len(records) > limit
 
 
 def _direct_herb_stable_id(relation: EvidenceRelation) -> str | None:
@@ -108,22 +115,24 @@ def _visible_herbs_by_stable_id(relations: list[EvidenceRelation]) -> dict[str, 
     return {herb.stable_id: herb for herb in herbs}
 
 
-def search_disease_evidence(query: str) -> dict:
+def search_disease_evidence(query: str, *, relation_limit=None, match_limit=None, capture=None) -> dict:
+    relation_limit = MAX_RELATIONS if relation_limit is None else relation_limit
+    match_limit = MAX_MATCHES if match_limit is None else match_limit
     query = str(query or "").strip()
     expanded_queries = expand_disease_queries(query)
 
     # The queryset provides the shared database search, and this value-based
     # check prevents JSON object keys from being treated as disease synonyms.
     matching_records = []
-    for entity in disease_entity_queryset(expanded_queries).iterator(chunk_size=MAX_MATCHES + 1):
+    for entity in disease_entity_queryset(expanded_queries).iterator(chunk_size=min(match_limit + 1, 250)):
         if matched_disease_queries(entity, expanded_queries):
             matching_records.append(entity)
-            if len(matching_records) > MAX_MATCHES:
+            if len(matching_records) > match_limit:
                 break
-    matches_truncated = len(matching_records) > MAX_MATCHES
-    matches = matching_records[:MAX_MATCHES]
+    matches_truncated = len(matching_records) > match_limit
+    matches = matching_records[:match_limit]
 
-    relations, relations_truncated = _visible_relations({entity.pk for entity in matches}) if matches else ([], False)
+    relations, relations_truncated = _visible_relations({entity.pk for entity in matches}, limit=relation_limit) if matches else ([], False)
     direct_herbs = _visible_herbs_by_stable_id(relations)
 
     herbs_by_id: dict[int, KnowledgeEntity] = {}
@@ -132,20 +141,29 @@ def search_disease_evidence(query: str) -> dict:
     for relation in relations:
         herb_label = ""
         target_label = ""
+        herb_id, target_id = None, None
         if relation.relation_type == DISEASE_HERB_TYPE:
             herbs_by_id[relation.object_id] = relation.object
             herb_label = relation.object.label
+            herb_id = relation.object_id
         else:
             targets_by_id[relation.object_id] = relation.object
             target_label = relation.object.label
+            target_id = relation.object_id
             if relation.relation_type == "disease_herb_target":
                 stable_id = _direct_herb_stable_id(relation)
                 herb = direct_herbs.get(stable_id) if stable_id is not None else None
                 if herb is not None:
                     herbs_by_id[herb.pk] = herb
                     herb_label = herb.label
+                    herb_id = herb.pk
 
         links.append({
+            "relationId": relation.pk,
+            "diseaseId": relation.subject_id,
+            "herbId": herb_id,
+            "targetId": target_id,
+            "sourceReleaseId": relation.source_release_id,
             "disease": relation.subject.label,
             "herb": herb_label,
             "target": target_label,
@@ -157,7 +175,7 @@ def search_disease_evidence(query: str) -> dict:
 
     entity_sort_key = lambda entity: (entity.label.casefold(), entity.stable_id.casefold(), entity.pk)
     truncated = matches_truncated or relations_truncated
-    return {
+    result = {
         "query": query,
         "expandedQueries": expanded_queries,
         "aliasSource": ALIAS_DATA["source"],
@@ -176,5 +194,15 @@ def search_disease_evidence(query: str) -> dict:
             "relations": len(relations),
         },
         "truncated": truncated,
-        "limits": {"maxMatches": MAX_MATCHES, "maxRelations": MAX_RELATIONS},
+        "limits": {"maxMatches": match_limit, "maxRelations": relation_limit},
     }
+    # Bind the preview not only to display strings but also to real row/entity
+    # identities and their source assertions. No live catalogue lookup on export.
+    entities = {item.pk: item for item in [*matches, *herbs_by_id.values(), *targets_by_id.values()]}
+    identity = {"result": result, "entities": [snapshot_entity_record(entities[key]) for key in sorted(entities)],
+                "relations": [disease_relation_snapshot(row) for row in relations]}
+    canonical = json.dumps(identity, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    result["resultSha256"] = hashlib.sha256(canonical.encode()).hexdigest()
+    if capture is not None:
+        capture(entities=list(entities.values()), relations=relations, links=links)
+    return result

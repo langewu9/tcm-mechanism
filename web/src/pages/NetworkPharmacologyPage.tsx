@@ -76,7 +76,7 @@ export function NetworkPharmacologyPage() {
         if (!/^[1-9]\d*$/.test(savedNetworkId!) || !Number.isSafeInteger(Number(savedNetworkId))) throw new Error("网络药理任务编号无效。");
         const source = await getAnalysisTask(Number(savedNetworkId));
         if (!active || !mounted.current || queryGeneration.current !== generation) return;
-        if (source.id !== Number(savedNetworkId) || source.task_type !== "network" || source.input_parameters.analysisKind === "catalog_evidence") throw new Error("该任务不是网络药理分析，请从对应目录查询打开。");
+        if (source.id !== Number(savedNetworkId) || source.task_type !== "network" || ["catalog_evidence", "disease_evidence"].includes(String(source.input_parameters.analysisKind))) throw new Error("该任务不是网络药理分析，请从对应目录查询打开。");
         const task = await waitForCompleteTask(source, {
           isActive: () => active && mounted.current && queryGeneration.current === generation,
           onTask: current => setLocalProgress(`任务 #${current.id} · ${current.status} · ${current.progress}%`),

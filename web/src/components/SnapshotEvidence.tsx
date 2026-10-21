@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getSnapshotPage, snapshotDownloadUrl, type EvidenceSnapshot, type SnapshotPage } from "../api/complete-evidence";
 
-const labels: Record<string, string> = { evidenceRecords: "来源关系", entities: "实体身份", queries: "查询归属", targets: "全部候选靶点", targetSources: "候选来源",
+const labels: Record<string, string> = { evidenceRecords: "来源关系", entities: "实体身份", queries: "查询归属", diseaseLinks: "疾病—中药—靶点关联", targets: "全部候选靶点", targetSources: "候选来源",
   herbLinks: "中药侧原始表", diseaseTargets: "疾病侧原始表", diseaseHerbLinks: "疾病—中药—靶点表", directDiseaseHerbLinks: "直接关联表" };
 
 export function SnapshotEvidence({ taskId, snapshot }: { taskId: number; snapshot: EvidenceSnapshot }) {

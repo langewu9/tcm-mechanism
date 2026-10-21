@@ -149,14 +149,50 @@ def _network_data(task, limit):
     return result, tables
 
 
+def _disease_data(task, limit):
+    from .disease_evidence import disease_relation_snapshot, search_disease_evidence
+    params = task.input_parameters
+    preview = search_disease_evidence(params["query"])
+    if preview["resultSha256"] != params["expectedResultSha256"]:
+        raise CatalogSnapshotChanged("疾病目录已更新，请重新检索后再保存完整查询。")
+    captured = {}
+    def capture(**rows):
+        captured.update(rows)
+    data = search_disease_evidence(params["query"], relation_limit=limit, match_limit=1000, capture=capture)
+    if data["truncated"]:
+        raise CompleteEvidenceInputError("疾病输入超过后台保护额度，请缩小查询范围；本次不会保存部分分析结果。")
+    if not data["matches"]:
+        raise CompleteEvidenceInputError("当前启用目录没有匹配疾病，请确认名称或导入数据后重试。")
+    tables = {
+        "evidenceRecords": [disease_relation_snapshot(row) for row in captured["relations"]],
+        "entities": [{**_entity_record(entity), "type": entity.entity_type}
+                     for entity in sorted(captured["entities"], key=lambda item: item.pk)],
+        "diseaseLinks": captured["links"],
+        "queries": [{"query": data["query"], "expandedQueries": data["expandedQueries"],
+                     "matchedIds": [item["id"] for item in data["matches"]],
+                     "aliasSource": data["aliasSource"], "aliasSourceCommit": data["aliasSourceCommit"]}],
+    }
+    result = {"analysisKind": "disease_evidence", "query": data["query"],
+              "expandedQueries": data["expandedQueries"], "aliasSource": data["aliasSource"],
+              "aliasSourceCommit": data["aliasSourceCommit"], "ambiguous": data["ambiguous"],
+              "counts": data["counts"], "limits": {"queryTruncated": False},
+              "resultSha256": data["resultSha256"], "previewResultSha256": params["expectedResultSha256"],
+              "summary": {"query": data["query"], **data["counts"]}}
+    return result, tables
+
+
 def execute_complete_evidence(task):
     with transaction.atomic():
         # Must precede the first catalogue read in this transaction (PostgreSQL).
         if connection.vendor == "postgresql":
             with connection.cursor() as cursor:
                 cursor.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
-        result, tables = (_catalog_data(task, relation_limit()) if task.input_parameters["analysisKind"] == "catalog_evidence"
-                          else _network_data(task, relation_limit()))
+        builders = {"catalog_evidence": _catalog_data, "network_pharmacology": _network_data,
+                    "disease_evidence": _disease_data}
+        builder = builders.get(task.input_parameters.get("analysisKind"))
+        if builder is None:
+            raise CompleteEvidenceInputError("不支持的完整本地分析类型。")
+        result, tables = builder(task, relation_limit())
         release_ids = {row["sourceReleaseId"] for row in tables["evidenceRecords"]}
         release_ids.update(row["sourceReleaseId"] for row in tables["entities"] if row["sourceReleaseId"])
         releases = [{"id": item.pk, "sourceSlug": item.source.slug, "version": item.version,

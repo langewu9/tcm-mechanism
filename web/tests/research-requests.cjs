@@ -35,6 +35,7 @@ subject.require = name => {
   if (name === '../utils/downloads') return {...helpers.exports,downloadText:(...args)=>downloads.push(args)};
   if (name === './ReactomePathwayLookup') return {reactomeCatalogueCsv:()=>''};
   if (name === './CatalogEvidenceFigures') return {CatalogEvidenceFigures:'CatalogEvidenceFigures'};
+  if (name === './DiseaseEvidenceSnapshot') return {DiseaseEvidenceSnapshot:'DiseaseEvidenceSnapshot'};
   const child = {'./ComponentComparisonResults':'ComponentComparisonResults','./DiseaseEvidenceResults':'DiseaseEvidenceResults','./NetworkPharmacologyCharts':'NetworkPharmacologyCharts','./NetworkResultDownloads':'NetworkResultDownloads','./PaginatedTable':'PaginatedTable'}[name];
   if (child) return {[child]:child};
   throw new Error('Unexpected import '+name);
@@ -67,7 +68,7 @@ evidence.results.push({query:'未导入中药',matches:[],herbs:[],compounds:[],
 (async()=>{
   render();
   // React development setup/cleanup/setup must leave usable event handlers.
-  for(const hook of hooks) if(hook?.callback) {hook.cleanup();hook.cleanup=hook.callback();}
+  for(const hook of hooks) if(hook?.callback) {hook.cleanup?.();hook.cleanup=hook.callback();}
   const oldSubmit=form();oldSubmit(event());oldSubmit(event());render();
   assert.equal(named('searchHerbComponentEvidence').length,1,'Duplicate local POST blocked synchronously');
   tab('disease');submit();

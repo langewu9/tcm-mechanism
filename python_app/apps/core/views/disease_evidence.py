@@ -7,10 +7,20 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.core.services.disease_evidence import search_disease_evidence
+from apps.core.models import AnalysisTask
+from apps.core.serializers.research import AnalysisTaskSerializer
 
 
 class DiseaseEvidenceQuerySerializer(serializers.Serializer):
     query = serializers.CharField(max_length=120, trim_whitespace=True)
+
+    def validate_query(self, value):
+        from apps.core.services.disease_names import expand_disease_queries
+        try:
+            expand_disease_queries(value)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc)) from exc
+        return value
 
 
 class DiseaseEvidenceEntitySerializer(serializers.Serializer):
@@ -58,6 +68,7 @@ class DiseaseEvidenceLimitsSerializer(serializers.Serializer):
 
 
 class DiseaseEvidenceResponseSerializer(serializers.Serializer):
+    resultSha256 = serializers.CharField()
     query = serializers.CharField()
     expandedQueries = serializers.ListField(child=serializers.CharField())
     aliasSource = serializers.CharField()
@@ -88,3 +99,26 @@ class DiseaseEvidenceSearchView(APIView):
         except ValueError as exc:
             raise ValidationError({"query": str(exc)}) from exc
         return Response(DiseaseEvidenceResponseSerializer(result).data)
+
+
+class DiseaseEvidenceAnalysisRequestSerializer(DiseaseEvidenceQuerySerializer):
+    expectedResultSha256 = serializers.RegexField(r"^[a-f0-9]{64}$")
+
+
+class DiseaseEvidenceAnalysisView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(request=DiseaseEvidenceAnalysisRequestSerializer, responses={202: AnalysisTaskSerializer})
+    def post(self, request):
+        parameters = DiseaseEvidenceAnalysisRequestSerializer(data=request.data)
+        parameters.is_valid(raise_exception=True)
+        values = parameters.validated_data
+        from apps.core.services.complete_evidence import dispatch_complete_task
+        task = AnalysisTask.objects.create(owner=request.user, created_by=request.user,
+            task_type=AnalysisTask.TaskType.NETWORK, input_parameters={
+                "analysisKind": "disease_evidence", "algorithmVersion": "disease-evidence-1", "complete": True,
+                "name": f"疾病证据 · {values['query']}", "query": values["query"],
+                "expectedResultSha256": values["expectedResultSha256"],
+            })
+        dispatch_complete_task(task, request=request)
+        return Response(AnalysisTaskSerializer(task).data, status=202)
