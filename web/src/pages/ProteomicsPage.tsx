@@ -111,6 +111,8 @@ function qualityReasonLabel(reason: string) {
     rank_deficient_sample_design: "缺失值导致模型因素共线，无法估计",
     test_not_estimable: "当前重复值无法估计统计检验",
     invalid_log2fc: "log2FC 数值非法",
+    invalid_p_value: "P 值非法，应为 0 至 1 的数值",
+    invalid_fdr: "FDR 非法，应为 0 至 1 的数值",
     missing_log2fc: "缺少 log2FC",
     log2fc_below_threshold: "log2FC 未达到阈值",
     missing_significance: "缺少显著性数值",

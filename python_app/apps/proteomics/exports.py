@@ -89,7 +89,7 @@ def _pdf_page_footer(canvas, document):
     canvas.saveState()
     canvas.setFont(PDF_FONT_NAME, 7)
     canvas.setFillColor(colors.HexColor("#60716c"))
-    canvas.drawString(15 * mm, 9 * mm, "研究用途报告 · 结果仅用于科研分析，应结合数据来源与实验设计复核")
+    canvas.drawString(15 * mm, 9 * mm, "研究用途报告 - 结果仅用于科研分析，应结合数据来源与实验设计复核")
     canvas.drawRightString(282 * mm, 9 * mm, f"第 {document.page} 页")
     canvas.restoreState()
 
@@ -246,7 +246,7 @@ def export_proteomics_pdf(task, rows):
     if warnings:
         story.append(Paragraph("解释与质量提示", heading_style))
         for warning in warnings[:20]:
-            story.append(Paragraph(f"• {_pdf_text(warning)}", body_style))
+            story.append(Paragraph(f"- {_pdf_text(warning)}", body_style))
             story.append(Spacer(1, 1.2 * mm))
 
     selected_rows = list(

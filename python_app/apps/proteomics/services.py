@@ -28,7 +28,7 @@ from apps.proteomics.models import ProteomicsRowResult
 from apps.proteomics.raw_matrix import analyze_raw_matrix
 
 
-ALGORITHM_VERSION = "proteomics-py-1.9"
+ALGORITHM_VERSION = "proteomics-py-1.10"
 MAX_CELL_CHARACTERS = 50_000
 MAX_XLSX_EXPANDED_BYTES = 512 * 1024 * 1024
 PATHWAY_RELATION_TYPES = {
@@ -133,12 +133,19 @@ def _cell_text(value: Any) -> str:
 
 
 def _unique_headers(values: list[Any]) -> list[str]:
+    bases = [_cell_text(value) or f"column_{index}" for index, value in enumerate(values, start=1)]
+    reserved = set(bases)
     headers: list[str] = []
-    counts: Counter[str] = Counter()
-    for index, value in enumerate(values, start=1):
-        base = _cell_text(value) or f"column_{index}"
-        counts[base] += 1
-        headers.append(base if counts[base] == 1 else f"{base}_{counts[base]}")
+    used: set[str] = set()
+    for base in bases:
+        candidate, suffix = base, 2
+        if candidate in used:
+            candidate = f"{base}_{suffix}"
+            while candidate in used or candidate in reserved:
+                suffix += 1
+                candidate = f"{base}_{suffix}"
+        headers.append(candidate)
+        used.add(candidate)
     return headers
 
 
@@ -275,21 +282,34 @@ def parse_dataset_table(storage_key: str, filename: str) -> ParsedTable:
 
 
 def resolve_mapping(columns: list[str], requested: dict[str, str]) -> ColumnMapping:
-    normalized: dict[str, str] = {}
+    normalized: dict[str, list[str]] = defaultdict(list)
     for column in columns:
-        normalized.setdefault(_normalize_column(column), column)
+        normalized[_normalize_column(column)].append(column)
+
+    def normalized_match(candidate: str) -> str:
+        matches = normalized.get(_normalize_column(candidate), [])
+        if len(matches) > 1:
+            raise ProteomicsInputError(
+                f"字段名规范化后对应多列：{'、'.join(matches)}；请准确选择完整列名。"
+            )
+        return matches[0] if matches else ""
 
     def find(field: str) -> str:
-        candidate = str(requested.get(field, "") or "").strip()
+        api_fields = {
+            'gene_column': 'geneColumn', 'protein_column': 'proteinColumn', 'log2fc_column': 'log2FcColumn',
+            'p_value_column': 'pValueColumn', 'fdr_column': 'fdrColumn', 'direction_column': 'directionColumn',
+        }
+        candidate = str(requested.get(api_fields[field], requested.get(field, "")) or "").strip()
         if candidate:
-            resolved = normalized.get(_normalize_column(candidate))
+            # Explicitly selected headers take precedence over loose aliases.
+            resolved = candidate if candidate in columns else normalized_match(candidate)
             if not resolved:
                 raise ProteomicsInputError(
                     f"找不到字段“{candidate}”，当前文件字段为：{'、'.join(columns)}"
                 )
             return resolved
         for alias in ALIASES[field]:
-            resolved = normalized.get(_normalize_column(alias))
+            resolved = normalized_match(alias)
             if resolved:
                 return resolved
         return ""
