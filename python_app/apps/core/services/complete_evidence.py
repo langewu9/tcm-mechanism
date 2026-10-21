@@ -82,6 +82,7 @@ def _catalog_data(task, limit):
     tables = {"evidenceRecords": [records[key] for key in sorted(records)],
               "entities": [entities[key] for key in sorted(entities)],
               "queries": [{"query": item["query"], "ambiguous": item["ambiguous"],
+                           **({'resolution': item['resolution']} if 'resolution' in item else {}),
                            "matchedIds": [entity["id"] for entity in item["matches"]],
                            "herbIds": [entity["id"] for entity in item["herbs"]],
                            "compoundIds": [entity["id"] for entity in item["compounds"]],

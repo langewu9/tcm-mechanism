@@ -145,7 +145,10 @@ evidence.results.push({query:'未导入中药',matches:[],herbs:[],compounds:[],
   const longChemical='(3S,5R,10S,13R,14R,17R)-17-[(1R)-1,5-dimethyl-4-methylenehexyl]-4,4,10,13,14-pentamethyl-2,3,5,6,7,11,12,15,16,17-decahydro-1H-cyclopenta[a]phenanthren-3-ol';
   input('research-query',chemical);submit();
   assert.deepEqual(named('searchHerbComponentEvidence').at(-1).args,['compound',[chemical]],'Comma in an original compound name is literal');
-  named('searchHerbComponentEvidence').at(-1).resolve({queryType:'compound',results:[]});await flush();
+  named('searchHerbComponentEvidence').at(-1).resolve({queryType:'compound',results:[{query:chemical,matches:[compound],herbs:[],compounds:[compound],targets:[],relations:[],truncated:false,
+    resolution:{strategy:'name',warnings:['本次逗号按原文检索；未据标点拆分、登记别名或合并成分。']}}]});await flush();
+  assert.ok(text(tree).includes('查询依据：完整名称'),'Lookup basis is visible beside the source result');
+  assert.ok(text(tree).includes('未据标点拆分、登记别名或合并成分'));
   assert.equal(find(n=>n.props?.id==='research-query').type,'textarea','Compound batches need an explicit line delimiter');
   input('research-query',`${longChemical}\n${chemical}\n${chemical}\nA/B;C|D`);submit();
   assert.deepEqual(named('searchHerbComponentEvidence').at(-1).args,['compound',[longChemical,chemical,'A/B;C|D']]);
@@ -155,6 +158,9 @@ evidence.results.push({query:'未导入中药',matches:[],herbs:[],compounds:[],
   assert.equal(named('searchHerbComponentEvidence').length,beforeInvalid,'Compound length remains bounded');
   input('research-query',Array.from({length:13},(_,i)=>`Compound-${i}`).join('\n'));submit();
   assert.equal(named('searchHerbComponentEvidence').length,beforeInvalid,'Compound batch remains bounded at twelve');
+  input('research-query','HIT:C0671');submit();
+  assert.deepEqual(named('searchHerbComponentEvidence').at(-1).args,['compound',['HIT:C0671']],'Qualified identifier remains one query');
+  named('searchHerbComponentEvidence').at(-1).resolve({queryType:'compound',results:[]});await flush();
   tab('herb');input('research-query','黄芩,甘草/人参');submit();
   assert.deepEqual(named('searchHerbComponentEvidence').at(-1).args,['herb',['黄芩','甘草','人参']]);
   named('searchHerbComponentEvidence').at(-1).resolve(evidence);await flush();

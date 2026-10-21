@@ -10,6 +10,7 @@ from django.db.models import Q
 from apps.core.models import EvidenceRelation, KnowledgeEntity
 from .herb_row_query import supported_target_queryset
 from .herb_row_support import HerbRowSupport
+from .compound_lookup import resolve_compounds
 
 
 HERB_COMPOUND_TYPES = {"contains", "herb_compound", "has_compound"}
@@ -103,16 +104,20 @@ def batch_herb_component_evidence(*, query_type: str, queries: list[str], relati
     result_items = []
     for raw_query in queries:
         query = raw_query.strip()
+        resolution = None
         entity_type = KnowledgeEntity.EntityType.HERB if query_type == "herb" else KnowledgeEntity.EntityType.COMPOUND
-        matches = list(
-            _visible_entity_filter(KnowledgeEntity.objects.filter(
-                entity_type=entity_type,
-                is_active=True,
-                label__iexact=query,
-            )).select_related("source_release", "source_release__source").order_by("stable_id")[:match_limit + 1]
-        )
-        matches_truncated = len(matches) > match_limit
-        matches = matches[:match_limit]
+        if query_type == 'compound':
+            matches, matches_truncated, resolution = resolve_compounds(query, limit=match_limit)
+        else:
+            matches = list(
+                _visible_entity_filter(KnowledgeEntity.objects.filter(
+                    entity_type=entity_type,
+                    is_active=True,
+                    label__iexact=query,
+                )).select_related("source_release", "source_release__source").order_by("stable_id")[:match_limit + 1]
+            )
+            matches_truncated = len(matches) > match_limit
+            matches = matches[:match_limit]
         matched_ids = {item.pk for item in matches}
 
         if query_type == "herb":
@@ -154,6 +159,7 @@ def batch_herb_component_evidence(*, query_type: str, queries: list[str], relati
         relations = [*herb_edges, *target_edges]
         result_items.append({
             "query": query,
+            **({'resolution': resolution} if resolution is not None else {}),
             "matches": [_entity_record(item) for item in matches],
             "ambiguous": len(matches) > 1,
             "herbs": [_entity_record(item) for item in sorted(herbs, key=lambda item: item.label.casefold())],

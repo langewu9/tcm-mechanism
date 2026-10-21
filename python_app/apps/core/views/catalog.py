@@ -166,6 +166,13 @@ class BatchHerbEvidenceRequestSerializer(serializers.Serializer):
         distinct = list(dict.fromkeys(value.strip() for value in values if value.strip()))
         if not distinct:
             raise serializers.ValidationError("请至少输入一个有效名称。")
+        if self.initial_data.get('queryType') == 'compound':
+            from ..services.compound_lookup import CompoundLookupInputError, validate_compound_query
+            try:
+                for query in distinct:
+                    validate_compound_query(query)
+            except CompoundLookupInputError as exc:
+                raise serializers.ValidationError(str(exc)) from exc
         return distinct
 
 
@@ -197,6 +204,7 @@ class BatchHerbEvidenceRelationSerializer(serializers.Serializer):
 
 class BatchHerbEvidenceItemSerializer(serializers.Serializer):
     query = serializers.CharField()
+    resolution = serializers.JSONField(required=False)
     matches = BatchHerbEvidenceEntitySerializer(many=True)
     ambiguous = serializers.BooleanField()
     herbs = BatchHerbEvidenceEntitySerializer(many=True)
@@ -254,6 +262,7 @@ class CatalogEvidenceAnalysisView(APIView):
                     "analysisKind": "catalog_evidence", "algorithmVersion": VERSION,
                     "complete": True, "queryType": values["queryType"], "queries": values["queries"],
                     "expectedResultSha256": values["expectedResultSha256"],
+                    **({'lookupVersion': 'compound-lookup-1'} if values['queryType'] == 'compound' else {}),
                 })
             dispatch_complete_task(task, request=request)
             return Response(AnalysisTaskSerializer(task).data, status=202)

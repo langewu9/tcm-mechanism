@@ -111,6 +111,18 @@ export type HerbEvidenceRelation = {
 
 export type HerbEvidenceItem = {
   query: string;
+  resolution?: {
+    version: string;
+    strategy: string;
+    expandedNames: string[];
+    identityMerged: boolean;
+    authorityIdentityVerified: boolean;
+    aliasSource?: string;
+    aliasSourceCommit?: string;
+    warnings: string[];
+    matchEvidence: Array<{ entityId: number; stableId: string; originalLabel: string; sourceEntityId: string | null;
+      sourceSlug: string | null; sourceReleaseId: number | null; sourceVersion: string | null; basis: Array<Record<string, unknown>> }>;
+  };
   matches: HerbEvidenceEntity[];
   ambiguous: boolean;
   herbs: HerbEvidenceEntity[];

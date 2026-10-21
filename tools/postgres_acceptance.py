@@ -34,6 +34,8 @@ def environment():
         # The provided HERB workbook has 869,380 rows. Keep this local profile
         # bounded at one million; production settings retain their own limit.
         SQLITE_SOURCE_MAX_ROWS="1000000",
+        # Explicit local lookup scope for the previously verified HIT source.
+        COMPOUND_SOURCE_ALIASES='{"HIT":["sqlite-9576c61feff9"]}',
         EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
         DJANGO_ALLOWED_HOSTS="127.0.0.1,localhost,testserver",
         CSRF_TRUSTED_ORIGINS="http://127.0.0.1:5174,http://127.0.0.1:8021",

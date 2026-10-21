@@ -25,7 +25,7 @@ def save_catalog_analysis(*, user, query_type, queries, expected_sha256):
         task = AnalysisTask.objects.create(
             owner=user, created_by=user, task_type=AnalysisTask.TaskType.NETWORK,
             status=AnalysisTask.Status.SUCCEEDED, progress=100, started_at=now, finished_at=now,
-            input_parameters={"analysisKind": "catalog_evidence", "algorithmVersion": "catalog-evidence-0.4",
+            input_parameters={"analysisKind": "catalog_evidence", "algorithmVersion": "catalog-evidence-0.5" if query_type == 'compound' else "catalog-evidence-0.4",
                               "queryType": query_type, "queries": queries, "resultSha256": expected_sha256},
             result=result,
         )
@@ -66,6 +66,8 @@ def catalog_result(snapshot):
     release_ids = {record["sourceReleaseId"] for record in selected}
     release_ids.update(entities[pk]["sourceReleaseId"] for pk in used if entities[pk]["sourceReleaseId"])
     return {"analysisKind": "catalog_evidence", "queryType": snapshot["queryType"], "queries": [item["query"] for item in snapshot["results"]],
+                    **({'queryResolutions': [{'query': item['query'], 'resolution': item['resolution']} for item in snapshot['results']]}
+                       if snapshot['queryType'] == 'compound' else {}),
                     "resultSha256": snapshot["resultSha256"], "capturedAt": timezone.now().isoformat(),
                     "network": {"nodes": nodes, "links": links}, "evidenceRecords": selected,
                     "counts": {"nodes": len(nodes), "evidenceRecords": len(selected),
