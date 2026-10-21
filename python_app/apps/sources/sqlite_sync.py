@@ -26,6 +26,7 @@ from apps.sources.connectors.sqlite_tcm import (
 
 SQLITE_CONNECTOR = "sqlite-herb-compound-target"
 EVIDENCE_TYPE = "curated_sqlite_database"
+DISEASE_ROW_POLICY = "original-disease-labels-1"
 _SPACE = re.compile(r"\s+")
 _SYMBOL_CANDIDATE = re.compile(r"^[A-Z][A-Z0-9_.-]{0,63}$")
 
@@ -43,6 +44,8 @@ def _configuration_sha256(configuration: dict) -> str:
     if configuration.get("rowMetadataColumn"):
         # Identity policy changes must create a new release and retire old rows.
         configuration = {**configuration, "identityPolicy": IDENTITY_POLICY}
+    if configuration.get("diseaseTargetTable") or configuration.get("diseaseHerbTargetTable"):
+        configuration = {**configuration, "diseaseRowPolicy": DISEASE_ROW_POLICY}
     encoded = json.dumps(configuration, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
 
@@ -152,6 +155,13 @@ def _row_entities_and_relations(source: DataSource, row):
             ("herb_disease_target", disease_herb_id, target_id, f"diseaseHerbTarget:{row_id}:herb-target:{target_id.rsplit(':', 1)[-1]}", row_id, {"diseaseStableId": disease_id, "diseaseLabel": disease})
             for target_id in target_ids
         )
+    if kind in {"diseaseTarget", "diseaseHerbTarget"}:
+        # Label keys are normalized for legacy lookup; each source row must also
+        # retain its exact original assertions, without asserting authority IDs.
+        original_labels = {"sourceDiseaseLabel": disease,
+                           "sourceHerbLabel": disease_herb if kind == "diseaseHerbTarget" else None,
+                           "sourceTargetLabel": clean_cell(raw_targets)}
+        relation_specs = [(*spec[:5], {**spec[5], **original_labels}) for spec in relation_specs]
     if source_record:
         provenance = {"sourceOrigin": {key: source_record[key] for key in ("workbookSha256", "sheet", "sourceRow")},
                       "sourceIdentity": identity, "rawFields": source_record["rawFields"]}
@@ -209,6 +219,8 @@ def preview_sqlite_sync(run: SyncRun) -> None:
                 "table": source.configuration["table"],
                 "rowMetadataColumn": source.configuration.get("rowMetadataColumn"),
                 "identityPolicy": IDENTITY_POLICY if source.configuration.get("rowMetadataColumn") else None,
+                "diseaseRowPolicy": DISEASE_ROW_POLICY if (
+                    source.configuration.get("diseaseTargetTable") or source.configuration.get("diseaseHerbTargetTable")) else None,
                 "diseaseTargetTable": source.configuration.get("diseaseTargetTable") or None,
                 "diseaseHerbTargetTable": source.configuration.get("diseaseHerbTargetTable") or None,
                 "configurationSha256": configuration_sha256,

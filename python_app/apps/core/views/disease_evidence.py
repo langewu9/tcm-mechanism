@@ -116,7 +116,7 @@ class DiseaseEvidenceAnalysisView(APIView):
         from apps.core.services.complete_evidence import dispatch_complete_task
         task = AnalysisTask.objects.create(owner=request.user, created_by=request.user,
             task_type=AnalysisTask.TaskType.NETWORK, input_parameters={
-                "analysisKind": "disease_evidence", "algorithmVersion": "disease-evidence-1", "complete": True,
+                "analysisKind": "disease_evidence", "algorithmVersion": "disease-evidence-2", "complete": True,
                 "name": f"疾病证据 · {values['query']}", "query": values["query"],
                 "expectedResultSha256": values["expectedResultSha256"],
             })

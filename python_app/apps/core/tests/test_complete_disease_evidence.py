@@ -148,6 +148,31 @@ class CompleteDiseaseEvidenceTests(TransactionTestCase):
         self.assertEqual(task.result, {})
         self.assertFalse(task.snapshot_rows.exists())
 
+    def test_original_source_file_is_frozen_exported_and_part_of_preview_identity(self):
+        _, records = self.seed(1)
+        relation = records[0]
+        relation.metadata = {**relation.metadata, "sourceFile": "fixture-original.xlsx"}
+        relation.save(update_fields=["metadata"])
+        preview = self.preview()
+        stale = self.queue(preview)
+        relation.metadata["sourceFile"] = "fixture-reviewed.xlsx"
+        relation.save(update_fields=["metadata"])
+        self.assertNotEqual(self.preview()["resultSha256"], preview["resultSha256"])
+        self.assertEqual(run_complete_evidence_task(stale.pk)["status"], "failed")
+        self.assertFalse(stale.snapshot_rows.exists())
+        task = self.queue()
+        self.execute(task)
+        frozen = task.snapshot_rows.get(table="evidenceRecords").payload
+        self.assertEqual(frozen["sourceFile"], "fixture-reviewed.xlsx")
+        self.assertEqual(frozen["sourceRowId"], 0)
+        self.assertEqual(task.input_parameters["algorithmVersion"], "disease-evidence-2")
+        relation.metadata["sourceFile"] = "MUTATED_LIVE_FILE.xlsx"
+        relation.save(update_fields=["metadata"])
+        response = self.client.get(self.base(task) + "/snapshot-export/?table=evidenceRecords&file_format=csv")
+        rows = list(csv.DictReader(io.StringIO(b"".join(response.streaming_content).decode("utf-8-sig"))))
+        self.assertEqual(rows[0]["sourceFile"], "fixture-reviewed.xlsx")
+        self.assertNotIn("MUTATED_LIVE_FILE", str(rows))
+
     def test_catalogue_changes_after_success_do_not_backfill_export_and_ownership_is_preserved(self):
         targets, _ = self.seed(2)
         task = self.queue(extra={"owner_id": self.other.pk, "created_by": self.other.pk})
@@ -174,6 +199,42 @@ class CompleteDiseaseEvidenceTests(TransactionTestCase):
                     b"".join(response.streaming_content)
         task.refresh_from_db()
         self.assertEqual(digest(task.result), before)
+
+    def test_legacy_name_keys_preserve_each_original_disease_row_assertion(self):
+        from apps.sources.sqlite_sync import _row_entities_and_relations
+        self.source.configuration = {"targetCellMode": "single"}
+        variants = ["Tumor necrosis factor", "Tumor Necrosis Factor"]
+        for number, label in enumerate(variants, 50):
+            entities, specs = _row_entities_and_relations(self.source, (
+                "diseaseTarget", number, self.disease.label, label, f"fixture-{number}.xlsx"))
+            resolved = {}
+            for payload in entities:
+                entity, _ = KnowledgeEntity.objects.update_or_create(
+                    stable_id=payload["stable_id"], entity_type=payload["entity_type"],
+                    defaults={**payload, "source_release": self.release})
+                resolved[payload["stable_id"]] = entity
+            for kind, subject, object_, record, row_id, metadata in specs:
+                EvidenceRelation.objects.create(source_release=self.release, subject=resolved[subject], object=resolved[object_],
+                    relation_type=kind, source_record_id=record, metadata={"sourceRowId": row_id, **metadata})
+        task = self.queue()
+        self.execute(task)
+        self.assertEqual(task.result["counts"]["targets"], 1)  # Existing legacy name-key policy, not a verified biological ID.
+        records = list(task.snapshot_rows.filter(table="evidenceRecords").values_list("payload", flat=True))
+        self.assertEqual({row["sourceTargetLabel"] for row in records}, set(variants))
+        self.assertEqual({row["sourceRowId"] for row in records}, {50, 51})
+        self.assertTrue(all(row["sourceDiseaseLabel"] == self.disease.label for row in records))
+        for table in ("evidenceRecords", "diseaseLinks"):
+            response = self.client.get(self.base(task) + f"/snapshot-export/?table={table}&file_format=csv")
+            rows = list(csv.DictReader(io.StringIO(b"".join(response.streaming_content).decode("utf-8-sig"))))
+            self.assertEqual({row["sourceTargetLabel"] for row in rows}, set(variants))
+            self.assertEqual({row["sourceFile"] for row in rows}, {"fixture-50.xlsx", "fixture-51.xlsx"})
+        network = AnalysisTask.objects.create(owner=self.owner, created_by=self.owner, task_type="network",
+            input_parameters={"complete": True, "analysisKind": "network_pharmacology",
+                              "herb": "NO_MATCH_FIXTURE_HERB", "disease": self.disease.label})
+        self.execute(network)
+        network_records = list(network.snapshot_rows.filter(table="evidenceRecords").values_list("payload", flat=True))
+        self.assertEqual({row["sourceTargetLabel"] for row in network_records}, set(variants))
+        self.assertEqual({row["sourceFile"] for row in network_records}, {"fixture-50.xlsx", "fixture-51.xlsx"})
 
     def test_empty_match_and_zero_relations_are_distinct(self):
         isolated = self.queue()

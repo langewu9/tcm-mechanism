@@ -24,8 +24,15 @@ DISEASE_TARGET_TYPES = {"disease_target", "disease_herb_target"}
 TARGET_ENTITY_TYPES = [KnowledgeEntity.EntityType.GENE, KnowledgeEntity.EntityType.PROTEIN]
 
 
+def disease_source_assertions(relation):
+    metadata = relation.metadata if isinstance(relation.metadata, dict) else {}
+    return {key: metadata[key] if isinstance(metadata.get(key), str) else None
+            for key in ("sourceFile", "sourceDiseaseLabel", "sourceHerbLabel", "sourceTargetLabel")}
+
+
 def disease_relation_snapshot(relation):
-    return {**snapshot_relation_record(relation), "evidenceText": relation.evidence_text, "organism": relation.organism}
+    return {**snapshot_relation_record(relation), "evidenceText": relation.evidence_text, "organism": relation.organism,
+            **disease_source_assertions(relation)}
 
 
 def _entity_record(entity: KnowledgeEntity) -> dict:
@@ -159,6 +166,7 @@ def search_disease_evidence(query: str, *, relation_limit=None, match_limit=None
                     herb_id = herb.pk
 
         links.append({
+            **disease_source_assertions(relation),
             "relationId": relation.pk,
             "diseaseId": relation.subject_id,
             "herbId": herb_id,

@@ -71,7 +71,7 @@ def _entity_record(entity: KnowledgeEntity) -> dict:
 
 def _relation_record(relation: EvidenceRelation) -> dict:
     metadata = relation.metadata if isinstance(relation.metadata, dict) else {}
-    return {
+    record = {
         "id": relation.pk,
         "subjectId": relation.subject_id,
         "objectId": relation.object_id,
@@ -91,6 +91,12 @@ def _relation_record(relation: EvidenceRelation) -> dict:
         "sourceIdentity": metadata.get("sourceIdentity"),
         "score": float(relation.score) if relation.score is not None else None,
     }
+    # Disease assertions also pass through this shared serializer in complete
+    # network snapshots; do not drop their original names or provenance there.
+    for key in ("sourceFile", "sourceDiseaseLabel", "sourceHerbLabel", "sourceTargetLabel"):
+        if isinstance(metadata.get(key), str):
+            record[key] = metadata[key]
+    return record
 
 
 def batch_herb_component_evidence(*, query_type: str, queries: list[str], relation_limit=MAX_RELATIONS, match_limit=MAX_MATCHES) -> dict:
