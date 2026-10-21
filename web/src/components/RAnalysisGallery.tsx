@@ -54,38 +54,66 @@ export function RAnalysisGallery({ taskId }: { taskId: number }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const generation = useRef(0);
+  const submissionInFlight = useRef(false);
+  const [reload, setReload] = useState(0);
+  const [pollFailures, setPollFailures] = useState(0);
+  const [pollError, setPollError] = useState<string | null>(null);
   useEffect(() => {
     const current = ++generation.current;
-    setParent(null); setJobs({}); setError(null); setBusy(null);
-    Promise.all([getAnalysisTask(taskId), getAnalysisTaskSummaries(1, taskId)]).then(async ([source, page]) => {
+    setParent(null); setJobs({}); setError(null); setBusy(null); setPollError(null); setPollFailures(0);
+    Promise.allSettled([getAnalysisTask(taskId), getAnalysisTaskSummaries(1, taskId)]).then(async ([sourceRead, pageRead]) => {
       if (generation.current !== current) return;
-      const restored = await restoreGalleryJobs(page.results, taskId, new Set(rChartCatalog(source).map(chart => chart.key)));
-      if (generation.current !== current) return;
+      if (sourceRead.status === "rejected") throw sourceRead.reason;
+      const source = sourceRead.value;
+      if (source.id !== taskId) throw new Error("Parent identity mismatch");
       setParent(source);
+      if (pageRead.status === "rejected") throw pageRead.reason;
+      const page = pageRead.value;
+      const restored = await restoreGalleryJobs(page.results, taskId, new Set(rChartCatalog(source).map(chart => chart.key)), page.next);
+      if (generation.current !== current) return;
       setJobs(restored);
     }).catch(cause => { if (generation.current === current) setError(cause instanceof ApiError ? cause.message : "R 分析目录加载失败。"); });
     return () => { generation.current++; };
-  }, [taskId]);
+  }, [taskId, reload]);
   useEffect(() => {
     let active = true;
+    const current = generation.current;
     const pending = Object.entries(jobs).filter(([, job]) => ["queued", "running"].includes(job.status));
     if (!pending.length) return;
     const timer = window.setTimeout(() => {
-      Promise.all(pending.map(async ([key, job]) => [key, await getAnalysisTask(job.id)] as const)).then(updates => {
-        if (active) setJobs(previous => ({ ...previous, ...Object.fromEntries(updates) }));
-      }).catch(cause => { if (active) setError(cause instanceof ApiError ? cause.message : "R 图表状态读取失败。"); });
-    }, 1500);
+      void Promise.allSettled(pending.map(async ([key, job]) => {
+        const latest = await getAnalysisTask(job.id);
+        if (latest.id !== job.id || latest.task_type !== "visualization" || latest.parent_task !== taskId
+          || latest.input_parameters.chartKey !== key) throw new Error("Figure identity mismatch");
+        return [key, latest] as const;
+      })).then(reads => {
+        if (!active || generation.current !== current) return;
+        const updates = reads.flatMap(read => read.status === "fulfilled" ? [read.value] : []);
+        if (updates.length) setJobs(previous => ({ ...previous, ...Object.fromEntries(updates) }));
+        const failure = reads.find(read => read.status === "rejected");
+        if (failure?.status === "rejected") {
+          setPollError(`${failure.reason instanceof ApiError ? failure.reason.message : "R 图表状态读取失败。"} 正在重试读取已有任务，不会重新绘图。`);
+          setPollFailures(value => value + 1);
+        } else { setPollError(null); setPollFailures(0); }
+      });
+    }, Math.min(1500 * 2 ** Math.min(pollFailures, 4), 12000));
     return () => { active = false; window.clearTimeout(timer); };
-  }, [jobs]);
+  }, [jobs, taskId, pollFailures]);
   async function renderChart(key: string) {
+    const chart = parent ? rChartCatalog(parent).find(item => item.key === key) : null;
+    if (submissionInFlight.current || !chart?.available || parent?.status !== "succeeded"
+      || (jobs[key] && ["queued", "running", "succeeded"].includes(jobs[key].status))) return;
+    submissionInFlight.current = true;
     const current = generation.current;
     setBusy(key); setError(null);
     try {
       const job = await createVisualization(taskId, key);
+      if (job.task_type !== "visualization" || job.parent_task !== taskId
+        || job.input_parameters.analysisKind !== "r_visualization" || job.input_parameters.chartKey !== key) throw new Error("Figure identity mismatch");
       if (generation.current === current) setJobs(previous => ({ ...previous, [key]: job }));
     } catch (cause) {
       if (generation.current === current) setError(cause instanceof ApiError ? cause.message : "图表任务创建失败。");
-    } finally { if (generation.current === current) setBusy(null); }
+    } finally { submissionInFlight.current = false; if (generation.current === current) setBusy(null); }
   }
   if (parent && parent.status !== "succeeded") return null;
   const charts = parent ? rChartCatalog(parent) : [];
@@ -93,7 +121,8 @@ export function RAnalysisGallery({ taskId }: { taskId: number }) {
     <p className="page-kicker">R ANALYSIS · INPUT INSPIRED</p>
     <h3 className="section-title-sm">R 分析与网络图目录</h3>
     <p className="section-help">仅使用当前任务已保存的结果。缺少互作或通路数据时明确停用，不填充假关系。PPI 置信度在原查询中设置；生成图表不会重新向外部数据库提交数据。</p>
-    {error && <div className="notice-error" role="alert">{error}</div>}
+    {error && <div className="notice-error" role="alert"><p>{error}</p><button className="btn btn-secondary" type="button" disabled={busy !== null} onClick={() => setReload(value => value + 1)}>重新读取图表记录</button></div>}
+    {pollError && <p className="notice-error" role="alert">{pollError}</p>}
     {!parent && !error && <p role="status">正在读取可用图表…</p>}
     {charts.map(chart => {
       const job = jobs[chart.key];

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { Activity, ArrowLeft, Download, Play, RefreshCw } from "lucide-react";
 import {
@@ -11,6 +11,7 @@ import {
   type ProteomicsResult,
   type ProteomicsRowPage,
   type ResearchDataset,
+  type DatasetPage,
 } from "../api/datasets";
 import { restoreProteomicsTasks } from "../api/task-restoration";
 import { ApiError } from "../api/client";
@@ -142,7 +143,16 @@ function downloadBlob(filename: string, blob: Blob) {
 }
 
 export function ProteomicsPage() {
+  const mounted = useRef(false);
+  const generation = useRef(0);
+  const submissionInFlight = useRef(false);
+  const visualizationInFlight = useRef(false);
+  const datasetPaging = useRef(false);
   const [datasets, setDatasets] = useState<ResearchDataset[]>([]);
+  const [datasetPage, setDatasetPage] = useState<DatasetPage | null>(null);
+  const [datasetPageNumber, setDatasetPageNumber] = useState(1);
+  const [datasetReload, setDatasetReload] = useState(0);
+  const [datasetError, setDatasetError] = useState<string | null>(null);
   const [datasetId, setDatasetId] = useState<number | "">("");
   const [task, setTask] = useState<AnalysisTask | null>(null);
   const [visualizationTask, setVisualizationTask] = useState<AnalysisTask | null>(null);
@@ -175,68 +185,104 @@ export function ProteomicsPage() {
   const [rowPage, setRowPage] = useState<ProteomicsRowPage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [restoring, setRestoring] = useState(true);
+  const [restoreAttempt, setRestoreAttempt] = useState(0);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
+  const [pollFailures, setPollFailures] = useState(0);
+  const [pollError, setPollError] = useState<string | null>(null);
+  const [rowError, setRowError] = useState<string | null>(null);
+  const [rowReload, setRowReload] = useState(0);
 
   useEffect(() => {
-    let active = true;
-    Promise.all([getDatasets(), restoreProteomicsTasks()])
-      .then(([datasetResponse, restored]) => {
-        if (!active) return;
-        setDatasets(datasetResponse.results);
-        if (datasetResponse.results.length) setDatasetId(datasetResponse.results[0].id);
-        const latestTask = restored.task;
-        if (latestTask) {
-          setTask(latestTask);
-          if (latestTask.dataset) setDatasetId(latestTask.dataset);
-          if (restored.visualizationTask) setVisualizationTask(restored.visualizationTask);
-          if (restored.volcanoVisualizationTask) setVolcanoVisualizationTask(restored.volcanoVisualizationTask);
-        }
-      })
-      .catch((cause: unknown) => { if (active) setError(errorMessage(cause)); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
+    mounted.current = true;
+    return () => { mounted.current = false; generation.current += 1; };
   }, []);
 
   useEffect(() => {
-    if (!task || !["queued", "running"].includes(task.status)) return;
     let active = true;
-    const timer = window.setTimeout(() => {
-      getAnalysisTask(task.id)
-        .then((latest) => { if (active) setTask(latest); })
-        .catch((cause: unknown) => { if (active) setError(errorMessage(cause)); });
-    }, 1400);
-    return () => { active = false; window.clearTimeout(timer); };
-  }, [task]);
+    datasetPaging.current = true;
+    setLoading(true); setDatasetError(null); setDatasetPage(null); setDatasets([]);
+    getDatasets(datasetPageNumber)
+      .then((datasetResponse) => {
+        if (!active) return;
+        setDatasets(datasetResponse.results);
+        setDatasetPage(datasetResponse);
+        setDatasetId(current => datasetResponse.results.some(item => item.id === current)
+          ? current : datasetResponse.results[0]?.id ?? "");
+      })
+      .catch((cause: unknown) => { if (active) setDatasetError(errorMessage(cause)); })
+      .finally(() => { if (active) { datasetPaging.current = false; setLoading(false); } });
+    return () => { active = false; };
+  }, [datasetPageNumber, datasetReload]);
 
   useEffect(() => {
-    if (!visualizationTask || !["queued", "running"].includes(visualizationTask.status)) return;
     let active = true;
-    const timer = window.setTimeout(() => {
-      getAnalysisTask(visualizationTask.id)
-        .then((latest) => { if (active) setVisualizationTask(latest); })
-        .catch((cause: unknown) => { if (active) setError(errorMessage(cause)); });
-    }, 1400);
-    return () => { active = false; window.clearTimeout(timer); };
-  }, [visualizationTask]);
+    setRestoring(true); setRestoreError(null);
+    restoreProteomicsTasks()
+      .then((restored) => {
+        if (!active) return;
+        const latestTask = restored.task;
+        if (latestTask) {
+          setTask(latestTask);
+          setVisualizationTask(restored.visualizationTask);
+          setVolcanoVisualizationTask(restored.volcanoVisualizationTask);
+        }
+        setRestoreError(restored.figureError ?? null);
+      })
+      .catch((cause: unknown) => { if (active) setRestoreError(errorMessage(cause)); })
+      .finally(() => { if (active) setRestoring(false); });
+    return () => { active = false; };
+  }, [restoreAttempt]);
 
   useEffect(() => {
-    if (!volcanoVisualizationTask || !["queued", "running"].includes(volcanoVisualizationTask.status)) return;
+    const current = generation.current;
     let active = true;
+    const pending = [
+      { saved: task, update: setTask },
+      { saved: visualizationTask, update: setVisualizationTask },
+      { saved: volcanoVisualizationTask, update: setVolcanoVisualizationTask },
+    ].filter(({ saved }) => saved && ["queued", "running"].includes(saved.status));
+    if (!pending.length) { setPollError(null); return; }
     const timer = window.setTimeout(() => {
-      getAnalysisTask(volcanoVisualizationTask.id)
-        .then((latest) => { if (active) setVolcanoVisualizationTask(latest); })
-        .catch((cause: unknown) => { if (active) setError(errorMessage(cause)); });
-    }, 1400);
+      void Promise.all(pending.map(async ({ saved, update }) => {
+        if (!saved) return true;
+        try {
+          const latest = await getAnalysisTask(saved.id);
+          if (!active || !mounted.current || generation.current !== current) return true;
+          if (latest.id !== saved.id || latest.task_type !== saved.task_type || latest.parent_task !== saved.parent_task) {
+            throw new Error("Task identity mismatch");
+          }
+          return { saved, update, latest };
+        } catch (cause) {
+          return { cause };
+        }
+      })).then(reads => {
+        if (!active || !mounted.current || generation.current !== current) return;
+        let failed = false;
+        for (const read of reads) {
+          if (typeof read === "object" && "cause" in read) {
+            failed = true;
+            setPollError(`${errorMessage(read.cause)} 正在重试读取已有任务，不会重新提交。`);
+          } else if (typeof read === "object" && "latest" in read) {
+            read.update(previous => previous?.id === read.saved.id ? read.latest : previous);
+          }
+        }
+        if (!failed) { setPollFailures(0); setPollError(null); }
+        else setPollFailures(value => value + 1);
+      });
+    }, Math.min(1400 * 2 ** Math.min(pollFailures, 4), 12000));
     return () => { active = false; window.clearTimeout(timer); };
-  }, [volcanoVisualizationTask]);
+  }, [task, visualizationTask, volcanoVisualizationTask, pollFailures]);
 
   useEffect(() => {
     if (!showRows || !task || task.status !== "succeeded") return;
     let active = true;
+    setRowPage(null); setRowError(null);
     getProteomicsRows(task.id, rowPageNumber)
       .then((value) => { if (active) setRowPage(value); })
-      .catch((cause: unknown) => { if (active) setError(errorMessage(cause)); });
+      .catch((cause: unknown) => { if (active) setRowError(errorMessage(cause)); });
     return () => { active = false; };
-  }, [showRows, task, rowPageNumber]);
+  }, [showRows, task, rowPageNumber, rowReload]);
 
   const selectedDataset = useMemo(
     () => datasets.find((item) => item.id === datasetId) ?? null,
@@ -250,9 +296,17 @@ export function ProteomicsPage() {
     ? task.result as ProteomicsResult
     : null;
 
+  function changeDatasetPage(next: number) {
+    if (datasetPaging.current || submissionInFlight.current) return;
+    datasetPaging.current = true;
+    setLoading(true); setDatasetPage(null); setDatasets([]);
+    setDatasetPageNumber(Math.max(1, next));
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!selectedDataset) return;
+    if (!selectedDataset || loading || restoring || submissionInFlight.current || visualizationInFlight.current
+      || (task && ["queued", "running"].includes(task.status))) return;
     const parsedPairs = parseSamplePairs(pairedSampleColumns);
     const parsedFactors = parseSampleFactors(factorSampleColumns);
     const controlColumns = matrixDesignType === "paired"
@@ -301,12 +355,20 @@ export function ProteomicsPage() {
       setError("原始矩阵每次最多选择 100 个样本列。");
       return;
     }
+    submissionInFlight.current = true;
+    const current = ++generation.current;
     setSubmitting(true);
     setError(null);
     setNotice(null);
     setShowRows(false);
     setRowPage(null);
+    setRowPageNumber(1);
+    setRowError(null);
+    setPollError(null); setPollFailures(0);
     setVisualizationTask(null);
+    setVolcanoVisualizationTask(null);
+    setTask(null);
+    setExternalReactome(false); setExternalString(false); setExternalGProfiler(false);
     try {
       const taskResponse = await runProteomicsAnalysis(selectedDataset.id, {
         analysisMode,
@@ -342,12 +404,17 @@ export function ProteomicsPage() {
         externalGProfiler,
         stringRequiredScore: Number(stringRequiredScore),
       });
+      if (!mounted.current || generation.current !== current) return;
+      if (taskResponse.task_type !== "proteomics" || taskResponse.dataset !== selectedDataset.id) {
+        throw new ApiError("返回的任务与本次数据集不一致，请重新读取任务记录。", "TASK_SOURCE_MISMATCH", null, null, 502);
+      }
       setTask(taskResponse);
       setNotice(`分析任务 #${taskResponse.id} 已进入后台队列。`);
     } catch (cause) {
-      setError(errorMessage(cause));
+      if (mounted.current && generation.current === current) setError(errorMessage(cause));
     } finally {
-      setSubmitting(false);
+      submissionInFlight.current = false;
+      if (mounted.current && generation.current === current) setSubmitting(false);
     }
   }
 
@@ -356,35 +423,40 @@ export function ProteomicsPage() {
     setError(null);
     try {
       const blob = await exportProteomicsResults(task.id, format);
-      downloadBlob(`proteomics-task-${task.id}.${format}`, blob);
+      if (mounted.current) downloadBlob(`proteomics-task-${task.id}.${format}`, blob);
     } catch (cause) {
-      setError(errorMessage(cause));
+      if (mounted.current) setError(errorMessage(cause));
     }
   }
 
   async function requestGoKeggVisualization() {
-    if (!task || task.status !== "succeeded") return;
-    setError(null);
-    setVisualizationSubmitting(true);
-    try {
-      setVisualizationTask(await createVisualization(task.id, "proteomics_go_kegg_enrichment"));
-    } catch (cause) {
-      setError(errorMessage(cause));
-    } finally {
-      setVisualizationSubmitting(false);
-    }
+    await requestVisualization("proteomics_go_kegg_enrichment", visualizationTask, setVisualizationTask);
   }
 
   async function requestVolcanoVisualization() {
-    if (!task || task.status !== "succeeded") return;
+    await requestVisualization("proteomics_volcano", volcanoVisualizationTask, setVolcanoVisualizationTask);
+  }
+
+  async function requestVisualization(key: "proteomics_volcano" | "proteomics_go_kegg_enrichment", existing: AnalysisTask | null, update: (value: AnalysisTask) => void) {
+    if (!task || task.status !== "succeeded" || submissionInFlight.current || visualizationInFlight.current
+      || (existing && ["queued", "running", "succeeded"].includes(existing.status))) return;
+    visualizationInFlight.current = true;
+    const current = generation.current;
     setError(null);
     setVisualizationSubmitting(true);
     try {
-      setVolcanoVisualizationTask(await createVisualization(task.id, "proteomics_volcano"));
+      const job = await createVisualization(task.id, key);
+      if (!mounted.current || generation.current !== current) return;
+      if (job.task_type !== "visualization" || job.parent_task !== task.id
+        || job.input_parameters.analysisKind !== "r_visualization" || job.input_parameters.chartKey !== key) {
+        throw new Error("Visualization does not belong to this analysis");
+      }
+      update(job);
     } catch (cause) {
-      setError(errorMessage(cause));
+      if (mounted.current && generation.current === current) setError(errorMessage(cause));
     } finally {
-      setVisualizationSubmitting(false);
+      visualizationInFlight.current = false;
+      if (mounted.current && generation.current === current) setVisualizationSubmitting(false);
     }
   }
 
@@ -398,15 +470,18 @@ export function ProteomicsPage() {
 
       {error && <div className="notice-error workspace-notice" role="alert">{error}</div>}
       {notice && <div className="notice-success workspace-notice" role="status">{notice}</div>}
+      {pollError && <p className="notice-error workspace-notice" role="alert">{pollError}</p>}
+      {restoreError && <div className="notice-error workspace-notice" role="alert"><p>{restoreError}</p><button type="button" className="btn btn-secondary" disabled={restoring || submitting || visualizationSubmitting || Boolean(task && ["queued", "running"].includes(task.status))} onClick={() => setRestoreAttempt(value => value + 1)}>重新读取历史任务</button></div>}
 
       <div className="case-workspace-grid proteomics-workspace-grid">
         <form className="panel case-form" onSubmit={(event) => void submit(event)} aria-label="启动差异蛋白分析">
           <div className="panel-header"><div><h2 className="section-title-sm">分析设置</h2><p className="section-help">数据集原始文件不会发送到外部服务。</p></div><span className="page-heading-icon"><Activity size={19} /></span></div>
           <div className="case-form-fields">
-            {loading ? <p className="section-help" role="status">正在读取你的数据集…</p> : datasets.length ? <label className="form-label" htmlFor="proteomics-dataset">选择已上传数据集
+            {loading ? <p className="section-help" role="status">正在读取你的数据集…</p> : datasetError ? <div className="notice-error" role="alert"><p>{datasetError}</p><button className="btn btn-secondary" type="button" onClick={() => setDatasetReload(value => value + 1)}>重新读取数据集</button>{datasetPageNumber > 1 && <button className="btn btn-secondary" type="button" onClick={() => changeDatasetPage(datasetPageNumber - 1)}>返回上一页数据集</button>}</div> : datasets.length ? <label className="form-label" htmlFor="proteomics-dataset">选择已上传数据集
               <select className="field" id="proteomics-dataset" value={datasetId} onChange={(event) => setDatasetId(Number(event.target.value))}>
                 {datasets.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.original_filename}</option>)}
               </select></label> : <div className="empty-state"><strong>还没有可分析的数据集</strong><p>先上传差异蛋白 CSV、TSV 或 Excel 文件。</p><Link className="btn btn-secondary" to="/datasets">上传数据集</Link></div>}
+            {datasetPage && (datasetPage.next || datasetPage.previous) && <nav className="case-pagination" aria-label="可分析数据集分页"><button className="btn btn-secondary" type="button" aria-label="上一页数据集" disabled={!datasetPage.previous || submitting} onClick={() => changeDatasetPage(datasetPageNumber - 1)}>上一页</button><span>第 {datasetPageNumber} 页 · {datasetPage.count} 个数据集</span><button className="btn btn-secondary" type="button" aria-label="下一页数据集" disabled={!datasetPage.next || submitting} onClick={() => changeDatasetPage(datasetPageNumber + 1)}>下一页</button></nav>}
 
             {datasets.length > 0 && <>
               <label className="form-label" htmlFor="proteomics-analysis-mode">输入数据类型<select className="field" id="proteomics-analysis-mode" value={analysisMode} onChange={(event) => setAnalysisMode(event.target.value as "differential_table" | "raw_matrix")}><option value="differential_table">已计算的差异蛋白表</option><option value="raw_matrix">原始定量矩阵</option></select></label>
@@ -471,7 +546,7 @@ export function ProteomicsPage() {
             </>}
           </div>
           <div className="case-form-footer"><p>阈值筛选不会把缺失或非法统计值默认为显著。</p>
-            <button className="btn btn-primary" type="submit" disabled={!selectedDataset || submitting || task?.status === "queued" || task?.status === "running"}>
+            <button className="btn btn-primary" type="submit" disabled={!selectedDataset || loading || restoring || submitting || visualizationSubmitting || task?.status === "queued" || task?.status === "running"}>
               {submitting ? <RefreshCw size={16} className="spin" /> : <Play size={16} />}{submitting ? "正在提交…" : "提交后台分析"}
             </button></div>
         </form>
@@ -482,7 +557,7 @@ export function ProteomicsPage() {
           </div>
           {!task ? <div className="panel empty-state"><Activity size={27} /><strong>等待分析任务</strong><p>选择一个已上传的数据集并提交分析设置。</p></div>
             : <article className="panel proteomics-result-panel">
-              <div className="case-record-top"><div><h3>任务 #{task.id} · {taskDataset?.name ?? `数据集 ${task.dataset ?? "已移除"}`}</h3><time dateTime={task.created_at}>创建于 {new Date(task.created_at).toLocaleString("zh-CN")}</time></div>
+              <div className="case-record-top"><div><h3>任务 #{task.id} · {taskDataset?.name ?? String(task.input_parameters.name || `数据集 ${task.dataset ?? "已移除"}`)}</h3><time dateTime={task.created_at}>创建于 {new Date(task.created_at).toLocaleString("zh-CN")}</time></div>
                 {result && <div className="proteomics-export-actions">
                   <button type="button" className="btn btn-secondary" onClick={() => void exportRows("csv")}><Download size={15} />CSV</button>
                   <button type="button" className="btn btn-secondary" onClick={() => void exportRows("xlsx")}><Download size={15} />XLSX</button>
@@ -491,12 +566,13 @@ export function ProteomicsPage() {
                 </div>}</div>
               {(task.status === "queued" || task.status === "running") && <div className="analysis-progress" role="status"><span>任务已排队，分析过程在后台运行。</span><progress max={100} value={task.progress} /></div>}
               {task.status === "failed" && <div className="notice-error" role="alert">{task.error_summary || "分析失败，请检查文件和列映射。"}</div>}
-              {result && <ProteomicsResultView result={result} task={task} showRows={showRows} rowPage={rowPage} rowPageNumber={rowPageNumber}
+              {result && <ProteomicsResultView result={result} task={task} showRows={showRows} rowPage={rowPage} rowPageNumber={rowPageNumber} rowReadFailed={Boolean(rowError)}
                 visualizationTask={visualizationTask} volcanoVisualizationTask={volcanoVisualizationTask} visualizationSubmitting={visualizationSubmitting}
                 onCreateVolcanoVisualization={() => void requestVolcanoVisualization()}
                 onCreateGoKeggVisualization={() => void requestGoKeggVisualization()}
                 onToggleRows={() => { setShowRows((value) => !value); setRowPageNumber(1); }}
                 onRowPageChange={setRowPageNumber} />}
+              {showRows && rowError && <div className="notice-error" role="alert"><p>逐行结果读取失败：{rowError}</p><button type="button" className="btn btn-secondary" onClick={() => setRowReload(value => value + 1)}>重新读取逐行结果</button></div>}
             </article>}
         </section>
       </div>
@@ -509,7 +585,7 @@ function Metric({ label, value, note }: { label: string; value: string | number;
 }
 
 function ProteomicsResultView({
-  result, task, showRows, rowPage, rowPageNumber, visualizationTask, volcanoVisualizationTask, visualizationSubmitting,
+  result, task, showRows, rowPage, rowPageNumber, rowReadFailed, visualizationTask, volcanoVisualizationTask, visualizationSubmitting,
   onCreateVolcanoVisualization, onCreateGoKeggVisualization, onToggleRows, onRowPageChange,
 }: {
   result: ProteomicsResult;
@@ -517,6 +593,7 @@ function ProteomicsResultView({
   showRows: boolean;
   rowPage: ProteomicsRowPage | null;
   rowPageNumber: number;
+  rowReadFailed: boolean;
   visualizationTask: AnalysisTask | null;
   volcanoVisualizationTask: AnalysisTask | null;
   visualizationSubmitting: boolean;
@@ -620,7 +697,7 @@ function ProteomicsResultView({
       <p>{result.unmapped.join("、")}{result.unmappedTruncated ? "……（其余可在逐行 QC 中查看）" : ""}</p></details>}
 
     <section className="proteomics-result-section">
-      <div className="case-list-heading"><div><h3 className="section-title-sm">逐行筛选结果</h3><p className="section-help">任务共处理 {result.qc.inputRowCount} 行；{showRows && !rowPage ? "正在读取逐行结果…" : `当前显示 ${showRows ? rowPage?.results.length ?? 0 : Math.min(result.rows.length, 20)} 行。`}</p></div>
+      <div className="case-list-heading"><div><h3 className="section-title-sm">逐行筛选结果</h3><p className="section-help">任务共处理 {result.qc.inputRowCount} 行；{showRows && !rowPage ? rowReadFailed ? "逐行结果读取失败，可重新读取。" : "正在读取逐行结果…" : `当前显示 ${showRows ? rowPage?.results.length ?? 0 : Math.min(result.rows.length, 20)} 行。`}</p></div>
         <button className="btn btn-secondary" type="button" onClick={onToggleRows}>{showRows ? "收起完整结果" : "查看逐行 QC"}</button></div>
       {!showRows && <div className="table-scroll"><table className="data-table"><thead><tr><th>原始标识</th><th>规范标识</th><th>稳定 ID</th><th>映射状态</th><th>log2FC</th><th>FDR</th><th>方向</th></tr></thead><tbody>
         {result.rows.slice(0, 20).map((row) => <tr key={row.index}><td>{row.originalLabel}</td><td>{row.symbol || "—"}</td><td>{formatExternalIdentifiers(row.externalIdentifiers)}</td><td>{mappingStatusLabel(row.mappingStatus)}</td><td>{formatNumber(row.log2FoldChange)}</td><td>{formatNumber(row.fdr)}</td><td>{row.direction || "—"}</td></tr>)}
@@ -629,7 +706,7 @@ function ProteomicsResultView({
       {showRows && <>
         {rowPage ? <div className="table-scroll"><table className="data-table"><thead><tr><th>行</th><th>原始标识</th><th>规范标识</th><th>稳定 ID</th><th>映射状态</th><th>log2FC</th><th>FDR</th><th>筛选</th><th>排除/警告</th></tr></thead><tbody>
           {rowPage.results.map((row) => <tr key={row.row_index}><td>{row.row_index + 1}</td><td>{row.original_label || "—"}</td><td>{row.normalized_symbol || "—"}</td><td>{formatExternalIdentifiers(row.external_identifiers)}</td><td>{mappingStatusLabel(row.mapping_status)}</td><td>{formatNumber(row.log2_fold_change)}</td><td>{formatNumber(row.fdr)}</td><td>{row.selected ? "通过" : "排除"}</td><td>{[...new Set([...row.exclusion_reasons, ...row.qc_warnings].map(qualityReasonLabel))].join("、") || "—"}</td></tr>)}
-        </tbody></table></div> : <p className="section-help">正在读取逐行结果…</p>}
+        </tbody></table></div> : !rowReadFailed && <p className="section-help">正在读取逐行结果…</p>}
         {rowPage && <div className="case-pagination"><button className="btn btn-secondary" type="button" disabled={!rowPage.previous} onClick={() => onRowPageChange(Math.max(1, rowPageNumber - 1))}>上一页</button>
           <span>第 {rowPageNumber} 页 / 共 {rowPage.count} 行</span><button className="btn btn-secondary" type="button" disabled={!rowPage.next} onClick={() => onRowPageChange(rowPageNumber + 1)}>下一页</button></div>}
       </>}

@@ -73,8 +73,11 @@ function reset(values){rows=values;requested=[];listError=null;details=new Map(v
   assert.equal(hooks[0].value,null,'Hydration from an old parent must not restore its private results');
   const newParents=calls.filter(item=>item.name==='parent');newParents.at(-1).resolve(parent(20));
   calls.filter(item=>item.name==='summaries').at(-1).resolve({results:[]});await flush();
-  const newHydration=calls.filter(item=>item.name==='hydrate').at(-1);hooks.forEach(item=>item?.cleanup?.());
+  const newHydration=calls.filter(item=>item.name==='hydrate').at(-1);
+  const verifiedParent=hooks[0].value;assert.equal(verifiedParent.id,20,'A verified parent remains readable during optional figure hydration');
+  hooks.forEach(item=>item?.cleanup?.());
   newHydration.resolve({});await Promise.resolve();await Promise.resolve();
-  assert.equal(hooks[0].value,null,'Unmount suppresses the second asynchronous restoration');
+  assert.equal(hooks[0].value,verifiedParent,'Unmount suppresses the second asynchronous restoration');
+  assert.deepEqual(hooks[1].value,{},'Unmounted hydration cannot populate private figure jobs');
   console.log('PASS: summary endpoint, selective latest task hydration, full results retained, ownership errors, gallery navigation/unmount isolation.');
 })().catch(error=>{console.error(error.stack);process.exitCode=1;});

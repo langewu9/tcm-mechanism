@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Download, FileText, FlaskConical, History } from "lucide-react";
 import { ApiError } from "../api/client";
 import { createTextAnalysis, exportTextAnalysis, getTextAnalysisWorkspace, type TextAnalysisTask, type TextAnalysisWorkspace } from "../api/analysis";
@@ -8,23 +8,38 @@ const matchLabels = { matched: "已有目录关联", no_rule_match: "未命中�
 function errorMessage(error: unknown) { return error instanceof ApiError ? error.message : "请求未完成，请稍后重试。"; }
 
 export function AnalysisPage() {
+  const mounted = useRef(false);
+  const submissionInFlight = useRef(false);
+  const downloadInFlight = useRef(false);
+  const generation = useRef(0);
   const [workspace, setWorkspace] = useState<TextAnalysisWorkspace | null>(null);
   const [task, setTask] = useState<TextAnalysisTask | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [downloading, setDownloading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [reload, setReload] = useState(0);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; generation.current += 1; };
+  }, []);
 
   useEffect(() => {
     let active = true;
+    setLoading(true); setHistoryError(null);
     getTextAnalysisWorkspace().then((data) => { if (active) setWorkspace(data); })
-      .catch((cause: unknown) => { if (active) setError(errorMessage(cause)); })
+      .catch((cause: unknown) => { if (active) setHistoryError(errorMessage(cause)); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, []);
+  }, [reload]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (submissionInFlight.current || loading) return;
+    submissionInFlight.current = true;
+    const current = ++generation.current;
     const form = new FormData(event.currentTarget);
     setSubmitting(true); setError(null);
     try {
@@ -32,22 +47,28 @@ export function AnalysisPage() {
         name: String(form.get("name") ?? "").trim(), query: String(form.get("query") ?? "").trim(),
         caseId: form.get("caseId") ? Number(form.get("caseId")) : null,
       });
+      if (!mounted.current || generation.current !== current) return;
       setTask(saved);
-      setWorkspace(await getTextAnalysisWorkspace());
-    } catch (cause) { setError(errorMessage(cause)); }
-    finally { setSubmitting(false); }
+      setWorkspace(previous => previous ? { ...previous, tasks: [saved, ...previous.tasks.filter(item => item.id !== saved.id)].slice(0, 8) } : previous);
+      // A failed history refresh must not be reported as a failed creation.
+      setReload(value => value + 1);
+    } catch (cause) { if (mounted.current && generation.current === current) setError(errorMessage(cause)); }
+    finally { submissionInFlight.current = false; if (mounted.current && generation.current === current) setSubmitting(false); }
   }
 
   async function download(format: "csv" | "pdf") {
-    if (!task) return;
+    if (!task || downloadInFlight.current) return;
+    downloadInFlight.current = true;
+    const current = generation.current;
     setDownloading(format); setError(null);
     try {
       const blob = await exportTextAnalysis(task.id, format);
+      if (!mounted.current || generation.current !== current) return;
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a"); anchor.href = url; anchor.download = `text-analysis-task-${task.id}.${format}`;
       anchor.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-    } catch (cause) { setError(errorMessage(cause)); }
-    finally { setDownloading(null); }
+    } catch (cause) { if (mounted.current && generation.current === current) setError(errorMessage(cause)); }
+    finally { downloadInFlight.current = false; if (mounted.current) setDownloading(null); }
   }
 
   const result = task?.result;
@@ -114,8 +135,8 @@ export function AnalysisPage() {
     <section className="panel mt-6 overflow-hidden" aria-labelledby="analysis-history-title">
       <div className="panel-header"><div><h2 id="analysis-history-title" className="section-title-sm">已保存结果</h2><p className="section-help">最近八项分析任务，可用于回顾研究假设和证据摘要。</p></div><History size={18} className="text-cinnabar" /></div>
       <div className="divide-y divide-pine/10">
-        {loading ? <p className="empty-state min-h-48" role="status">正在读取分析记录…</p> : workspace?.tasks.length ? workspace.tasks.map((saved) => <article className="saved-analysis" key={saved.id}>
-          <div><p><button type="button" className="text-left hover:underline focus-visible:underline" onClick={() => setTask(saved)} aria-label={`查看结果：${String(saved.input_parameters.name ?? "规则分析任务")}`}>{String(saved.input_parameters.name ?? "规则分析任务")}</button></p><time dateTime={saved.created_at}>{new Date(saved.created_at).toLocaleDateString("zh-CN")}</time></div>
+        {loading ? <p className="empty-state min-h-48" role="status">正在读取分析记录…</p> : historyError ? <div className="notice-error" role="alert"><p>分析记录读取失败：{historyError} 已保存的任务不会因此删除。</p><button type="button" className="btn btn-secondary" onClick={() => setReload(value => value + 1)}>重新读取分析记录</button></div> : workspace?.tasks.length ? workspace.tasks.map((saved) => <article className="saved-analysis" key={saved.id}>
+          <div><p><button type="button" className="text-left hover:underline focus-visible:underline" disabled={submitting} onClick={() => { generation.current += 1; setTask(saved); }} aria-label={`查看结果：${String(saved.input_parameters.name ?? "规则分析任务")}`}>{String(saved.input_parameters.name ?? "规则分析任务")}</button></p><time dateTime={saved.created_at}>{new Date(saved.created_at).toLocaleDateString("zh-CN")}</time></div>
           <span>{saved.result.summary}</span>
         </article>) : <div className="empty-state min-h-48"><FlaskConical size={24} /><strong>暂无保存结果</strong><p>完成第一项分析后，结果摘要会出现在这里。</p></div>}
       </div>
