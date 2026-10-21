@@ -165,3 +165,79 @@ class LegacySourceIdentityTests(TestCase):
                 read_identity_record(serialized, 2)
         literal = {**record(), "rawFields": {"literal": r"\u0000"}}
         self.assertEqual(read_identity_record(json.dumps(literal), 2), literal)
+
+    def test_provenance_only_rows_preserve_originals_without_promoting_ids(self):
+        original = {**record(), "schemaVersion": "legacy-source-row-1", "identity": {},
+                    "rawFields": {"中药": "测试中药", "成分": "测试成分", "靶点": "Tp53", "供应方编号": "unreviewed-123"}}
+        self.insert(original)
+        self.sync()
+        self.assertFalse(EntityIdentifier.objects.exists())
+        self.assertTrue(all("sourceEntityId" not in item.metadata for item in KnowledgeEntity.objects.all()))
+        for row in EvidenceRelation.objects.all():
+            self.assertEqual(row.metadata["sourceOrigin"]["workbookSha256"], "a" * 64)
+            self.assertEqual(row.metadata["rawFields"], original["rawFields"])
+            self.assertEqual(row.metadata["sourceIdentity"], {})
+        with self.assertRaises(ValueError):
+            read_identity_record(json.dumps({**original, "identity": {"targetId": "T1"}}), 2)
+
+    def test_disease_metadata_opt_in_keeps_both_original_workbook_rows(self):
+        with sqlite3.connect(self.path) as connection:
+            connection.executescript("CREATE TABLE dt(disease TEXT,target TEXT,source TEXT,extra TEXT);"
+                                     "CREATE TABLE dht(disease TEXT,herb TEXT,target TEXT,extra TEXT);")
+            for table, number, values in (("dt", 25, ("疾病", "Tp53", "原文件.xlsx")),
+                                          ("dht", 26, ("疾病", "中药", "Tp53"))):
+                meta = {**record(row=number), "schemaVersion": "legacy-source-row-1", "identity": {},
+                        "rawFields": {"原始疾病": "疾病", "原始靶点": "Tp53"}}
+                connection.execute(f"INSERT INTO {table}(rowid,disease,{ 'target,source' if table=='dt' else 'herb,target' },extra) VALUES(?,?,?,?,?)",
+                                   (number, *values, json.dumps(meta)))
+        self.source.configuration.update(diseaseTargetTable="dt", diseaseColumn="disease", diseaseTargetColumn="target", diseaseSourceColumn="source",
+            diseaseHerbTargetTable="dht", diseaseHerbColumn="disease", diseaseHerbHerbColumn="herb", diseaseHerbTargetColumn="target",
+            diseaseRowMetadataColumn="extra")
+        raw = list(iter_configured_rows(self.source.configuration))
+        self.assertEqual([len(row) for row in raw], [5, 5])
+        self.sync()
+        records = list(EvidenceRelation.objects.all())
+        self.assertEqual(len(records), 4)
+        self.assertEqual({row.metadata["sourceOrigin"]["sourceRow"] for row in records}, {25, 26})
+        self.assertTrue(all(row.metadata["sourceOrigin"]["workbookSha256"] == "a"*64 for row in records))
+
+    def test_disease_metadata_configuration_and_missing_columns_fail_closed(self):
+        with self.assertRaises(SQLiteSourceError):
+            validate_sqlite_source_config({**self.source.configuration, "diseaseRowMetadataColumn": "extra"})
+        config = {**self.source.configuration, "diseaseTargetTable": "dt", "diseaseColumn": "disease",
+                  "diseaseTargetColumn": "target", "diseaseSourceColumn": "source", "diseaseRowMetadataColumn": "extra"}
+        with sqlite3.connect(self.path) as connection:
+            connection.execute("CREATE TABLE dt(disease TEXT,target TEXT,source TEXT)")
+        self.source.configuration = config
+        with self.assertRaisesRegex(ValidationError, "缺少"):
+            preview_sqlite_sync(SyncRun.objects.create(source=self.source))
+        self.assertFalse(EvidenceRelation.objects.exists())
+
+    def test_row_provenance_policy_versions_and_invalidates_an_old_preview(self):
+        original = {**record(), "schemaVersion": "legacy-source-row-1", "identity": {}}
+        self.insert(original)
+        with patch("apps.sources.sqlite_sync.ROW_POLICY", "older-row-policy"):
+            previous = self.sync()
+            pending = SyncRun.objects.create(source=self.source)
+            preview_sqlite_sync(pending)
+        with self.assertRaisesRegex(ValidationError, "变化"):
+            apply_sqlite_sync(pending)
+        current = self.sync()
+        self.assertNotEqual(previous.release_id, current.release_id)
+        self.assertFalse(EvidenceRelation.objects.filter(source_release=previous.release, is_active=True).exists())
+
+    def test_multiple_batches_keep_all_source_rows_and_reimport_is_idempotent(self):
+        with sqlite3.connect(self.path) as connection:
+            connection.executemany("INSERT INTO evidence(rowid,herb,compound,target,extra) VALUES(?,?,?,?,?)", [
+                (number, "测试中药", "测试成分", "Tp53", json.dumps(record(row=number))) for number in range(2,602)])
+        first = self.sync()
+        identities = list(KnowledgeEntity.objects.order_by('pk').values_list('pk','stable_id','updated_at'))
+        self.assertEqual(KnowledgeEntity.objects.count(), 3)
+        self.assertEqual(EvidenceRelation.objects.count(), 1200)
+        self.assertEqual(first.preview_summary['relationshipsCreated'], 1200)
+        self.assertEqual(set(EvidenceRelation.objects.values_list('metadata__sourceOrigin__sourceRow',flat=True)), set(range(2,602)))
+        second = self.sync()
+        self.assertEqual(second.preview_summary['relationshipsCreated'], 0)
+        self.assertEqual(second.preview_summary['relationshipsUpdated'], 1200)
+        self.assertEqual(second.preview_summary['entitiesUnchanged'], 3)
+        self.assertEqual(identities, list(KnowledgeEntity.objects.order_by('pk').values_list('pk','stable_id','updated_at')))
