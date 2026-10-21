@@ -10,6 +10,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from apps.core.models import AnalysisTask, EvidenceRelation, KnowledgeEntity, MedicalCase, MedicalCaseCandidate
+from .herb_row_query import supported_target_queryset
 from .herb_row_support import HerbRowSupport
 
 
@@ -23,7 +24,7 @@ PATHWAY_TYPES = {
     "participatesin", "participates_in", "annotatedtopathway", "annotated_to_pathway",
     "associatedwithpathway", "associated_with_pathway",
 }
-STATISTICS_VERSION = "main-078d374-candidate-statistics-v2"
+STATISTICS_VERSION = "main-078d374-candidate-statistics-v3"
 RAW_EVIDENCE_VERSION = "network-raw-evidence-v2"
 RAW_EXPORT_LIMIT = 4000
 
@@ -67,7 +68,7 @@ def _evidence_record(relation: EvidenceRelation) -> dict:
     }
 
 
-def _relation_query(*, subject_ids=None, object_ids=None, relation_types, limit):
+def _relation_query(*, subject_ids=None, object_ids=None, relation_types, limit, herb_relations=None):
     queryset = EvidenceRelation.objects.filter(
         is_active=True,
         subject__is_active=True,
@@ -82,6 +83,8 @@ def _relation_query(*, subject_ids=None, object_ids=None, relation_types, limit)
         queryset = queryset.filter(subject_id__in=subject_ids)
     if object_ids is not None:
         queryset = queryset.filter(object_id__in=object_ids)
+    if herb_relations is not None:
+        queryset = supported_target_queryset(queryset, herb_relations)
     return list(queryset.order_by("id")[:limit])
 
 
@@ -222,7 +225,8 @@ def build_network_pharmacology(
     ) if herbs else []
     compound_ids = {item.object_id for item in herb_compound_relations}
     compound_target_relations = read_relations(
-        "compoundTargets", subject_ids=compound_ids, relation_types=COMPOUND_TARGET_TYPES,
+        "compoundTargets", relation_types=COMPOUND_TARGET_TYPES,
+        herb_relations=herb_compound_relations,
     ) if compound_ids else []
     support = HerbRowSupport(herb_compound_relations)
     compound_target_relations = [relation for relation in compound_target_relations if support.for_target(relation)]

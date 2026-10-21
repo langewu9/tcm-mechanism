@@ -8,6 +8,7 @@ import json
 from django.db.models import Q
 
 from apps.core.models import EvidenceRelation, KnowledgeEntity
+from .herb_row_query import supported_target_queryset
 from .herb_row_support import HerbRowSupport
 
 
@@ -23,7 +24,7 @@ def _visible_entity_filter(queryset):
 
 def _visible_relations(
     *, relation_types, subject_ids=None, object_ids=None,
-    subject_types=None, object_types=None, limit=MAX_RELATIONS,
+    subject_types=None, object_types=None, herb_relations=None, limit=MAX_RELATIONS,
 ):
     queryset = EvidenceRelation.objects.filter(
         is_active=True,
@@ -43,6 +44,8 @@ def _visible_relations(
         queryset = queryset.filter(subject__entity_type__in=subject_types)
     if object_types is not None:
         queryset = queryset.filter(object__entity_type__in=object_types)
+    if herb_relations is not None:
+        queryset = supported_target_queryset(queryset, herb_relations)
     records = list(queryset.order_by("id")[: limit + 1])
     return records[:limit], len(records) > limit
 
@@ -110,9 +113,9 @@ def batch_herb_component_evidence(*, query_type: str, queries: list[str]) -> dic
             ) if matched_ids else ([], False)
             compound_ids = {item.object_id for item in herb_edges}
             target_edges, target_edges_truncated = _visible_relations(
-                subject_ids=compound_ids,
                 relation_types=COMPOUND_TARGET_TYPES,
                 object_types=[KnowledgeEntity.EntityType.PROTEIN, KnowledgeEntity.EntityType.GENE],
+                herb_relations=herb_edges,
             ) if compound_ids else ([], False)
             support = HerbRowSupport(herb_edges)
             target_edges = [relation for relation in target_edges if support.for_target(relation)]

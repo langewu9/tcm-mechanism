@@ -6,6 +6,8 @@ from apps.core.models import DataSource, EvidenceRelation, KnowledgeEntity, Sour
 from apps.core.services.catalog_analysis import save_catalog_analysis
 from apps.core.services.herb_evidence import batch_herb_component_evidence
 from apps.core.services.network_pharmacology import build_network_pharmacology
+from apps.core.services.herb_row_query import supported_target_queryset
+from apps.core.services.herb_row_support import HerbRowSupport
 
 
 class LegacyHerbRowSupportTests(TestCase):
@@ -52,7 +54,7 @@ class LegacyHerbRowSupportTests(TestCase):
 
     def test_saved_graph_uses_scoped_query_evidence(self):
         task = save_catalog_analysis(user=self.user, query_type="herb", queries=["Herb A"], expected_sha256=self.search()["resultSha256"])
-        self.assertEqual(task.input_parameters["algorithmVersion"], "catalog-evidence-0.3")
+        self.assertEqual(task.input_parameters["algorithmVersion"], "catalog-evidence-0.4")
         self.assertEqual(task.result["counts"]["evidenceRecords"], 2)
         self.assertNotIn("TARGET2", {node["label"] for node in task.result["network"]["nodes"]})
 
@@ -148,9 +150,7 @@ class LegacyHerbRowSupportTests(TestCase):
         self.assertEqual(self.search()["results"][0]["matches"], [])
         self.assertEqual(self.network()["raw"]["herbLinks"], [])
 
-    def test_batch_cap_before_row_filter_is_explicitly_marked_as_partial(self):
-        # Other herbs can consume the candidate cap before the matching row.
-        # This documents the existing limit; it does not claim full retrieval.
+    def test_batch_filters_foreign_rows_before_applying_the_candidate_cap(self):
         EvidenceRelation.objects.filter(subject=self.compound, object=self.t1, relation_type="targets").delete()
         EvidenceRelation.objects.bulk_create([
             EvidenceRelation(subject=self.compound, object=self.t2, relation_type="targets",
@@ -159,14 +159,69 @@ class LegacyHerbRowSupportTests(TestCase):
         ])
         self.edge(self.compound, self.t1, "targets", 2)
         result = self.search()["results"][0]
-        self.assertEqual(result["targets"], [])
-        self.assertTrue(result["truncated"])
+        self.assertEqual([row["label"] for row in result["targets"]], ["TARGET1"])
+        self.assertFalse(result["truncated"])
 
-    def test_network_cap_before_row_filter_is_explicitly_marked_as_partial(self):
+    def test_network_filters_foreign_rows_before_applying_the_candidate_cap(self):
         EvidenceRelation.objects.filter(subject=self.compound, object=self.t1, relation_type="targets").delete()
         self.edge(self.compound, self.t1, "targets", 2)
         result = build_network_pharmacology(user=self.user, herb_query="Herb A", disease_query="Test disease",
                                             row_limit=1, persist=False)
-        self.assertEqual(result["summary"]["herbTargetCount"], 0)
-        self.assertEqual(result["raw"]["herbLinks"], [])
+        self.assertEqual(result["summary"]["herbTargetCount"], 1)
+        self.assertEqual([row["target"] for row in result["raw"]["herbLinks"]], ["TARGET1"])
+        self.assertFalse(result["rawLimits"]["inputRelationsTruncated"]["compoundTargets"])
+
+    def test_database_scope_matches_python_rule_for_json_types_and_sources(self):
+        for index, value in enumerate((True, False, "2", 2.0, None, [], {}, 2, -2, 0, 2**40)):
+            self.edge(self.compound, self.t2, "targets", 300 + index, metadata={"sourceRowId": value})
+        for index, value in enumerate(([], "sourceRowId", 2)):
+            self.edge(self.compound, self.t2, "targets", 400 + index, metadata=value)
+        for index, metadata in enumerate(({}, {"connector": None}, {"connector": 5}, [], "connector")):
+            generic = SourceRelease.objects.create(source=self.release.source, version=f"generic-json-{index}", metadata=metadata)
+            self.edge(self.compound, self.t2, "targets", 500 + index, release=generic, metadata={})
+        # Include zero, negative and 64-bit row IDs: the original int rule did
+        # not impose a new sign/range policy, and this fix must preserve it.
+        for row in (-2, 0, 2**40):
+            self.edge(self.a, self.compound, "contains", row)
+        herb_edges = list(EvidenceRelation.objects.filter(subject=self.a).select_related("source_release"))
+        targets = EvidenceRelation.objects.filter(relation_type="targets").select_related("source_release")
+        expected = {edge.pk for edge in targets if HerbRowSupport(herb_edges).for_target(edge)}
+        self.assertEqual(set(supported_target_queryset(targets, herb_edges).values_list("pk", flat=True)), expected)
+
+    def test_invalid_row_types_cannot_occupy_the_network_limit(self):
+        EvidenceRelation.objects.filter(subject=self.compound, relation_type="targets").delete()
+        for index, value in enumerate((2.0, "2", True, None)):
+            self.edge(self.compound, self.t2, "targets", 600 + index, metadata={"sourceRowId": value})
+        self.edge(self.compound, self.t1, "targets", 2)
+        result = build_network_pharmacology(user=self.user, herb_query="Herb A", disease_query="Test disease",
+                                            row_limit=1, persist=False)
+        self.assertEqual(result["summary"]["herbTargetCount"], 1)
+        self.assertEqual([row["target"] for row in result["raw"]["herbLinks"]], ["TARGET1"])
+        self.assertFalse(result["rawLimits"]["inputRelationsTruncated"]["compoundTargets"])
+
+    def test_actual_valid_annotation_overflow_still_sets_batch_truncation(self):
+        generic = SourceRelease.objects.create(source=self.release.source, version="generic-overflow")
+        EvidenceRelation.objects.bulk_create([
+            EvidenceRelation(subject=self.compound, object=self.t2, relation_type="targets",
+                             source_release=generic, source_record_id=f"generic-overflow:{row}")
+            for row in range(1200)
+        ])
+        result = self.search()["results"][0]
+        self.assertEqual({row["label"] for row in result["targets"]}, {"TARGET1", "TARGET2"})
+        self.assertEqual(sum(row["relationType"] == "targets" for row in result["relations"]), 1200)
+        self.assertTrue(result["truncated"])
+
+    def test_actual_valid_annotation_overflow_still_sets_network_truncation(self):
+        generic = SourceRelease.objects.create(source=self.release.source, version="generic-network-overflow")
+        self.edge(self.compound, self.t2, "targets", 700, release=generic, metadata={})
+        result = build_network_pharmacology(user=self.user, herb_query="Herb A", disease_query="Test disease",
+                                            row_limit=1, persist=False)
+        self.assertEqual(result["summary"]["herbTargetCount"], 1)
         self.assertTrue(result["rawLimits"]["inputRelationsTruncated"]["compoundTargets"])
+
+    def test_generic_annotations_work_without_any_valid_legacy_herb_rows(self):
+        EvidenceRelation.objects.filter(subject=self.a).update(metadata={})
+        generic = SourceRelease.objects.create(source=self.release.source, version="generic-no-legacy-rows")
+        self.edge(self.compound, self.t2, "targets", 800, release=generic, metadata={})
+        self.assertEqual([row["label"] for row in self.search()["results"][0]["targets"]], ["TARGET2"])
+        self.assertEqual([row["target"] for row in self.network()["raw"]["herbLinks"]], ["TARGET2"])
