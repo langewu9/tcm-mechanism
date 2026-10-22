@@ -5,6 +5,7 @@ import { createTextAnalysis, exportTextAnalysis, getTextAnalysisWorkspace, type 
 import { KnowledgeNetworkGraph } from "../components/KnowledgeNetworkGraph";
 
 const matchLabels = { matched: "已有目录关联", no_rule_match: "未命中规则", catalog_missing: "缺少目录记录", ambiguous_syndrome: "目录同名歧义" };
+const evidenceLevels = ["syndrome", "formula", "herbs", "compounds", "targets", "genes", "pathways"];
 function errorMessage(error: unknown) { return error instanceof ApiError ? error.message : "请求未完成，请稍后重试。"; }
 
 export function AnalysisPage() {
@@ -111,7 +112,7 @@ export function AnalysisPage() {
         {result ? <div className="space-y-4">
           <p className="rounded-md bg-cloud p-4 leading-7">{result.summary}</p>
           <div className="grid gap-3 md:grid-cols-2">
-            {Object.entries(result.evidence).map(([level, value]) => <div key={level} className="rounded-md border border-pine/10 bg-white/65 p-3">
+            {evidenceLevels.filter(level => level in result.evidence).map(level => [level, result.evidence[level]] as const).map(([level, value]) => <div key={level} className="rounded-md border border-pine/10 bg-white/65 p-3">
               <p className="text-xs font-bold uppercase text-pine">{level}</p>
               <p className="mt-1 text-sm leading-6">{(Array.isArray(value) ? value.join("、") : value) || "暂无本地来源关联"}</p>
             </div>)}

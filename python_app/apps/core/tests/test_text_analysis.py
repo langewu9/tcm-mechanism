@@ -182,6 +182,83 @@ class TextAnalysisTests(APITestCase):
         self.assertEqual(result["evidence"]["herbs"], [])
         self.assertTrue(any("500" in warning for warning in result["warnings"]))
 
+    def legacy_rows(self):
+        self.release.metadata = {"connector": "sqlite-herb-compound-target"}
+        self.release.save(update_fields=["metadata"])
+        for kind in ("contains", "targets"):
+            EvidenceRelation.objects.filter(source_release=self.release, relation_type=kind).update(metadata={"sourceRowId": 1})
+
+    def test_legacy_shared_compound_never_imports_another_herbs_target_or_pathway(self):
+        self.legacy_rows()
+        other_herb = self.entity("herb", "herb:unselected", "未选择的中药")
+        foreign_target = self.entity("protein", "protein:unselected", "不属于本次中药的靶点")
+        foreign_pathway = self.entity("pathway", "pathway:unselected", "不应进入结果的通路")
+        self.relation("contains", other_herb, self.compound, "foreign-herb-row-2", metadata={"sourceRowId": 2})
+        self.relation("targets", self.compound, foreign_target, "foreign-target-row-2", metadata={"sourceRowId": 2})
+        self.relation("participatesin", foreign_target, foreign_pathway, "foreign-pathway")
+        result = build_text_analysis("乏力")
+        self.assertEqual(result["evidence"]["targets"], [self.protein.label])
+        self.assertEqual(result["evidence"]["pathways"], [self.pathway.label])
+        self.assertFalse({"foreign-target-row-2", "foreign-pathway"} & {row["sourceRecordId"] for row in result["evidenceRecords"]})
+
+    def test_legacy_target_row_support_is_applied_before_the_remaining_cap(self):
+        self.legacy_rows()
+        EvidenceRelation.objects.filter(relation_type="targets").update(metadata={"sourceRowId": 2})
+        for i in range(8):
+            self.relation("targets", self.compound, self.gene, f"unselected-row-{i}", metadata={"sourceRowId": i + 10})
+        valid = self.relation("targets", self.compound, self.protein, "selected-row-last", metadata={"sourceRowId": 1})
+        result = build_text_analysis("乏力", relation_limit=4)
+        self.assertEqual(result["evidence"]["targets"], [self.protein.label])
+        self.assertIn(f"relation:{valid.pk}", {row["refId"] for row in result["evidenceRecords"]})
+        self.assertEqual(len(result["evidenceRecords"]), 4)
+
+    def test_legacy_missing_noninteger_or_cross_release_rows_do_not_establish_support(self):
+        self.legacy_rows()
+        second = SourceRelease.objects.create(source=self.source, version="other-row-v2", metadata=self.release.metadata)
+        bad_rows = [{}, {"sourceRowId": "1"}, {"sourceRowId": True}, {"sourceRowId": 1.0}]
+        for i, metadata in enumerate(bad_rows):
+            self.relation("targets", self.compound, self.gene, f"invalid-row-{i}", metadata=metadata)
+        self.relation("targets", self.compound, self.gene, "cross-release-row-1", metadata={"sourceRowId": 1}, source_release=second)
+        result = build_text_analysis("乏力")
+        self.assertEqual(result["evidence"]["targets"], [self.protein.label])
+        self.assertNotIn("other-row-v2", {row["version"] for row in result["sources"]})
+
+    def test_generic_compound_annotation_remains_valid_for_legacy_herb_chain(self):
+        self.legacy_rows()
+        source = DataSource.objects.create(slug="text-generic-annotation", name="显式的普通图关系")
+        release = SourceRelease.objects.create(source=source, version="generic-v1")
+        self.relation("compound_gene", self.compound, self.gene, "generic-gene", source_release=release)
+        result = build_text_analysis("乏力")
+        self.assertEqual(set(result["evidence"]["targets"]), {self.protein.label, self.gene.label})
+        self.assertIn("generic-v1", {row["version"] for row in result["sources"]})
+
+    def test_source_row_and_endpoint_identity_are_frozen_with_each_relation(self):
+        self.legacy_rows()
+        result = build_text_analysis("乏力")
+        row = next(row for row in result["evidenceRecords"] if row["sourceRecordId"] == "compound-protein")
+        self.assertEqual(row["sourceRowId"], 1)
+        self.assertEqual(row["sourceReleaseId"], self.release.pk)
+        self.assertEqual(row["sourceChecksumSha256"], "a" * 64)
+        self.assertEqual(row["subjectStableId"], self.compound.stable_id)
+        self.assertEqual(row["objectStableId"], self.protein.stable_id)
+
+    def test_csv_reports_input_rule_status_and_incomplete_scope_without_hiding_warnings(self):
+        task = self.make_task(query="科研编号，没有规则关键词")
+        task.result["warnings"].append("合成截断提示")
+        task.result["limits"]["relationsTruncated"] = True
+        rows = list(csv.reader(StringIO(export_text_analysis_csv(task).decode("utf-8-sig"))))
+        self.assertIn(["query", task.input_parameters["query"]], rows)
+        self.assertIn(["match_status", "no_rule_match"], rows)
+        self.assertIn(["warning", "合成截断提示"], rows)
+        limits = json.loads(next(value for level, value in rows if level == "scope_limits"))
+        self.assertTrue(limits["relationsTruncated"])
+
+    def test_csv_chain_order_does_not_depend_on_database_json_key_order(self):
+        task = self.make_task()
+        task.result["evidence"] = dict(sorted(task.result["evidence"].items()))
+        rows = list(csv.reader(StringIO(export_text_analysis_csv(task).decode("utf-8-sig"))))
+        self.assertEqual([row[0] for row in rows[1:8]], ["syndrome", "formula", "herbs", "compounds", "targets", "genes", "pathways"])
+
     def test_task_and_source_snapshot_are_persisted_and_do_not_change_with_catalogue(self):
         task = self.make_task()
         self.assertEqual(task.owner, self.owner)

@@ -83,6 +83,12 @@ check('Text analysis prevents duplicate saved tasks',async()=>{
 check('Text history read failure offers a read retry instead of an empty-history claim',async()=>{
   const {h,called}=analysis();try{called('getTextAnalysisWorkspace')[0].reject(new ApiError('暂时断开','NETWORK_ERROR',null,null,0));await flush(h);assert.ok(!text(h.value).includes('暂无保存结果'));find(h,n=>n.type==='button'&&text(n).includes('重新读取')).props.onClick();h.render();assert.equal(called('getTextAnalysisWorkspace').length,2);assert.equal(called('createTextAnalysis').length,0);}finally{h.cleanup();}
 });
+check('Saved text evidence keeps the original chain order after database JSON key reordering',async()=>{
+  const {h,called}=analysis();
+  const levels=['syndrome','formula','herbs','compounds','targets','genes','pathways'];
+  const saved={...task(71,'succeeded','text_analysis'),input_parameters:{name:'ORDER_FIXTURE'},result:{summary:'SYNTHETIC_ORDER',evidence:Object.fromEntries([...levels].sort().map(level=>[level,level==='syndrome'?'SYNTHETIC':['SYNTHETIC']])),matchStatus:'matched',warnings:[],ruleScores:[],sources:[],evidenceRecords:[],network:{nodes:[],links:[]},limits:{relationsTruncated:false}}};
+  try{called('getTextAnalysisWorkspace')[0].resolve({tasks:[saved],cases:[]});await flush(h);find(h,node=>node.type==='button'&&node.props['aria-label']==='查看结果：ORDER_FIXTURE').props.onClick();h.render();assert.deepEqual(nodes(h.value).filter(node=>node.type==='p'&&node.props.className==='text-xs font-bold uppercase text-pine').map(text),levels);}finally{h.cleanup();}
+});
 check('R gallery retries reads and blocks duplicate chart creation',async()=>{
   clock();const calls=[],called=name=>calls.filter(call=>call.name===name);
   const h=harness('src/components/RAnalysisGallery.tsx',{'../api/datasets':{getAnalysisTask:deferred('detail',calls),getAnalysisTaskSummaries:deferred('summary',calls)},'../api/task-restoration':{restoreGalleryJobs:deferred('restore',calls)},'../api/network':{createVisualization:deferred('create',calls)},'./RDemoGallery':{RDemoGallery:'RDemoGallery'}});
