@@ -28,10 +28,11 @@ class NetworkPharmacologyView(APIView):
         if data.get("source_case_id"):
             try:
                 source_case_candidate = MedicalCaseCandidate.objects.select_related(
-                    "medical_case", "task", "entity"
+                    "medical_case", "task", "entity__source_release__source"
                 ).get(
                     pk=data["source_candidate_id"],
                     medical_case_id=data["source_case_id"],
+                    medical_case__archived_at__isnull=True,
                     medical_case__owner=request.user,
                     task__owner=request.user,
                     task__medical_case_id=data["source_case_id"],
@@ -45,7 +46,10 @@ class NetworkPharmacologyView(APIView):
                 or source_case_candidate.task.status != AnalysisTask.Status.SUCCEEDED
             ):
                 raise ValidationError({"source_candidate_id": "只有已确认且已完成分析的方剂候选可以进入网络药理流程。"})
-            from ..services.case_analysis import case_input_sha256
+            from ..services.case_analysis import candidate_entity_available, case_input_sha256
+
+            if not candidate_entity_available(source_case_candidate):
+                raise ValidationError({"source_candidate_id": "方剂实体或来源已不可用，请重新核对并确认候选。"})
 
             if source_case_candidate.task.input_parameters.get("caseContentSha256") != case_input_sha256(source_case_candidate.medical_case):
                 raise ValidationError({"source_candidate_id": "医案内容已改变；请重新分析并确认方剂候选。"})

@@ -384,13 +384,15 @@ class MedicalCaseViewSet(SensitiveReadAuditMixin, viewsets.ModelViewSet):
         if candidate.task.status != AnalysisTask.Status.SUCCEEDED:
             raise ValidationError({"candidate": "分析任务尚未完成，不能审核候选。"})
         decision = serializer.validated_data["decision"]
-        from ..services.case_analysis import case_input_sha256, refresh_case_analysis_result
+        from ..services.case_analysis import candidate_entity_available, case_input_sha256, refresh_case_analysis_result
         from ..services.case_audit import create_case_audit_event
 
         with transaction.atomic():
             # Serialize edits and confirmations against the case row so a concurrent edit
             # cannot slip between the stale-content check and accepting the candidate.
             case = MedicalCase.objects.select_for_update().get(pk=case.pk)
+            if case.archived_at:
+                raise ValidationError({"candidate": "医案已归档，请先恢复后再审核候选。"})
             candidate = MedicalCaseCandidate.objects.select_for_update().get(
                 pk=candidate.pk,
                 medical_case=case,
@@ -404,6 +406,8 @@ class MedicalCaseViewSet(SensitiveReadAuditMixin, viewsets.ModelViewSet):
                 raise ValidationError({"candidate": "分析后医案内容已修改；请重新分析后再确认候选。"})
             if decision == "accept" and not candidate.entity_id:
                 raise ValidationError({"candidate": "该名称无法唯一关联本地规范实体，不能加入下游证据链。"})
+            if decision == "accept" and not candidate_entity_available(candidate):
+                raise ValidationError({"candidate": "候选实体已停用、来源不可用或类型不匹配；请重新核对后再确认。"})
             before = {
                 f"candidate_{candidate.pk}_review_status": candidate.review_status,
                 f"candidate_{candidate.pk}_reviewed_by_id": candidate.reviewed_by_id,

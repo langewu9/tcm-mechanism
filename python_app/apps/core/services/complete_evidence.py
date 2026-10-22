@@ -12,7 +12,7 @@ from django.conf import settings
 from django.db import connection, transaction
 from django.utils import timezone
 
-from apps.core.models import AnalysisSnapshotRow, AnalysisTask, MedicalCaseCandidate, SourceRelease
+from apps.core.models import AnalysisSnapshotRow, AnalysisTask, MedicalCase, MedicalCaseCandidate, SourceRelease
 from .catalog_analysis import CatalogSnapshotChanged, catalog_result
 from .herb_evidence import _entity_record, _relation_record, batch_herb_component_evidence
 from .network_pharmacology import NetworkPharmacologyInputError, build_network_pharmacology
@@ -95,19 +95,24 @@ def _source_candidate(task):
     if not params.get("sourceCaseId"):
         return None
     try:
-        candidate = MedicalCaseCandidate.objects.select_related("task", "entity__source_release__source", "medical_case").get(
+        # Match candidate review and the synchronous network path's lock order:
+        # case first, then candidate/task. A joined lock can otherwise acquire
+        # the candidate first and deadlock with a concurrent human review.
+        MedicalCase.objects.select_for_update().get(pk=params["sourceCaseId"], owner_id=task.owner_id)
+        candidate = MedicalCaseCandidate.objects.select_for_update(of=("self", "task")).select_related(
+            "task", "entity__source_release__source", "medical_case").get(
             pk=params["sourceCandidateId"], medical_case_id=params["sourceCaseId"],
             medical_case__owner_id=task.owner_id, task__owner_id=task.owner_id,
             task__medical_case_id=params["sourceCaseId"],
         )
-    except MedicalCaseCandidate.DoesNotExist as exc:
+    except (MedicalCase.DoesNotExist, MedicalCaseCandidate.DoesNotExist) as exc:
         raise NetworkPharmacologyInputError("关联的医案候选已不可用，请重新分析并确认后再提交。") from exc
-    from .case_analysis import case_input_sha256
+    from .case_analysis import candidate_entity_available, case_input_sha256
     if (candidate.review_status != MedicalCaseCandidate.ReviewStatus.ACCEPTED
             or candidate.candidate_type != MedicalCaseCandidate.CandidateType.FORMULA
-            or not candidate.entity_id or not candidate.entity.is_active
+            or candidate.medical_case.archived_at is not None
+            or not candidate.entity_id or not candidate_entity_available(candidate)
             or candidate.entity.stable_id != params["sourceFormulaStableId"]
-            or (candidate.entity.source_release_id and not candidate.entity.source_release.source.enabled)
             or candidate.task.status != AnalysisTask.Status.SUCCEEDED
             or candidate.task.input_parameters.get("caseContentSha256") != params["caseContentSha256"]
             or params["caseContentSha256"] != case_input_sha256(candidate.medical_case)):

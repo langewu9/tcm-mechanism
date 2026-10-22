@@ -497,13 +497,15 @@ def build_network_pharmacology(
                 .select_related("task", "entity")
                 .get(pk=source_case_candidate.pk, medical_case=medical_case)
             )
-            from .case_analysis import case_input_sha256
+            from .case_analysis import candidate_entity_available, case_input_sha256
 
             if (
                 medical_case.owner_id != user.pk
+                or medical_case.archived_at is not None
                 or candidate.review_status != MedicalCaseCandidate.ReviewStatus.ACCEPTED
                 or candidate.candidate_type != MedicalCaseCandidate.CandidateType.FORMULA
                 or not candidate.entity_id
+                or not candidate_entity_available(candidate)
                 or candidate.entity_id not in {item.pk for item in formulas}
                 or candidate.task.status != AnalysisTask.Status.SUCCEEDED
                 or candidate.task.input_parameters.get("caseContentSha256") != case_input_sha256(medical_case)

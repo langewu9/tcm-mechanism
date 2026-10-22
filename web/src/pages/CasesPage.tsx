@@ -27,10 +27,12 @@ type CaseAnalysisResult = {
     truncated?: boolean;
   };
   evidenceChain?: {
+    algorithmVersion?: string;
     nodes: Array<{ id: number; label: string; entityType: string; stableId: string }>;
     links: Array<{ id: number; source: number; target: number; relationType: string; evidenceType: string; sourceName: string; sourceVersion: string; sourceRecordId: string; evidenceText: string }>;
     sources: Array<{ id: number; source: string; version: string }>;
     truncated?: boolean;
+    warnings?: string[];
   };
 };
 
@@ -510,6 +512,7 @@ function CaseAnalysisPanel({
         </> : <p className="section-help">本地知识库中没有匹配到带启用来源版本的记录；此次候选只依据医案原文生成。</p>}
       </div>}
       {task?.status === "succeeded" && <div className="case-analysis-section"><h5>已确认的知识库证据链</h5>
+        {result.evidenceChain?.warnings?.map((warning) => <p className="notice-warning" key={warning}>{warning}</p>)}
         {result.evidenceChain?.links.length ? <><ul className="proteomics-pathways">{result.evidenceChain.links.map((link) => <li key={link.id}><strong>{nodeNames.get(link.source) ?? `实体 #${link.source}`} → {nodeNames.get(link.target) ?? `实体 #${link.target}`} · {link.relationType}</strong><span>{link.sourceName} {link.sourceVersion} / {link.sourceRecordId} · {link.evidenceType}{link.evidenceText ? ` · ${link.evidenceText}` : ""}</span></li>)}</ul>
           {result.evidenceChain.truncated && <p className="section-help">证据关系较多，页面按系统上限截取；完整结果需缩小关联范围。</p>}
           <p className="section-help">来源版本：{result.evidenceChain.sources.map((source) => `${source.source} ${source.version}`).join("；") || "未记录"}</p>
