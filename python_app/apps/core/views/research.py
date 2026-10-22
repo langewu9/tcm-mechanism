@@ -622,6 +622,29 @@ class ResearchAssistantView(APIView):
         serializer = ResearchAssistantRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+        if data["mode"] == "scientist_hypothesis":
+            from ..services.scientist_report import VERSION
+            task = AnalysisTask.objects.create(
+                owner=request.user, created_by=request.user,
+                task_type=AnalysisTask.TaskType.RESEARCH_ASSISTANT,
+                input_parameters={"analysisKind": "scientist_hypothesis", "algorithmVersion": VERSION,
+                    "name": "本地研究计划报告", "complete": True, "question": data["question"],
+                    "disease": data["disease"], "herb": "\n".join(data["formulaHerbs"]),
+                    "formulaHerbs": data["formulaHerbs"], "focus": data["focus"],
+                    "useModel": False, "modelConsentRecorded": False},
+            )
+            # Use the existing assistant worker; completion and evidence rows
+            # are published atomically by the shared snapshot implementation.
+            try:
+                from ..tasks import run_research_assistant_task
+                run_research_assistant_task.apply_async(args=[task.pk])
+            except Exception as exc:
+                record_runtime_event("task.queue_unavailable", request=request, task_id=task.pk, exception=exc)
+                AnalysisTask.objects.filter(pk=task.pk, status=AnalysisTask.Status.QUEUED).update(
+                    status=AnalysisTask.Status.FAILED, progress=100,
+                    error_summary="科研助手任务队列暂不可用，请稍后重试。", finished_at=timezone.now())
+                raise TaskQueueUnavailable() from exc
+            return Response(AnalysisTaskSerializer(task).data, status=status.HTTP_202_ACCEPTED)
         from ..services.research_assistant import ResearchAssistantError, build_evidence_snapshot
 
         try:

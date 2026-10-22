@@ -15,7 +15,13 @@ function isVisualization(summary: AnalysisTaskSummary, parentId: number) {
     && Number(summary.display_parameters.parentTaskId) === parentId;
 }
 
-export async function restoreLatestAssistantTask() {
+export async function restoreLatestAssistantTask(taskId?: number) {
+  if (taskId !== undefined) {
+    if (!Number.isSafeInteger(taskId) || taskId < 1) throw new Error("任务编号无效。");
+    const task = await getAnalysisTask(taskId);
+    if (task.id !== taskId || task.task_type !== "research_assistant") throw new Error("任务编号或类型不一致。");
+    return task;
+  }
   const page = await getAnalysisTaskSummaries(1, undefined, "research_assistant");
   const latest = page.results.find(item => item.task_type === "research_assistant");
   return latest ? hydrate(latest) : null;

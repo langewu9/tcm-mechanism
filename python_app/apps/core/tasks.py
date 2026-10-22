@@ -87,8 +87,13 @@ def run_research_assistant_task(task_id: int) -> dict[str, str | int]:
     ).update(status=AnalysisTask.Status.RUNNING, progress=5, started_at=timezone.now())
     if not claimed:
         return {"status": "skipped", "taskId": task_id}
+    from .services.complete_evidence import CompleteEvidenceInputError, execute_complete_evidence
+    from .services.network_pharmacology import NetworkPharmacologyInputError
     try:
         task = AnalysisTask.objects.get(pk=task_id)
+        if task.input_parameters.get("analysisKind") == "scientist_hypothesis":
+            execute_complete_evidence(task)
+            return {"status": AnalysisTask.Status.SUCCEEDED, "taskId": task_id}
         result = run_research_assistant(task)
         AnalysisTask.objects.filter(pk=task_id, status=AnalysisTask.Status.RUNNING).update(
             result=result,
@@ -97,7 +102,7 @@ def run_research_assistant_task(task_id: int) -> dict[str, str | int]:
             finished_at=timezone.now(),
         )
         return {"status": AnalysisTask.Status.SUCCEEDED, "taskId": task_id}
-    except (ResearchAssistantError, CaseModelUnavailable) as exc:
+    except (ResearchAssistantError, CaseModelUnavailable, CompleteEvidenceInputError, NetworkPharmacologyInputError) as exc:
         record_runtime_event("assistant.rejected", task_id=task_id, exception=exc)
         public_message = str(exc)
         logger.info("Research assistant task rejected task_id=%s error_type=%s", task_id, type(exc).__name__)

@@ -27,6 +27,10 @@ function reset(values){rows=values;requested=[];listError=null;details=new Map(v
   assert.equal(await restoreLatestAssistantTask(),null);
   reset([summary(50,'research_assistant',null),summary(49,'research_assistant',null)]);
   assert.equal((await restoreLatestAssistantTask()).id,50);assert.deepEqual(requested,[50]);
+  requested=[];assert.equal((await restoreLatestAssistantTask(49)).id,49);assert.deepEqual(requested,[49],'A fixed link reads the requested assistant task');
+  for(const id of [0,-1,NaN,1.5]) await assert.rejects(()=>restoreLatestAssistantTask(id),/任务编号无效/);
+  details.set(49,{id:49,task_type:'network'});await assert.rejects(()=>restoreLatestAssistantTask(49),/任务编号或类型不一致/);
+  details.set(49,new Error('没有权限'));await assert.rejects(()=>restoreLatestAssistantTask(49),/没有权限/);
   reset([summary(17,'network',null),summary(16,'visualization',10,'unneeded-chart'),summary(15,'visualization',99),
     summary(14,'visualization',10,'proteomics_go_kegg_enrichment'),summary(13),summary(12),summary(10,'proteomics',null),summary(5,'proteomics',null)]);
   const restored=await restoreProteomicsTasks();

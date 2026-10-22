@@ -182,6 +182,12 @@ def _disease_data(task, limit):
     return result, tables
 
 
+def _scientist_data(task, limit):
+    from .scientist_report import build_report
+    network, tables = _network_data(task, limit)
+    return build_report(task.input_parameters, network, tables)
+
+
 def execute_complete_evidence(task):
     with transaction.atomic():
         # Must precede the first catalogue read in this transaction (PostgreSQL).
@@ -189,7 +195,7 @@ def execute_complete_evidence(task):
             with connection.cursor() as cursor:
                 cursor.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
         builders = {"catalog_evidence": _catalog_data, "network_pharmacology": _network_data,
-                    "disease_evidence": _disease_data}
+                    "disease_evidence": _disease_data, "scientist_hypothesis": _scientist_data}
         builder = builders.get(task.input_parameters.get("analysisKind"))
         if builder is None:
             raise CompleteEvidenceInputError("不支持的完整本地分析类型。")

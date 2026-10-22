@@ -73,10 +73,13 @@ class IntegrationMonitorApiTests(APITestCase):
         self.assertEqual(allowed.status_code, 200)
         search.assert_called_once_with("quercetin")
 
-    def test_ai_scientist_is_reported_as_not_yet_migrated(self):
+    def test_ai_scientist_checks_local_report_without_model_or_research_write(self):
         self.client.force_authenticate(self.admin)
         response = self.client.post(self.test_url, {"target": "scientist"}, format="json")
         self.assertEqual(response.status_code, 200)
-        self.assertFalse(response.data["result"]["ok"])
-        self.assertEqual(response.data["result"]["status"], 501)
-        self.assertIn("Excel/SQLite", response.data["result"]["error"])
+        self.assertTrue(response.data["result"]["ok"])
+        self.assertEqual(response.data["result"]["status"], 200)
+        self.assertFalse(response.data["result"]["data"]["externalCalls"])
+        self.assertFalse(response.data["result"]["data"]["taskCreated"])
+        self.assertEqual(response.data["result"]["data"]["results"]["intersection_count"], 0)
+        self.assertEqual(AnalysisTask.objects.count(), 0)

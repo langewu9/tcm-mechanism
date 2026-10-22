@@ -233,14 +233,36 @@ class VisualizationRequestSerializer(serializers.Serializer):
 
 
 class ResearchAssistantRequestSerializer(serializers.Serializer):
+    mode = serializers.ChoiceField(choices=["evidence", "scientist_hypothesis"], default="evidence")
     question = serializers.CharField(max_length=2000, trim_whitespace=True)
     entityIds = serializers.ListField(
-        child=serializers.IntegerField(min_value=1), min_length=1, max_length=8
+        child=serializers.IntegerField(min_value=1), max_length=8, required=False, default=list
     )
+    disease = serializers.CharField(max_length=160, required=False, allow_blank=True, default="")
+    formula = serializers.CharField(max_length=2400, required=False, allow_blank=True, default="")
+    focus = serializers.CharField(max_length=300, required=False, default="本地来源证据核对")
     useModel = serializers.BooleanField(default=False)
     confirmModelSharing = serializers.BooleanField(default=False)
 
     def validate(self, attrs):
+        for field in ("question", "disease", "formula", "focus"):
+            if any(ord(character) < 32 and character not in "\n\r\t" for character in attrs[field]):
+                raise serializers.ValidationError({field: "输入中包含不支持的控制字符。"})
+        if attrs["mode"] == "scientist_hypothesis":
+            from ..services.scientist_report import parse_formula
+            herbs = parse_formula(attrs["formula"])
+            if not attrs["disease"]:
+                raise serializers.ValidationError({"disease": "请明确填写疾病，不从问题中猜测。"})
+            if not herbs or len(herbs) > 12 or any(len(herb) > 300 for herb in herbs):
+                raise serializers.ValidationError({"formula": "请填写 1 至 12 项中药组成，每项至多 300 字符。"})
+            if attrs["useModel"] or attrs["confirmModelSharing"]:
+                raise serializers.ValidationError({"useModel": "本地研究计划报告不调用模型，请关闭模型选项。"})
+            if attrs["entityIds"]:
+                raise serializers.ValidationError({"entityIds": "报告按疾病与方药组成查询，不混入另外选择的问答实体。"})
+            attrs["formulaHerbs"] = herbs
+            return attrs
+        if not attrs["entityIds"]:
+            raise serializers.ValidationError({"entityIds": "请选择 1 至 8 个知识实体。"})
         if attrs["useModel"] and not attrs["confirmModelSharing"]:
             raise serializers.ValidationError({
                 "confirmModelSharing": "请先确认本次问题和所选本地证据可以发送到已配置的本机/内网模型。"

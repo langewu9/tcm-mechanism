@@ -37,6 +37,7 @@ function taskStatusClass(status: DashboardTask["status"]) {
 }
 
 function taskRoute(task: DashboardTask) {
+  if (task.task_type === "research_assistant") return `/assistant?assistantTask=${task.id}`;
   if (task.task_type !== "network") return taskRoutes[task.task_type];
   if (task.analysis_kind === "catalog_evidence") return `/research?catalogTask=${task.id}`;
   if (task.analysis_kind === "disease_evidence") return `/research?diseaseTask=${task.id}`;

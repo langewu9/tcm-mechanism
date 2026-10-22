@@ -255,12 +255,17 @@ class IntegrationTestView(APIView):
                 )
                 result = _result(ok=True, status=200, url="/api/v1/analysis/component-compare/", data=data, started=started)
             else:
+                from apps.core.models import AnalysisTask
+                from apps.core.services.complete_evidence import _scientist_data, relation_limit
+                report, _ = _scientist_data(AnalysisTask(owner=request.user, input_parameters={
+                    "question": "本地证据汇总检查（非实验）", "disease": "肺纤维化", "herb": "粳米",
+                    "formulaHerbs": ["粳米"], "focus": "本地接口检查", "useModel": False,
+                }), relation_limit())
                 result = _result(
-                    ok=False,
-                    status=501,
-                    url="main 中的 backend/data_service.py",
-                    error="旧版 AI Scientist 依赖未随仓库提供的 Excel/SQLite 数据；当前 Django 版本没有可复刻的同等接口，已留待迁移。",
-                    started=started,
+                    ok=True, status=200, url="/api/v1/research/assistant/ (scientist_hypothesis)",
+                    data={"algorithmVersion": report["algorithmVersion"], "results": report["results"],
+                          "sources": report["references"], "uncertainties": report["uncertainties"],
+                          "externalCalls": False, "taskCreated": False}, started=started,
                 )
         except ChemblServiceError as exc:
             result = _result(ok=False, status=503, url="https://www.ebi.ac.uk/chembl/api/data/molecule/search", error=str(exc), started=started)

@@ -50,16 +50,17 @@ const flush=async h=>{for(let i=0;i<10;i++)await Promise.resolve();h.render();};
   pending=confirm.value.confirm({title:'未提交',description:'取消导航',confirmLabel:'确认'});confirm.cleanup();
   assert.equal(await pending,false,'Navigating away cancels pending confirmation');
 
-  const calls=[],timers=new Map();let timerId=0;
+  const calls=[],timers=new Map();let timerId=0,locationSearch='';
   global.window={setTimeout(fn){timers.set(++timerId,fn);return timerId;},clearTimeout(id){timers.delete(id);}};
   const assistant=()=>harness('src/pages/ResearchAssistantPage.tsx',{
-    'react-router-dom':{Link:'Link',useLocation:()=>({state:null})},
+    'react-router-dom':{Link:'Link',useLocation:()=>({state:null,search:locationSearch})},
     'lucide-react':new Proxy({}, {get:(_,key)=>key}),
     '../api/client':{ApiError},
     '../api/assistant':{createResearchAssistantTask:deferred('create',calls)},
     '../api/datasets':{getAnalysisTask:deferred('poll',calls)},
     '../api/task-restoration':{restoreLatestAssistantTask:deferred('restore',calls)},
     '../api/catalog':{searchCatalogEntities:deferred('search',calls)},
+    '../components/ScientistReport':{ScientistReport:'ScientistReport'},
   });
   const task=(id,status='succeeded',answer='保存的回答')=>({id,task_type:'research_assistant',status,input_parameters:{question:'保存的问题',modelConsentRecorded:true},result:{answer,evidence:{entities:[],relations:[]}}});
   const called=name=>calls.filter(call=>call.name===name);
@@ -95,5 +96,32 @@ const flush=async h=>{for(let i=0;i<10;i++)await Promise.resolve();h.render();};
   h=assistant();h.render('ResearchAssistantPage');called('restore').at(-1).reject(new Error('offline'));await flush(h);
   button(h,'重新读取历史任务').props.onClick();h.render();called('restore').at(-1).resolve(task(90));await flush(h);
   assert.ok(text(h.value).includes('保存的回答'));h.cleanup();
+
+  h=assistant();h.render('ResearchAssistantPage');called('restore').at(-1).resolve(null);await flush(h);
+  find(h,node=>node.type==='input'&&node.props.type==='checkbox').props.onChange({target:{checked:true}});h.render();
+  find(h,node=>node.props?.id==='assistant-mode').props.onChange({target:{value:'scientist_hypothesis'}});h.render();
+  assert.equal(nodes(h.value).filter(node=>node.type==='input'&&node.props.type==='checkbox').length,0,'Local report has no model consent control');
+  for(const [id,value] of [['scientist-disease','合成疾病'],['scientist-formula','药甲、药乙'],['assistant-question','核对来源'],['scientist-focus','本地核对']]){
+    find(h,node=>node.props?.id===id).props.onChange({target:{value}});h.render();
+  }
+  const beforeReports=called('create').length;
+  const reportForm=find(h,node=>node.type==='form'&&nodes(node).some(child=>child.props?.id==='assistant-question'));
+  reportForm.props.onSubmit(event);reportForm.props.onSubmit(event);h.render();
+  assert.equal(called('create').length,beforeReports+1);
+  assert.deepEqual(called('create').at(-1).args[0],{mode:'scientist_hypothesis',question:'核对来源',disease:'合成疾病',formula:'药甲、药乙',focus:'本地核对',useModel:false,confirmModelSharing:false});
+  const reportTask={...task(101),input_parameters:{analysisKind:'scientist_hypothesis',question:'核对来源',disease:'合成疾病',formulaHerbs:['药甲','药乙'],focus:'本地核对'},result:{analysisKind:'scientist_hypothesis'}};
+  called('create').at(-1).resolve(reportTask);await flush(h);
+  assert.equal(find(h,node=>node.type==='ScientistReport').props.taskId,101);h.cleanup();
+  h=assistant();h.render('ResearchAssistantPage');const createsBeforeRestore=called('create').length;
+  called('restore').at(-1).resolve(reportTask);await flush(h);
+  assert.equal(find(h,node=>node.props?.id==='assistant-mode').props.value,'scientist_hypothesis');
+  assert.equal(find(h,node=>node.props?.id==='scientist-formula').props.value,'药甲、药乙');
+  assert.equal(called('create').length,createsBeforeRestore,'Restoring a report never creates or recomputes a task');
+  locationSearch='?assistantTask=40';h.render();
+  assert.equal(called('restore').at(-1).args[0],40);
+  called('restore').at(-1).resolve(task(40));await flush(h);
+  assert.equal(find(h,node=>node.props?.id==='assistant-mode').props.value,'evidence','Fixed task navigation restores its own mode');
+  assert.equal(find(h,node=>node.props?.id==='assistant-question').props.value,'保存的问题','Fixed task navigation cannot retain a different task question');
+  assert.equal(called('create').length,createsBeforeRestore);h.cleanup();
   console.log('PASS: safe upload errors; confirmation cancel/accept/duplicate/unmount; assistant restoration, no restored model consent, duplicate submit, read-only retry, stale result and unmount isolation.');
 })().catch(error=>{console.error(error.stack);process.exitCode=1;});
