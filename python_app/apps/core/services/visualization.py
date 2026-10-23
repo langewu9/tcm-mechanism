@@ -18,6 +18,7 @@ from django.utils import timezone
 
 from apps.core.models import AnalysisTask, VisualizationArtifact
 from apps.proteomics.models import ProteomicsRowResult
+from .task_recovery import lock_running_analysis
 
 
 logger = logging.getLogger(__name__)
@@ -303,7 +304,8 @@ def execute_visualization_task(task: AnalysisTask) -> dict:
     manifests = []
     try:
         with transaction.atomic():
-            task.source_releases.set(parent.source_releases.all())
+            locked_task = lock_running_analysis(task.pk)
+            locked_task.source_releases.set(parent.source_releases.all())
             for file_format, mime_type in FORMAT_MIME_TYPES.items():
                 output = artifact_by_format[file_format]
                 if output.get("mimeType") != mime_type or not isinstance(output.get("bytesBase64"), str):
@@ -342,20 +344,26 @@ def execute_visualization_task(task: AnalysisTask) -> dict:
                     "rendererVersion": artifact.renderer_version,
                     "downloadUrl": f"/api/v1/research/analysis-artifacts/{artifact.pk}/download/",
                 })
+            published_result = {
+                "status": AnalysisTask.Status.SUCCEEDED,
+                "taskId": task.pk,
+                "parentTaskId": parent.pk,
+                "chartKey": chart_key,
+                "inputSha256": payload["inputSha256"],
+                "rendererVersion": result["rendererVersion"],
+                "artifacts": manifests,
+            }
+            locked_task.result = published_result
+            locked_task.status = AnalysisTask.Status.SUCCEEDED
+            locked_task.progress = 100
+            locked_task.finished_at = timezone.now()
+            locked_task.save(update_fields=["result", "status", "progress", "finished_at"])
     except Exception:
         for storage_key in saved_paths:
             default_storage.delete(storage_key)
         raise
 
-    return {
-        "status": AnalysisTask.Status.SUCCEEDED,
-        "taskId": task.pk,
-        "parentTaskId": parent.pk,
-        "chartKey": chart_key,
-        "inputSha256": payload["inputSha256"],
-        "rendererVersion": result["rendererVersion"],
-        "artifacts": manifests,
-    }
+    return published_result
 
 
 def queue_visualization(*, parent_task: AnalysisTask, user, chart_key: str) -> tuple[AnalysisTask, bool]:

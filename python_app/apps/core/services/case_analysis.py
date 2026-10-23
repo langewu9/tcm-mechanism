@@ -19,6 +19,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from apps.core.models import AnalysisTask, EvidenceRelation, KnowledgeEntity, MedicalCaseCandidate
+from .task_recovery import lock_running_analysis
 
 
 logger = logging.getLogger(__name__)
@@ -550,6 +551,9 @@ def run_case_analysis(task: AnalysisTask) -> dict:
         case = type(case).objects.select_for_update().get(pk=case.pk)
         if expected_hash != case_input_sha256(case):
             raise CaseAnalysisError("模型分析期间医案内容已修改，本次结果未保存；请重新创建分析任务。")
+        # Keep the established case -> task lock order. Candidate rows and the
+        # successful result are published together, or not published at all.
+        locked_task = lock_running_analysis(task.pk)
         for candidate_type, values in [
             (MedicalCaseCandidate.CandidateType.SYNDROME, syndrome_candidates),
             (MedicalCaseCandidate.CandidateType.FORMULA, formula_candidates),
@@ -570,27 +574,33 @@ def run_case_analysis(task: AnalysisTask) -> dict:
                 candidate_rows.append(candidate)
                 if candidate.entity_id and candidate.entity.source_release_id:
                     source_release_ids.add(candidate.entity.source_release_id)
-        task.source_releases.set(sorted(source_release_ids))
+        locked_task.source_releases.set(sorted(source_release_ids))
 
-    warnings = [
-        "模型输出仅为研究假设，置信度未经校准；只有逐条人工确认后才会进入下游证据链。",
-        "系统只按本地知识库规范名称或同义词精确关联实体；未匹配和重名候选不会自动合并。",
-    ]
-    return {
-        "analysisKind": "case_analysis",
-        "caseId": case.pk,
-        "caseContentSha256": expected_hash,
-        "model": {
-            "provider": "configured_local_openai_compatible",
-            "name": settings.CASE_MODEL_NAME,
-            "version": settings.CASE_MODEL_VERSION,
-        },
-        "observations": observations,
-        "candidates": [candidate_payload(candidate) for candidate in candidate_rows],
-        "retrievalContext": knowledge_context,
-        "evidenceChain": {"nodes": [], "links": [], "sources": [], "truncated": False},
-        "warnings": warnings,
-    }
+        warnings = [
+            "模型输出仅为研究假设，置信度未经校准；只有逐条人工确认后才会进入下游证据链。",
+            "系统只按本地知识库规范名称或同义词精确关联实体；未匹配和重名候选不会自动合并。",
+        ]
+        result = {
+            "analysisKind": "case_analysis",
+            "caseId": case.pk,
+            "caseContentSha256": expected_hash,
+            "model": {
+                "provider": "configured_local_openai_compatible",
+                "name": settings.CASE_MODEL_NAME,
+                "version": settings.CASE_MODEL_VERSION,
+            },
+            "observations": observations,
+            "candidates": [candidate_payload(candidate) for candidate in candidate_rows],
+            "retrievalContext": knowledge_context,
+            "evidenceChain": {"nodes": [], "links": [], "sources": [], "truncated": False},
+            "warnings": warnings,
+        }
+        locked_task.result = result
+        locked_task.status = AnalysisTask.Status.SUCCEEDED
+        locked_task.progress = 100
+        locked_task.finished_at = timezone.now()
+        locked_task.save(update_fields=["result", "status", "progress", "finished_at"])
+    return result
 
 
 def candidate_entity_available(candidate) -> bool:

@@ -168,13 +168,12 @@ class ResearchDatasetViewSet(SensitiveReadAuditMixin, viewsets.ModelViewSet):
             run_proteomics_task.apply_async(args=[task.pk])
         except Exception as exc:
             record_runtime_event("task.queue_unavailable", request=request, task_id=task.pk, exception=exc)
-            task.status = AnalysisTask.Status.FAILED
-            task.progress = 100
-            task.error_summary = "任务队列暂不可用，请稍后重试。"
-            from django.utils import timezone
-
-            task.finished_at = timezone.now()
-            task.save(update_fields=["status", "progress", "error_summary", "finished_at"])
+            AnalysisTask.objects.filter(pk=task.pk, status=AnalysisTask.Status.QUEUED).update(
+                status=AnalysisTask.Status.FAILED,
+                progress=100,
+                error_summary="任务队列暂不可用，请稍后重试。",
+                finished_at=timezone.now(),
+            )
             raise TaskQueueUnavailable() from exc
         return Response(AnalysisTaskSerializer(task).data, status=status.HTTP_202_ACCEPTED)
 
@@ -354,11 +353,12 @@ class MedicalCaseViewSet(SensitiveReadAuditMixin, viewsets.ModelViewSet):
             run_case_analysis_task.apply_async(args=[task.pk])
         except Exception as exc:
             record_runtime_event("task.queue_unavailable", request=request, task_id=task.pk, exception=exc)
-            task.status = AnalysisTask.Status.FAILED
-            task.progress = 100
-            task.error_summary = "医案分析任务队列暂不可用，请稍后重试。"
-            task.finished_at = timezone.now()
-            task.save(update_fields=["status", "progress", "error_summary", "finished_at"])
+            AnalysisTask.objects.filter(pk=task.pk, status=AnalysisTask.Status.QUEUED).update(
+                status=AnalysisTask.Status.FAILED,
+                progress=100,
+                error_summary="医案分析任务队列暂不可用，请稍后重试。",
+                finished_at=timezone.now(),
+            )
             raise TaskQueueUnavailable() from exc
         return Response(AnalysisTaskSerializer(task).data, status=status.HTTP_202_ACCEPTED)
 
@@ -546,11 +546,12 @@ class AnalysisTaskViewSet(SensitiveReadAuditMixin, viewsets.ReadOnlyModelViewSet
                 run_visualization_task.apply_async(args=[task.pk])
             except Exception as exc:
                 record_runtime_event("task.queue_unavailable", request=request, task_id=task.pk, exception=exc)
-                task.status = AnalysisTask.Status.FAILED
-                task.progress = 100
-                task.error_summary = "R 图表任务队列暂不可用，请稍后重试。"
-                task.finished_at = timezone.now()
-                task.save(update_fields=["status", "progress", "error_summary", "finished_at"])
+                AnalysisTask.objects.filter(pk=task.pk, status=AnalysisTask.Status.QUEUED).update(
+                    status=AnalysisTask.Status.FAILED,
+                    progress=100,
+                    error_summary="R 图表任务队列暂不可用，请稍后重试。",
+                    finished_at=timezone.now(),
+                )
                 raise TaskQueueUnavailable() from exc
         return Response(
             AnalysisTaskSerializer(task).data,
@@ -680,11 +681,12 @@ class ResearchAssistantView(APIView):
             run_research_assistant_task.apply_async(args=[task.pk])
         except Exception as exc:
             record_runtime_event("task.queue_unavailable", request=request, task_id=task.pk, exception=exc)
-            task.status = AnalysisTask.Status.FAILED
-            task.progress = 100
-            task.error_summary = "科研助手任务队列暂不可用，请稍后重试。"
-            task.finished_at = timezone.now()
-            task.save(update_fields=["status", "progress", "error_summary", "finished_at"])
+            AnalysisTask.objects.filter(pk=task.pk, status=AnalysisTask.Status.QUEUED).update(
+                status=AnalysisTask.Status.FAILED,
+                progress=100,
+                error_summary="科研助手任务队列暂不可用，请稍后重试。",
+                finished_at=timezone.now(),
+            )
             raise TaskQueueUnavailable() from exc
         return Response(AnalysisTaskSerializer(task).data, status=status.HTTP_202_ACCEPTED)
 

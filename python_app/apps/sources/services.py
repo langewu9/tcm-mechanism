@@ -41,10 +41,11 @@ def enqueue_sync_run(run: SyncRun) -> None:
 
         sync_source_run.delay(run.pk)
     except Exception as exc:
-        run.status = SyncRun.Status.FAILED
-        run.error_summary = "后台任务队列暂不可用，请检查 Redis 和 worker 后重试。"
-        run.finished_at = timezone.now()
-        run.save(update_fields=["status", "error_summary", "finished_at"])
+        SyncRun.objects.filter(pk=run.pk, status=SyncRun.Status.PENDING).update(
+            status=SyncRun.Status.FAILED,
+            error_summary="后台任务队列暂不可用，请检查 Redis 和 worker 后重试。",
+            finished_at=timezone.now(),
+        )
         raise TaskQueueUnavailable() from exc
 
 

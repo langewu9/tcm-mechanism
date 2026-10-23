@@ -16,6 +16,7 @@ from apps.core.models import AnalysisSnapshotRow, AnalysisTask, MedicalCase, Med
 from .catalog_analysis import CatalogSnapshotChanged, catalog_result
 from .herb_evidence import _entity_record, _relation_record, batch_herb_component_evidence
 from .network_pharmacology import NetworkPharmacologyInputError, build_network_pharmacology
+from .task_recovery import TaskExecutionStopped
 
 
 VERSION = "complete-local-evidence-1"
@@ -219,7 +220,7 @@ def execute_complete_evidence(task):
         updated = AnalysisTask.objects.filter(pk=task.pk, status=AnalysisTask.Status.RUNNING).update(
             status=AnalysisTask.Status.SUCCEEDED, progress=100, result=result, finished_at=timezone.now())
         if not updated:
-            raise ValueError("任务状态已改变，本次快照未发布。")
+            raise TaskExecutionStopped("任务状态已改变，本次快照未发布。")
     return result
 
 
