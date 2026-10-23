@@ -281,14 +281,30 @@ class MedicalCaseViewSet(SensitiveReadAuditMixin, viewsets.ModelViewSet):
             )
         return Response(MedicalCaseSerializer(case).data)
 
+    @extend_schema(methods=["GET"], parameters=[OpenApiParameter(
+        "task_id", OpenApiTypes.INT, OpenApiParameter.QUERY,
+        description="可选历史医案关联任务编号；只读取当前医案的对应任务。",
+    )])
     @action(detail=True, methods=["get", "post"], url_path="analysis")
     def analysis(self, request, pk=None):
         case = self.get_object()
         if request.method == "GET":
-            task = AnalysisTask.objects.filter(
+            tasks = AnalysisTask.objects.filter(
                 medical_case=case,
                 task_type=AnalysisTask.TaskType.CASE_LINK,
-            ).first()
+            )
+            task_ids = request.query_params.getlist("task_id")
+            if task_ids:
+                raw_task_id = task_ids[0]
+                if (len(task_ids) != 1 or not raw_task_id.isascii()
+                        or not raw_task_id.isdecimal() or raw_task_id.startswith("0")
+                        or len(raw_task_id) > 16 or int(raw_task_id) > 9007199254740991):
+                    raise ValidationError({"task_id": "请选择有效的历史任务编号。"})
+                task = tasks.filter(pk=int(raw_task_id)).first()
+                if task is None:
+                    raise NotFound("该医案的历史分析任务不存在。")
+            else:
+                task = tasks.first()
             from ..services.case_analysis import case_input_sha256, case_model_configuration
 
             candidates = (

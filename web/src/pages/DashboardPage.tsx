@@ -39,10 +39,14 @@ function taskStatusClass(status: DashboardTask["status"]) {
 function taskRoute(task: DashboardTask) {
   if (task.task_type === "research_assistant") return `/assistant?assistantTask=${task.id}`;
   if (task.task_type === "proteomics") return `/proteomics?proteomicsTask=${task.id}`;
+  if (task.task_type === "text_analysis") return `/analysis?textTask=${task.id}`;
+  if (task.task_type === "case_link") return `/cases?caseTask=${task.id}`;
+  if (task.task_type === "visualization") return `/tasks/${task.id}`;
   if (task.task_type !== "network") return taskRoutes[task.task_type];
   if (task.analysis_kind === "catalog_evidence") return `/research?catalogTask=${task.id}`;
   if (task.analysis_kind === "disease_evidence") return `/research?diseaseTask=${task.id}`;
-  return `/network-pharmacology?networkTask=${task.id}`;
+  if (task.analysis_kind === "network_pharmacology") return `/network-pharmacology?networkTask=${task.id}`;
+  return `/tasks/${task.id}`;
 }
 
 export function DashboardPage() {

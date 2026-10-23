@@ -138,7 +138,7 @@ check('QC pagination clears previous rows while another page is loading',async()
   const {h,called,ready}=proteomics();try{await ready(task(20,'succeeded'));let view=find(h,n=>n.type?.name==='ProteomicsResultView');view.props.onToggleRows();h.render();called('getProteomicsRows')[0].resolve(page([{row_index:0,original_label:'OLD_PRIVATE_ROW'}],'next'));await flush(h);view=find(h,n=>n.type?.name==='ProteomicsResultView');view.props.onRowPageChange(2);h.render();view=find(h,n=>n.type?.name==='ProteomicsResultView');assert.equal(view.props.rowPage,null,'Page two must not display page-one data under its new label');}finally{h.cleanup();}
 });
 function analysis(){
-  const calls=[];const h=harness('src/pages/AnalysisPage.tsx',{'../api/analysis':Object.fromEntries(['getTextAnalysisWorkspace','createTextAnalysis','exportTextAnalysis'].map(name=>[name,deferred(name,calls)])),'../components/KnowledgeNetworkGraph':{KnowledgeNetworkGraph:'KnowledgeNetworkGraph'}});
+  const calls=[];const h=harness('src/pages/AnalysisPage.tsx',{'../api/datasets':{getAnalysisTask:deferred('getAnalysisTask',calls)},'../api/analysis':Object.fromEntries(['getTextAnalysisWorkspace','createTextAnalysis','exportTextAnalysis'].map(name=>[name,deferred(name,calls)])),'../components/KnowledgeNetworkGraph':{KnowledgeNetworkGraph:'KnowledgeNetworkGraph'}});
   h.render('AnalysisPage');return {h,called:name=>calls.filter(call=>call.name===name)};
 }
 check('Text analysis prevents duplicate saved tasks',async()=>{

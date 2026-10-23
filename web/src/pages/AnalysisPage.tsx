@@ -1,17 +1,28 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Download, FileText, FlaskConical, History } from "lucide-react";
 import { ApiError } from "../api/client";
 import { createTextAnalysis, exportTextAnalysis, getTextAnalysisWorkspace, type TextAnalysisTask, type TextAnalysisWorkspace } from "../api/analysis";
+import { getAnalysisTask, type AnalysisTask } from "../api/datasets";
 import { KnowledgeNetworkGraph } from "../components/KnowledgeNetworkGraph";
 
 const matchLabels = { matched: "已有目录关联", no_rule_match: "未命中规则", catalog_missing: "缺少目录记录", ambiguous_syndrome: "目录同名歧义" };
 const evidenceLevels = ["syndrome", "formula", "herbs", "compounds", "targets", "genes", "pathways"];
 function errorMessage(error: unknown) { return error instanceof ApiError ? error.message : "请求未完成，请稍后重试。"; }
+function verifyTextTask(saved: AnalysisTask, expectedId?: number): TextAnalysisTask {
+  if (!Number.isSafeInteger(saved.id) || saved.id <= 0 || saved.task_type !== "text_analysis" || (expectedId !== undefined && saved.id !== expectedId)) {
+    throw new Error("Text analysis task identity mismatch");
+  }
+  return saved as TextAnalysisTask;
+}
 
 export function AnalysisPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const savedTaskId = searchParams.get("textTask");
+  const adoptedTaskId = useRef<string | null>(null);
   const mounted = useRef(false);
-  const submissionInFlight = useRef(false);
-  const downloadInFlight = useRef(false);
+  const submissionInFlight = useRef<number | null>(null);
+  const downloadInFlight = useRef<number | null>(null);
   const generation = useRef(0);
   const [workspace, setWorkspace] = useState<TextAnalysisWorkspace | null>(null);
   const [task, setTask] = useState<TextAnalysisTask | null>(null);
@@ -21,6 +32,11 @@ export function AnalysisPage() {
   const [error, setError] = useState<string | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
+  const [restoring, setRestoring] = useState(false);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
+  const [restoreAttempt, setRestoreAttempt] = useState(0);
+  const [pollError, setPollError] = useState<string | null>(null);
+  const [pollFailures, setPollFailures] = useState(0);
 
   useEffect(() => {
     mounted.current = true;
@@ -36,31 +52,95 @@ export function AnalysisPage() {
     return () => { active = false; };
   }, [reload]);
 
+  useEffect(() => {
+    // A selected workspace result or accepted creation is already in memory.
+    // Adopting its URL must not clear that result or start a competing read.
+    if (savedTaskId !== null && adoptedTaskId.current === savedTaskId) {
+      adoptedTaskId.current = null;
+      return;
+    }
+    adoptedTaskId.current = null;
+    const current = ++generation.current;
+    let active = true;
+    submissionInFlight.current = null; downloadInFlight.current = null;
+    setTask(null); setError(null); setRestoreError(null); setPollError(null); setPollFailures(0);
+    setSubmitting(false); setDownloading(null); setRestoring(savedTaskId !== null);
+    if (savedTaskId === null) return () => { active = false; };
+    if (!/^[1-9]\d*$/.test(savedTaskId) || !Number.isSafeInteger(Number(savedTaskId))) {
+      setRestoreError("证候文本分析任务编号无效。"); setRestoring(false);
+      return () => { active = false; };
+    }
+    const expectedId = Number(savedTaskId);
+    getAnalysisTask(expectedId)
+      .then(saved => {
+        if (!active || !mounted.current || generation.current !== current) return;
+        setTask(verifyTextTask(saved, expectedId));
+      })
+      .catch((cause: unknown) => { if (active && mounted.current && generation.current === current) setRestoreError(errorMessage(cause)); })
+      .finally(() => { if (active && mounted.current && generation.current === current) setRestoring(false); });
+    return () => { active = false; };
+  }, [savedTaskId, restoreAttempt]);
+
+  useEffect(() => {
+    if (!task || !["queued", "running"].includes(task.status)) return;
+    const current = generation.current;
+    let active = true;
+    const timer = window.setTimeout(() => {
+      getAnalysisTask(task.id)
+        .then(saved => {
+          if (!active || !mounted.current || generation.current !== current) return;
+          setTask(verifyTextTask(saved, task.id)); setPollError(null); setPollFailures(0);
+        })
+        .catch((cause: unknown) => {
+          if (!active || !mounted.current || generation.current !== current) return;
+          setPollError(`${errorMessage(cause)} 正在重试读取已有任务，不会重新提交。`);
+          setPollFailures(value => value + 1);
+        });
+    }, Math.min(1400 * 2 ** Math.min(pollFailures, 4), 12000));
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [task, pollFailures]);
+
+  function adoptTask(saved: TextAnalysisTask) {
+    setTask(saved); setRestoring(false); setRestoreError(null); setPollError(null); setPollFailures(0);
+    const id = String(saved.id);
+    if (savedTaskId !== id) {
+      adoptedTaskId.current = id;
+      setSearchParams(previous => { const next = new URLSearchParams(previous); next.set("textTask", id); return next; }, { replace: true });
+    }
+  }
+
+  function selectSavedTask(saved: TextAnalysisTask) {
+    generation.current += 1; submissionInFlight.current = null; downloadInFlight.current = null;
+    setSubmitting(false); setDownloading(null); setError(null);
+    try { adoptTask(verifyTextTask(saved)); }
+    catch (cause) { setTask(null); setRestoreError(errorMessage(cause)); }
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (submissionInFlight.current || loading) return;
-    submissionInFlight.current = true;
+    if (submissionInFlight.current !== null || loading || restoring) return;
     const current = ++generation.current;
+    submissionInFlight.current = current;
     const form = new FormData(event.currentTarget);
-    setSubmitting(true); setError(null);
+    setSubmitting(true); setError(null); setRestoreError(null); setPollError(null);
     try {
       const saved = await createTextAnalysis({
         name: String(form.get("name") ?? "").trim(), query: String(form.get("query") ?? "").trim(),
         caseId: form.get("caseId") ? Number(form.get("caseId")) : null,
       });
       if (!mounted.current || generation.current !== current) return;
-      setTask(saved);
+      adoptTask(verifyTextTask(saved));
       setWorkspace(previous => previous ? { ...previous, tasks: [saved, ...previous.tasks.filter(item => item.id !== saved.id)].slice(0, 8) } : previous);
       // A failed history refresh must not be reported as a failed creation.
       setReload(value => value + 1);
     } catch (cause) { if (mounted.current && generation.current === current) setError(errorMessage(cause)); }
-    finally { submissionInFlight.current = false; if (mounted.current && generation.current === current) setSubmitting(false); }
+    finally { if (submissionInFlight.current === current) submissionInFlight.current = null; if (mounted.current && generation.current === current) setSubmitting(false); }
   }
 
   async function download(format: "csv" | "pdf") {
-    if (!task || downloadInFlight.current) return;
-    downloadInFlight.current = true;
+    if (!task || task.status !== "succeeded" || downloadInFlight.current !== null) return;
     const current = generation.current;
+    downloadInFlight.current = current;
     setDownloading(format); setError(null);
     try {
       const blob = await exportTextAnalysis(task.id, format);
@@ -69,10 +149,13 @@ export function AnalysisPage() {
       const anchor = document.createElement("a"); anchor.href = url; anchor.download = `text-analysis-task-${task.id}.${format}`;
       anchor.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (cause) { if (mounted.current && generation.current === current) setError(errorMessage(cause)); }
-    finally { downloadInFlight.current = false; if (mounted.current) setDownloading(null); }
+    finally { if (downloadInFlight.current === current) downloadInFlight.current = null; if (mounted.current && generation.current === current) setDownloading(null); }
   }
 
-  const result = task?.result;
+  // Bind the visible result during render as well as in the restoration effect:
+  // the first frame of a different URL must not show the preceding task.
+  const visibleTask = savedTaskId === null || savedTaskId === String(task?.id) ? task : null;
+  const result = visibleTask?.status === "succeeded" ? visibleTask.result : null;
 
   return <>
     <div className="page-heading">
@@ -97,18 +180,25 @@ export function AnalysisPage() {
         {workspace?.casesTruncated && <p className="notice-info">选择列表显示最近 200 个医案；可在医案管理核对较早记录。</p>}
         <label className="form-label">分析问题<textarea className="field mt-2 min-h-44" name="query" maxLength={20000} placeholder="输入症状、证候、方药或希望验证的研究问题" required /></label>
         {error && <p className="notice-error" role="alert">{error}</p>}
-        <button className="btn btn-primary" disabled={submitting || loading}>
+        <button className="btn btn-primary" disabled={submitting || loading || restoring}>
           <FlaskConical size={17} />{submitting ? "分析中..." : "开始分析"}
         </button>
       </form>
-      <section className="panel min-h-[360px] p-5" aria-label="最新分析结果">
+      <section className="panel min-h-[360px] p-5" aria-label="分析结果">
         <div className="mb-4 flex items-center justify-between gap-3">
-          <h2 className="text-lg font-black">最新分析结果</h2>
-          {task && <div className="flex gap-2">
+          <h2 className="text-lg font-black">分析结果</h2>
+          {result && <div className="flex gap-2">
             <button className="btn btn-secondary text-sm" disabled={!!downloading} onClick={() => void download("csv")}><Download size={15} />{downloading === "csv" ? "生成中…" : "CSV"}</button>
             <button className="btn btn-secondary text-sm" disabled={!!downloading} onClick={() => void download("pdf")}><FileText size={15} />{downloading === "pdf" ? "生成中…" : "PDF"}</button>
           </div>}
         </div>
+        {visibleTask && <p className="section-help">任务 #{visibleTask.id} · {String(visibleTask.input_parameters.name ?? "规则分析任务")}</p>}
+        {restoring && <p className="section-help" role="status">正在读取指定分析任务…</p>}
+        {restoreError && <div className="notice-error" role="alert"><p>分析任务读取失败：{restoreError}</p><button type="button" className="btn btn-secondary" onClick={() => setRestoreAttempt(value => value + 1)}>重新读取分析任务</button></div>}
+        {pollError && <p className="notice-error" role="status">{pollError}</p>}
+        {visibleTask && ["queued", "running"].includes(visibleTask.status) && <p className="section-help" role="status">任务 #{visibleTask.id} {visibleTask.status === "queued" ? "排队中" : "分析中"}（{visibleTask.progress}%）。</p>}
+        {visibleTask?.status === "failed" && <p className="notice-error" role="alert">任务 #{visibleTask.id} 分析失败：{visibleTask.error_summary || "请核对输入后再提交新的分析。"}</p>}
+        {visibleTask?.status === "cancelled" && <p className="notice-info">任务 #{visibleTask.id} 已取消。</p>}
         {result ? <div className="space-y-4">
           <p className="rounded-md bg-cloud p-4 leading-7">{result.summary}</p>
           <div className="grid gap-3 md:grid-cols-2">
@@ -117,7 +207,7 @@ export function AnalysisPage() {
               <p className="mt-1 text-sm leading-6">{(Array.isArray(value) ? value.join("、") : value) || "暂无本地来源关联"}</p>
             </div>)}
           </div>
-          <span className={`status-badge ${result.matchStatus === "matched" ? "status-success" : "status-pending"}`}>{matchLabels[result.matchStatus]} · 任务 #{task?.id}</span>
+          <span className={`status-badge ${result.matchStatus === "matched" ? "status-success" : "status-pending"}`}>{matchLabels[result.matchStatus]} · 任务 #{visibleTask?.id}</span>
           <details>
             <summary className="section-help">关键词、来源与核查提示 · {result.warnings.length} 项提示</summary>
             <div className="mt-3 space-y-3">
@@ -130,15 +220,15 @@ export function AnalysisPage() {
             </div>
           </details>
           {result.network.nodes.length > 0 && <details><summary className="section-help">查看证据网络</summary><div className="mt-3"><KnowledgeNetworkGraph network={result.network} knownTruncated={result.limits.relationsTruncated} /></div></details>}
-        </div> : <div className="empty-state min-h-64"><FlaskConical size={26} /><strong>等待分析任务</strong><p>提交研究问题后，系统会在这里展示摘要、证据条目和导出入口。</p></div>}
+        </div> : !visibleTask && !restoring && !restoreError && <div className="empty-state min-h-64"><FlaskConical size={26} /><strong>等待分析任务</strong><p>提交研究问题后，系统会在这里展示摘要、证据条目和导出入口。</p></div>}
       </section>
     </div>
     <section className="panel mt-6 overflow-hidden" aria-labelledby="analysis-history-title">
       <div className="panel-header"><div><h2 id="analysis-history-title" className="section-title-sm">已保存结果</h2><p className="section-help">最近八项分析任务，可用于回顾研究假设和证据摘要。</p></div><History size={18} className="text-cinnabar" /></div>
       <div className="divide-y divide-pine/10">
         {loading ? <p className="empty-state min-h-48" role="status">正在读取分析记录…</p> : historyError ? <div className="notice-error" role="alert"><p>分析记录读取失败：{historyError} 已保存的任务不会因此删除。</p><button type="button" className="btn btn-secondary" onClick={() => setReload(value => value + 1)}>重新读取分析记录</button></div> : workspace?.tasks.length ? workspace.tasks.map((saved) => <article className="saved-analysis" key={saved.id}>
-          <div><p><button type="button" className="text-left hover:underline focus-visible:underline" disabled={submitting} onClick={() => { generation.current += 1; setTask(saved); }} aria-label={`查看结果：${String(saved.input_parameters.name ?? "规则分析任务")}`}>{String(saved.input_parameters.name ?? "规则分析任务")}</button></p><time dateTime={saved.created_at}>{new Date(saved.created_at).toLocaleDateString("zh-CN")}</time></div>
-          <span>{saved.result.summary}</span>
+          <div><p><button type="button" className="text-left hover:underline focus-visible:underline" disabled={submitting} onClick={() => selectSavedTask(saved)} aria-label={`查看结果：${String(saved.input_parameters.name ?? "规则分析任务")}`}>{String(saved.input_parameters.name ?? "规则分析任务")}</button></p><time dateTime={saved.created_at}>{new Date(saved.created_at).toLocaleDateString("zh-CN")}</time></div>
+          <span>{saved.status === "succeeded" ? saved.result.summary : ({ queued: "排队中", running: "分析中", failed: "分析失败", cancelled: "已取消" })[saved.status]}</span>
         </article>) : <div className="empty-state min-h-48"><FlaskConical size={24} /><strong>暂无保存结果</strong><p>完成第一项分析后，结果摘要会出现在这里。</p></div>}
       </div>
     </section>
