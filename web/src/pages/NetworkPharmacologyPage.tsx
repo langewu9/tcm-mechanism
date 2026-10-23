@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { Activity, ArrowLeft, Network, RefreshCw } from "lucide-react";
-import { getAnalysisTask, type AnalysisTask } from "../api/datasets";
+import { getAnalysisTask, getAnalysisTaskSummaries, type AnalysisTask } from "../api/datasets";
 import { createVisualization, runNetworkPharmacology, runReactomeEnrichment, runStringNetwork, type NetworkPharmacologyResult } from "../api/network";
 import { ApiError } from "../api/client";
 import { KnowledgeNetworkGraph } from "../components/KnowledgeNetworkGraph";
@@ -25,6 +25,49 @@ function verifyTaskSource(task: AnalysisTask, sourceTaskId: number, kind: string
   }
 }
 
+function isParentId(value: unknown, parentId: number) {
+  return value === parentId || value === String(parentId);
+}
+
+function verifyOverlapTask(task: AnalysisTask, sourceTaskId: number, requestedId?: number) {
+  if (!Number.isSafeInteger(task.id) || task.id < 1 || (requestedId !== undefined && task.id !== requestedId)
+    || task.task_type !== "visualization" || task.parent_task !== sourceTaskId
+    || task.input_parameters.analysisKind !== "r_visualization" || task.input_parameters.chartKey !== "overlap"
+    || !isParentId(task.input_parameters.parentTaskId, sourceTaskId)) {
+    throw new ApiError("R 图表任务与当前分析的来源关联不一致，暂不展示该图表。", "TASK_SOURCE_MISMATCH", null, null, 502);
+  }
+  if (task.status === "succeeded") {
+    const value = task.result as Record<string, unknown>;
+    if (value.taskId !== task.id || !isParentId(value.parentTaskId, sourceTaskId) || value.chartKey !== "overlap") {
+      throw new ApiError("R 图表结果与请求的任务编号不一致，暂不展示该图表。", "TASK_SOURCE_MISMATCH", null, null, 502);
+    }
+  }
+}
+
+async function restoreOverlapTask(sourceTaskId: number, isActive: () => boolean): Promise<AnalysisTask | null> {
+  const seen = new Set<number>();
+  for (let pageNumber = 1; isActive(); pageNumber++) {
+    // Only use the authenticated summaries endpoint; never follow a supplied next URL.
+    const page = await getAnalysisTaskSummaries(pageNumber, sourceTaskId);
+    if (!isActive()) return null;
+    let newRows = 0;
+    for (const summary of page.results) {
+      if (!seen.has(summary.id)) { seen.add(summary.id); newRows++; }
+      if (!Number.isSafeInteger(summary.id) || summary.id < 1 || summary.task_type !== "visualization"
+        || summary.parent_task !== sourceTaskId || summary.display_parameters?.analysisKind !== "r_visualization"
+        || summary.display_parameters.chartKey !== "overlap"
+        || !isParentId(summary.display_parameters.parentTaskId, sourceTaskId)) continue;
+      const task = await getAnalysisTask(summary.id);
+      if (!isActive()) return null;
+      verifyOverlapTask(task, sourceTaskId, summary.id);
+      return task;
+    }
+    if (!page.next) return null;
+    if (!newRows) throw new Error("R 图表历史分页响应无效，请重新读取。");
+  }
+  return null;
+}
+
 export function NetworkPharmacologyPage() {
   const location = useLocation();
   const [params, setParams] = useSearchParams();
@@ -43,6 +86,10 @@ export function NetworkPharmacologyPage() {
   const [pathwaySubmitting, setPathwaySubmitting] = useState(false);
   const [stringSubmitting, setStringSubmitting] = useState(false);
   const [visualizationSubmitting, setVisualizationSubmitting] = useState(false);
+  const [visualizationHistorySource, setVisualizationHistorySource] = useState<number | null>(null);
+  const [visualizationHistoryLoading, setVisualizationHistoryLoading] = useState(false);
+  const [visualizationHistoryError, setVisualizationHistoryError] = useState<string | null>(null);
+  const [visualizationHistoryReload, setVisualizationHistoryReload] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [pollingError, setPollingError] = useState<string | null>(null);
   const [caseContext, setCaseContext] = useState<{ caseId: number; candidateId: number } | null>(null);
@@ -69,6 +116,8 @@ export function NetworkPharmacologyPage() {
     if (!savedNetworkId || localSubmissionInFlight.current) return;
     const generation = ++queryGeneration.current;
     let active = true;
+    currentSourceTaskId.current = null;
+    setVisualizationBinding(null); setVisualizationHistorySource(null); setVisualizationHistoryError(null);
     setResult(null); setError(null); setBusy(true);
     setLocalProgress("正在读取已保存的本地分析…");
     async function restore() {
@@ -76,23 +125,40 @@ export function NetworkPharmacologyPage() {
         if (!/^[1-9]\d*$/.test(savedNetworkId!) || !Number.isSafeInteger(Number(savedNetworkId))) throw new Error("网络药理任务编号无效。");
         const source = await getAnalysisTask(Number(savedNetworkId));
         if (!active || !mounted.current || queryGeneration.current !== generation) return;
-        if (source.id !== Number(savedNetworkId) || source.task_type !== "network" || ["catalog_evidence", "disease_evidence"].includes(String(source.input_parameters.analysisKind))) throw new Error("该任务不是网络药理分析，请从对应目录查询打开。");
+        if (source.id !== Number(savedNetworkId) || source.task_type !== "network" || source.input_parameters.analysisKind !== "network_pharmacology") throw new Error("该任务不是网络药理分析，请从对应目录查询打开。");
         const task = await waitForCompleteTask(source, {
           isActive: () => active && mounted.current && queryGeneration.current === generation,
           onTask: current => setLocalProgress(`任务 #${current.id} · ${current.status} · ${current.progress}%`),
           onReadError: () => setLocalProgress("任务进度读取失败，正在重试读取已有任务…"),
         });
         if (!active || !mounted.current || queryGeneration.current !== generation) return;
+        if (task.id !== source.id || task.task_type !== "network" || task.input_parameters.analysisKind !== "network_pharmacology") throw new Error("历史任务来源不一致，请重新读取。");
         const data = task.result as unknown as NetworkPharmacologyResult;
         if (!data.summary || !Array.isArray(data.targets) || !data.network) throw new Error("任务没有可展示的网络药理结果。");
         currentSourceTaskId.current = task.id;
         setResult({ ...data, taskId: task.id }); setHerb(data.summary.herb); setDisease(data.summary.disease);
+        setVisualizationHistorySource(task.id);
       } catch (cause) { if (active && mounted.current && queryGeneration.current === generation) setError(cause instanceof Error ? cause.message : "历史分析读取失败，请刷新重试。"); }
       finally { if (active && mounted.current && queryGeneration.current === generation) setBusy(false); }
     }
     void restore();
     return () => { active = false; };
   }, [savedNetworkId]);
+
+  useEffect(() => {
+    if (visualizationHistorySource === null) { setVisualizationHistoryLoading(false); return; }
+    const sourceTaskId = visualizationHistorySource;
+    const generation = queryGeneration.current;
+    let active = true;
+    const isActive = () => active && isCurrentQuery(generation, sourceTaskId);
+    setVisualizationHistoryLoading(true); setVisualizationHistoryError(null);
+    void restoreOverlapTask(sourceTaskId, isActive).then(task => {
+      if (isActive()) setVisualizationBinding(task ? { sourceTaskId, task } : null);
+    }).catch(() => {
+      if (isActive()) setVisualizationHistoryError("历史 R 图表读取失败，主分析结果已保留。可重新读取历史图表，不会自动重新绘图。");
+    }).finally(() => { if (isActive()) setVisualizationHistoryLoading(false); });
+    return () => { active = false; };
+  }, [visualizationHistorySource, visualizationHistoryReload]);
 
   useEffect(() => {
     if (!location.state || typeof location.state !== "object") return;
@@ -121,8 +187,12 @@ export function NetworkPharmacologyPage() {
         if (!binding || !active || !isCurrentQuery(generation, binding.sourceTaskId)) return false;
         try {
           const latest = await getAnalysisTask(binding.task.id);
-          if (!active || !isCurrentQuery(generation, binding.sourceTaskId) || latest.id !== binding.task.id) return false;
-          verifyTaskSource(latest, binding.sourceTaskId, kind);
+          if (!active || !isCurrentQuery(generation, binding.sourceTaskId)) return false;
+          if (kind === "r_visualization") verifyOverlapTask(latest, binding.sourceTaskId, binding.task.id);
+          else {
+            if (latest.id !== binding.task.id) throw new Error("任务编号与读取请求不一致。");
+            verifyTaskSource(latest, binding.sourceTaskId, kind);
+          }
           update((current) => current?.sourceTaskId === binding.sourceTaskId && current.task.id === latest.id ? { sourceTaskId: binding.sourceTaskId, task: latest } : current);
           return true;
         } catch (cause) {
@@ -153,6 +223,9 @@ export function NetworkPharmacologyPage() {
     setPathwayBinding(null);
     setStringBinding(null);
     setVisualizationBinding(null);
+    setVisualizationHistorySource(null);
+    setVisualizationHistoryError(null);
+    setVisualizationHistoryLoading(false);
     setPathwaySubmitting(false);
     setStringSubmitting(false);
     setVisualizationSubmitting(false);
@@ -227,7 +300,7 @@ export function NetworkPharmacologyPage() {
   }
 
   async function requestVisualization() {
-    if (!result || visualizationSubmitting || Boolean(visualizationTask && ["queued", "running"].includes(visualizationTask.status))) return;
+    if (!result || visualizationSubmitting || visualizationHistoryLoading || Boolean(visualizationTask && ["queued", "running"].includes(visualizationTask.status))) return;
     const generation = queryGeneration.current;
     const sourceTaskId = result.taskId;
     if (!isCurrentQuery(generation, sourceTaskId) || submittingGeneration.current.visualization === generation) return;
@@ -236,7 +309,7 @@ export function NetworkPharmacologyPage() {
     setVisualizationSubmitting(true);
     try {
       const task = await createVisualization(sourceTaskId, "overlap");
-      verifyTaskSource(task, sourceTaskId, "r_visualization");
+      verifyOverlapTask(task, sourceTaskId);
       if (isCurrentQuery(generation, sourceTaskId)) setVisualizationBinding({ sourceTaskId, task });
     } catch (cause) { if (isCurrentQuery(generation, sourceTaskId)) setError(errorMessage(cause)); }
     finally {
@@ -265,7 +338,9 @@ export function NetworkPharmacologyPage() {
           {!result ? <div className="panel empty-state"><Network size={27} /><strong>等待查询条件</strong><p>数据会在本地知识目录中检索，不会调用外部服务。</p></div> : <>
             <div className="case-list-heading"><div><p className="page-kicker">Evidence-backed result</p><h2 className="section-title-sm">分析任务 #{result.taskId}</h2></div><span className="status-badge status-success">已保存，可在任务记录中追溯</span></div>
             <div className="panel proteomics-result-panel">
-              <div className="source-record-actions"><button className="btn btn-secondary" type="button" disabled={visualizationSubmitting || Boolean(visualizationTask && ["queued", "running"].includes(visualizationTask.status))} onClick={() => void requestVisualization()}>生成 R 图表</button></div>
+              <div className="source-record-actions"><button className="btn btn-secondary" type="button" disabled={visualizationSubmitting || visualizationHistoryLoading || Boolean(visualizationTask && ["queued", "running"].includes(visualizationTask.status))} onClick={() => void requestVisualization()}>生成 R 图表</button></div>
+              {visualizationHistoryLoading && <p className="section-help" role="status">正在读取已保存的 R 图表…</p>}
+              {visualizationHistoryError && <div className="notice-error" role="alert"><p>{visualizationHistoryError}</p><button className="btn btn-secondary" type="button" disabled={visualizationSubmitting || visualizationHistoryLoading} onClick={() => setVisualizationHistoryReload(value => value + 1)}>重新读取历史 R 图表</button></div>}
               {visualizationTask && <VisualizationResult task={visualizationTask} />}
               <div className="proteomics-metrics">
                 <Metric label="匹配中药靶点" value={result.summary.herbTargetCount} />

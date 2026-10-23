@@ -27,14 +27,21 @@ export async function restoreLatestAssistantTask(taskId?: number) {
   return latest ? hydrate(latest) : null;
 }
 
-export async function restoreProteomicsTasks() {
-  const page = await getAnalysisTaskSummaries(1, undefined, "proteomics");
-  const latest = page.results.find(item => item.task_type === "proteomics");
-  if (!latest) return { task: null, visualizationTask: null, volcanoVisualizationTask: null, figureError: null };
-  const task = await hydrate(latest);
+export async function restoreProteomicsTasks(taskId?: number) {
+  let task: AnalysisTask;
+  if (taskId !== undefined) {
+    if (!Number.isSafeInteger(taskId) || taskId < 1) throw new Error("蛋白组学任务编号无效。");
+    task = await getAnalysisTask(taskId);
+    if (task.id !== taskId || task.task_type !== "proteomics") throw new Error("蛋白组学任务编号或类型不一致。");
+  } else {
+    const page = await getAnalysisTaskSummaries(1, undefined, "proteomics");
+    const latest = page.results.find(item => item.task_type === "proteomics");
+    if (!latest) return { task: null, visualizationTask: null, volcanoVisualizationTask: null, figureError: null };
+    task = await hydrate(latest);
+  }
   try {
-    const figures = await getAnalysisTaskSummaries(1, latest.id);
-    const jobs = await restoreGalleryJobs(figures.results, latest.id,
+    const figures = await getAnalysisTaskSummaries(1, task.id);
+    const jobs = await restoreGalleryJobs(figures.results, task.id,
       new Set(["proteomics_go_kegg_enrichment", "proteomics_volcano"]), figures.next);
     return { task, visualizationTask: jobs.proteomics_go_kegg_enrichment ?? null,
       volcanoVisualizationTask: jobs.proteomics_volcano ?? null, figureError: null };

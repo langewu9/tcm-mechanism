@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { Activity, ArrowLeft, Download, Play, RefreshCw } from "lucide-react";
 import {
   getAnalysisTask,
@@ -145,6 +145,9 @@ function downloadBlob(filename: string, blob: Blob) {
 }
 
 export function ProteomicsPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const savedTaskId = searchParams.get("proteomicsTask");
+  const adoptedTaskId = useRef<string | null>(null);
   const mounted = useRef(false);
   const generation = useRef(0);
   const submissionInFlight = useRef(false);
@@ -218,11 +221,27 @@ export function ProteomicsPage() {
   }, [datasetPageNumber, datasetReload]);
 
   useEffect(() => {
+    // The just-created response is already verified. Updating its URL must not
+    // discard it or create a competing restoration request.
+    if (savedTaskId !== null && adoptedTaskId.current === savedTaskId) {
+      adoptedTaskId.current = null;
+      return;
+    }
+    adoptedTaskId.current = null;
+    const current = ++generation.current;
     let active = true;
+    setTask(null); setVisualizationTask(null); setVolcanoVisualizationTask(null);
+    setShowRows(false); setRowPage(null); setRowPageNumber(1); setRowError(null);
+    setError(null); setNotice(null); setPollError(null); setPollFailures(0);
+    setSubmitting(false); setVisualizationSubmitting(false);
     setRestoring(true); setRestoreError(null);
-    restoreProteomicsTasks()
+    if (savedTaskId !== null && (!/^[1-9]\d*$/.test(savedTaskId) || !Number.isSafeInteger(Number(savedTaskId)))) {
+      setRestoreError("蛋白组学任务编号无效。"); setRestoring(false);
+      return () => { active = false; };
+    }
+    restoreProteomicsTasks(savedTaskId === null ? undefined : Number(savedTaskId))
       .then((restored) => {
-        if (!active) return;
+        if (!active || !mounted.current || generation.current !== current) return;
         const latestTask = restored.task;
         if (latestTask) {
           setTask(latestTask);
@@ -231,10 +250,10 @@ export function ProteomicsPage() {
         }
         setRestoreError(restored.figureError ?? null);
       })
-      .catch((cause: unknown) => { if (active) setRestoreError(errorMessage(cause)); })
-      .finally(() => { if (active) setRestoring(false); });
+      .catch((cause: unknown) => { if (active && mounted.current && generation.current === current) setRestoreError(errorMessage(cause)); })
+      .finally(() => { if (active && mounted.current && generation.current === current) setRestoring(false); });
     return () => { active = false; };
-  }, [restoreAttempt]);
+  }, [restoreAttempt, savedTaskId]);
 
   useEffect(() => {
     const current = generation.current;
@@ -407,10 +426,17 @@ export function ProteomicsPage() {
         stringRequiredScore: Number(stringRequiredScore),
       });
       if (!mounted.current || generation.current !== current) return;
-      if (taskResponse.task_type !== "proteomics" || taskResponse.dataset !== selectedDataset.id) {
+      if (!Number.isSafeInteger(taskResponse.id) || taskResponse.id < 1
+        || taskResponse.task_type !== "proteomics" || taskResponse.dataset !== selectedDataset.id) {
         throw new ApiError("返回的任务与本次数据集不一致，请重新读取任务记录。", "TASK_SOURCE_MISMATCH", null, null, 502);
       }
       setTask(taskResponse);
+      adoptedTaskId.current = String(taskResponse.id);
+      setSearchParams(previous => {
+        const next = new URLSearchParams(previous);
+        next.set("proteomicsTask", String(taskResponse.id));
+        return next;
+      }, { replace: true });
       setNotice(`分析任务 #${taskResponse.id} 已进入后台队列。`);
     } catch (cause) {
       if (mounted.current && generation.current === current) setError(errorMessage(cause));

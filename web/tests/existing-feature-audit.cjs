@@ -7,7 +7,7 @@ require.extensions['.ts']=(module,file)=>module._compile(compile(file),file);
 const {ApiError}=load('./src/api/client.ts');
 const jsx=(type,props)=>({type,props});
 const deferred=(name,calls)=>(...args)=>new Promise((resolve,reject)=>calls.push({name,args,resolve,reject}));
-function harness(relative,imports){
+function harness(relative,imports,router={Link:'Link',useSearchParams:()=>[new URLSearchParams(),()=>{}]}){
   const hooks=[];let cursor=0,effects=[],dirty=false,value,writes=0;
   const react={
     useState(initial){const i=cursor++;hooks[i]??={value:typeof initial==='function'?initial():initial};return [hooks[i].value,next=>{writes++;const current=typeof next==='function'?next(hooks[i].value):next;if(!Object.is(current,hooks[i].value)){hooks[i].value=current;dirty=true;}}];},
@@ -16,7 +16,7 @@ function harness(relative,imports){
     useMemo(fn){return fn();},useCallback(fn){return fn;},
   };
   const file=path.join(root,relative),subject=new Module(file);
-  subject.require=name=>name==='react'?react:name==='react/jsx-runtime'?{jsx,jsxs:jsx}:name==='lucide-react'?new Proxy({},{get:(_,key)=>key}):name==='react-router-dom'?{Link:'Link'}:name==='../api/client'?{ApiError}:imports[name]??(()=>{throw new Error(name);})();
+  subject.require=name=>name==='react'?react:name==='react/jsx-runtime'?{jsx,jsxs:jsx}:name==='lucide-react'?new Proxy({},{get:(_,key)=>key}):name==='react-router-dom'?router:name==='../api/client'?{ApiError}:imports[name]??(()=>{throw new Error(name);})();
   subject._compile(compile(file),file);
   return {get value(){return value;},get writes(){return writes;},render(name){this.name=name??this.name;let guard=0;do{assert.ok(guard++<25,'Unbounded render');dirty=false;cursor=0;effects=[];value=subject.exports[this.name](this.props??{});effects.forEach(run=>run());}while(dirty);},cleanup(){hooks.forEach(item=>item?.cleanup?.());}};
 }
@@ -30,8 +30,8 @@ const dataset=id=>({id,name:'SYNTHETIC '+id,original_filename:'synthetic.csv',co
 let timers,id=0;
 function clock(){timers=new Map();global.window={setTimeout(fn){timers.set(++id,fn);return id;},clearTimeout(key){timers.delete(key);}};}
 function tick(){const pending=[...timers.values()];timers.clear();pending.forEach(fn=>fn());}
-function proteomics(){
-  clock();const calls=[];
+function proteomics(initialSearch=''){
+  clock();const calls=[],navigations=[];let params=new URLSearchParams(initialSearch);
   const h=harness('src/pages/ProteomicsPage.tsx',{
     '../api/datasets':Object.fromEntries(['getDatasets','getDataset','getAnalysisTask','getProteomicsRows','runProteomicsAnalysis','exportProteomicsResults'].map(name=>[name,deferred(name,calls)])),
     '../api/task-restoration':{restoreProteomicsTasks:deferred('restore',calls)},
@@ -39,11 +39,11 @@ function proteomics(){
     '../components/StringNetworkResult':{StringNetworkResult:'StringNetworkResult'},
     '../components/RAnalysisGallery':{RAnalysisGallery:'RAnalysisGallery'},
     '../components/RDemoGallery':{RDemoGallery:'RDemoGallery'},
-  });
+  },{Link:'Link',useSearchParams:()=>[params,(next,options)=>{params=typeof next==='function'?next(params):new URLSearchParams(next);navigations.push({search:params.toString(),replace:options?.replace});}]});
   h.render('ProteomicsPage');
   const called=name=>calls.filter(call=>call.name===name);
   const ready=async(saved=null,next=null,figures={})=>{called('getDatasets')[0].resolve(page([dataset(10)],next));called('restore')[0].resolve({task:saved,visualizationTask:null,volcanoVisualizationTask:null,...figures});await flush(h);};
-  return {h,calls,called,ready};
+  return {h,calls,called,ready,navigations,navigate(search){params=new URLSearchParams(search);h.render();}};
 }
 const checks=[];
 function check(name,run){checks.push({name,run});}
@@ -57,8 +57,73 @@ check('Latest proteomics is found independently of newer tasks; figures are rest
   assert.equal(restored.task?.id,1);assert.equal(restored.visualizationTask?.id,60);assert.equal(restored.volcanoVisualizationTask?.id,2);
   assert.ok(calls.some(args=>args[1]===1),'Figure reads must be scoped to the saved parent');
 });
+check('Fixed proteomics restores its own figures across pages without reading the newest parent',async()=>{
+  const file=path.join(root,'src/api/task-restoration.ts'),subject=new Module(file),calls=[],details=[];
+  const figure=(id,parent,key)=>({id,task_type:'visualization',parent_task:parent,display_parameters:{analysisKind:'r_visualization',parentTaskId:parent,chartKey:key}});
+  subject.require=()=>({
+    getAnalysisTaskSummaries:async(number,parent,type)=>{calls.push([number,parent,type]);assert.equal(parent,10);return number===1?page([figure(11,10,'proteomics_volcano')],'next'):page([figure(12,10,'proteomics_go_kegg_enrichment')]);},
+    getAnalysisTask:async id=>{details.push(id);return task(id,'succeeded',id===10?'proteomics':'visualization',id===10?null:10);},
+  });subject._compile(compile(file),file);
+  const restored=await subject.exports.restoreProteomicsTasks(10);
+  assert.equal(restored.task.id,10);assert.equal(restored.volcanoVisualizationTask.id,11);assert.equal(restored.visualizationTask.id,12);
+  assert.deepEqual(details,[10,11,12]);assert.deepEqual(calls,[[1,10,undefined],[2,10,undefined]]);
+});
 check('Proteomics blocks duplicate submits before a rerender',async()=>{
   const {h,called,ready}=proteomics();try{await ready();const submit=find(h,n=>n.type==='form').props.onSubmit;submit({preventDefault(){}});submit({preventDefault(){}});assert.equal(called('runProteomicsAnalysis').length,1);}finally{h.cleanup();}
+});
+check('Creating from an older fixed task updates the URL without losing the new saved result',async()=>{
+  const {h,called,ready,navigations}=proteomics('proteomicsTask=10&keep=1');
+  try{
+    await ready(task(10,'succeeded'));
+    find(h,node=>node.type==='form').props.onSubmit({preventDefault(){}});
+    called('runProteomicsAnalysis')[0].resolve(task(30,'succeeded'));await flush(h);
+    assert.equal(find(h,node=>node.type?.name==='ProteomicsResultView').props.task.id,30);
+    assert.deepEqual(navigations,[{search:'proteomicsTask=30&keep=1',replace:true}]);
+    assert.equal(called('restore').length,1,'Adopting the accepted task must not start a competing read');
+    const refreshed=proteomics('proteomicsTask=30');
+    try{assert.deepEqual(refreshed.called('restore')[0].args,[30]);}finally{refreshed.h.cleanup();}
+  }finally{h.cleanup();}
+});
+check('Fixed proteomics links keep their task ID on read retries and clear a previous result on access failure',async()=>{
+  const {h,called,ready,navigate}=proteomics('proteomicsTask=10');
+  try{
+    assert.deepEqual(called('restore')[0].args,[10]);await ready(task(10,'succeeded'));
+    assert.ok(text(h.value).includes('任务 #10'));
+    navigate('proteomicsTask=20');assert.deepEqual(called('restore')[1].args,[20]);
+    assert.ok(!text(h.value).includes('任务 #10'),'Changing the fixed ID immediately clears the earlier result');
+    called('restore')[1].reject(new ApiError('没有访问权限','FORBIDDEN',null,null,403));await flush(h);
+    assert.ok(!nodes(h.value).some(n=>n.type?.name==='ProteomicsResultView'));
+    assert.ok(text(h.value).includes('没有访问权限'));
+    find(h,n=>n.type==='button'&&text(n)==='重新读取历史任务').props.onClick();h.render();
+    assert.deepEqual(called('restore')[2].args,[20],'Retry must preserve the inaccessible fixed ID');
+    assert.equal(called('runProteomicsAnalysis').length,0);
+  }finally{h.cleanup();}
+});
+check('Changing a proteomics fixed link suppresses late restoration from the previous URL',async()=>{
+  const {h,called,navigate}=proteomics('proteomicsTask=10');
+  try{
+    called('getDatasets')[0].resolve(page([dataset(10)]));navigate('proteomicsTask=20');
+    called('restore')[1].resolve({task:task(20,'succeeded'),visualizationTask:null,volcanoVisualizationTask:null});await flush(h);
+    called('restore')[0].resolve({task:task(10,'succeeded'),visualizationTask:null,volcanoVisualizationTask:task(11,'succeeded','visualization',10)});await flush(h);
+    assert.equal(find(h,n=>n.type?.name==='ProteomicsResultView').props.task.id,20);
+    assert.equal(find(h,n=>n.type?.name==='ProteomicsResultView').props.volcanoVisualizationTask,null);
+    assert.deepEqual(called('restore').map(call=>call.args),[[10],[20]]);
+  }finally{h.cleanup();}
+});
+check('Changing a proteomics fixed link suppresses late progress from the previous task',async()=>{
+  const {h,called,ready,navigate}=proteomics('proteomicsTask=10');
+  try{
+    await ready(task(10));tick();assert.equal(called('getAnalysisTask')[0].args[0],10);
+    navigate('proteomicsTask=20');called('restore')[1].resolve({task:task(20,'succeeded'),visualizationTask:null,volcanoVisualizationTask:null});await flush(h);
+    called('getAnalysisTask')[0].resolve(task(10,'succeeded'));await flush(h);
+    assert.equal(find(h,n=>n.type?.name==='ProteomicsResultView').props.task.id,20);
+  }finally{h.cleanup();}
+});
+check('Invalid proteomics URL IDs do not restore any recent task',async()=>{
+  for(const value of ['', '0','-1','1.5','abc','9007199254740992']) {
+    const {h,called}=proteomics('proteomicsTask='+value);
+    try{assert.equal(called('restore').length,0);assert.ok(text(h.value).includes('蛋白组学任务编号无效'));assert.ok(!nodes(h.value).some(n=>n.type?.name==='ProteomicsResultView'));}finally{h.cleanup();}
+  }
 });
 check('Proteomics progress recovers from one transient read failure without creating a job',async()=>{
   const {h,called,ready}=proteomics();try{await ready(task(20));tick();called('getAnalysisTask')[0].reject(new ApiError('暂时断开','NETWORK_ERROR',null,null,0));await flush(h);assert.ok(timers.size,'Read failures must schedule another read');tick();assert.equal(called('getAnalysisTask').length,2);assert.equal(called('runProteomicsAnalysis').length,0);called('getAnalysisTask')[1].resolve(task(20,'succeeded'));await flush(h);assert.ok(text(h.value).includes('任务 #20'));}finally{h.cleanup();}

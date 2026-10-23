@@ -4,11 +4,11 @@ const assert=require('node:assert/strict');
 const root=path.resolve(__dirname,'..'),load=Module.createRequire(path.join(root,'package.json'));
 const ts=load('typescript');
 const filename=path.join(root,'src/api/task-restoration.ts'),subject=new Module(filename);
-let rows=[],details=new Map(),requested=[],listError=null;
+let rows=[],details=new Map(),requested=[],listRequested=[],listError=null;
 subject.require=name=>{
   assert.equal(name,'./datasets');
   return {
-    getAnalysisTaskSummaries:async()=>{if(listError)throw listError;return {results:rows};},
+    getAnalysisTaskSummaries:async(...args)=>{listRequested.push(args);if(listError)throw listError;return {results:rows};},
     getAnalysisTask:async id=>{requested.push(id);const detail=details.get(id);if(detail instanceof Error)throw detail;return detail;},
   };
 };
@@ -18,7 +18,7 @@ const summary=(id,type='visualization',parent=10,key='proteomics_volcano')=>({
   id,task_type:type,parent_task:parent,status:'succeeded',
   display_parameters:{analysisKind:'r_visualization',parentTaskId:String(parent),chartKey:key},
 });
-function reset(values){rows=values;requested=[];listError=null;details=new Map(values.map(item=>[item.id,{
+function reset(values){rows=values;requested=[];listRequested=[];listError=null;details=new Map(values.map(item=>[item.id,{
   id:item.id,task_type:item.task_type,parent_task:item.parent_task,status:item.status,
   input_parameters:{full:'ORIGINAL_INPUT',...item.display_parameters},result:{artifacts:[{id:item.id,downloadUrl:'/private/'+item.id}]},
 }]));}
@@ -47,6 +47,24 @@ function reset(values){rows=values;requested=[];listError=null;details=new Map(v
   await assert.rejects(restoreProteomicsTasks,/没有权限/);
   reset([]);listError=new Error('离线');await assert.rejects(restoreProteomicsTasks,/离线/);
   assert.deepEqual(requested,[],'No fallback to downloading a full task list');
+
+  reset([summary(20,'proteomics',null),summary(10,'proteomics',null),summary(14)]);
+  const selected=await restoreProteomicsTasks(10);
+  assert.equal(selected.task.id,10,'A fixed link restores task 10 even when task 20 is newer');
+  assert.deepEqual(requested,[10,14]);
+  assert.deepEqual(listRequested,[[1,10]],'Only figures for the requested parent are listed; latest analysis is not read');
+  for(const id of [0,-1,NaN,Infinity,1.5,Number.MAX_SAFE_INTEGER+1]) {
+    reset([]);await assert.rejects(()=>restoreProteomicsTasks(id),/任务编号无效/);
+    assert.deepEqual(requested,[]);assert.deepEqual(listRequested,[],'Invalid IDs do not read or fall back to recent tasks');
+  }
+  for(const mismatch of [{id:99,task_type:'proteomics'},{id:10,task_type:'network'}]) {
+    reset([summary(20,'proteomics',null)]);details.set(10,mismatch);
+    await assert.rejects(()=>restoreProteomicsTasks(10),/任务编号或类型不一致/);
+    assert.deepEqual(requested,[10]);assert.deepEqual(listRequested,[],'Mismatched fixed tasks never fall back');
+  }
+  reset([summary(20,'proteomics',null)]);details.set(10,new Error('没有权限'));
+  await assert.rejects(()=>restoreProteomicsTasks(10),/没有权限/);
+  assert.deepEqual(requested,[10]);assert.deepEqual(listRequested,[],'An inaccessible fixed task cannot display a newer one');
 
   // Exercise the real gallery effect when parent navigation changes during hydration.
   const hooks=[],calls=[];let cursor=0,effects=[],dirty=false,tree,currentId=10;
@@ -83,5 +101,5 @@ function reset(values){rows=values;requested=[];listError=null;details=new Map(v
   newHydration.resolve({});await Promise.resolve();await Promise.resolve();
   assert.equal(hooks[0].value,verifiedParent,'Unmount suppresses the second asynchronous restoration');
   assert.deepEqual(hooks[1].value,{},'Unmounted hydration cannot populate private figure jobs');
-  console.log('PASS: summary endpoint, selective latest task hydration, full results retained, ownership errors, gallery navigation/unmount isolation.');
+  console.log('PASS: summary endpoint, selective latest and fixed proteomics hydration, no fallback on invalid/mismatched/inaccessible IDs, full results retained, gallery navigation/unmount isolation.');
 })().catch(error=>{console.error(error.stack);process.exitCode=1;});

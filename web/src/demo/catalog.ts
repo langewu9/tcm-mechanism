@@ -29,7 +29,7 @@ export const demoCase = {
 };
 export const demoModules = [
   { key: "overview", label: "研究总览", route: "/dashboard", stages: ["查看资产", "查看任务", "进入研究模块"], gap: "真实目录与资产数量以工作区统计为准；演示统计独立展示。", input: { datasets: 1, cases: 1, entities: 6, relations: 5 } },
-  { key: "research", label: "药理检索", route: "/research", stages: ["选择查询", "筛选记录", "核查来源"], gap: "本地数据需正式导入；ChEMBL 等外部检索需逐次同意。", input: { query: "演示", entities: demoEntities, relations: demoRelations, source: "SYNTHETIC_NOT_DATABASE" } },
+  { key: "research", label: "药理检索", route: "/research", stages: ["选择查询", "筛选记录", "核查来源"], gap: "业务工作区读取管理员导入的版本化本地目录；此演示仅用合成数据。ChEMBL 等外部检索需逐次同意。", input: { query: "演示", entities: demoEntities, relations: demoRelations, source: "SYNTHETIC_NOT_DATABASE" } },
   { key: "datasets", label: "数据资产", route: "/datasets", stages: ["选择合成数据", "检查字段", "下载演示 key"], gap: "工作区支持上传、私有下载及保留原文件的归档/恢复；生产存储与备份仍需验收。演示不入库。", input: { filename: "synthetic-proteomics-demo.json", columns: ["label", "log2FoldChange", "pValue", "fdr"], rows: demoProteinRows } },
   { key: "proteomics", label: "蛋白组学", route: "/proteomics", stages: ["检查输入", "本地阈值筛选", "查看 R 图表"], gap: "本地映射依赖知识库；真实富集/PPI 需有结果；PCA/热图/GSEA 仍待实现。", input: { log2FcMin: 1, fdrMax: 0.05, rows: demoProteinRows } },
   { key: "network", label: "网络药理与图谱", route: "/visualization", stages: ["中药侧/疾病侧", "计算交集", "核查关系"], gap: "演示关系全部虚构，不冒充 STRING 或数据库查询。", input: { herbTargets: ["DEMO:G1", "DEMO:G2"], diseaseTargets: ["DEMO:G1", "DEMO:G3"], network: demoNetwork } },
