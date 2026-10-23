@@ -101,6 +101,10 @@ function mappingStatusLabel(status: string) {
 }
 
 function qualityReasonLabel(reason: string) {
+  const sampleFormatPrefix = "ambiguous_sample_numeric_format:";
+  if (reason.startsWith(sampleFormatPrefix)) {
+    return `样本列 ${reason.slice(sampleFormatPrefix.length)} 含逗号数值格式，含义不明确，未转换`;
+  }
   return ({
     missing_identifier: "缺少基因/蛋白标识",
     invalid_sample_values: "样本数值非法",
@@ -119,6 +123,11 @@ function qualityReasonLabel(reason: string) {
     missing_significance: "缺少显著性数值",
     invalid_significance: "显著性数值非法",
     invalid_numeric_value: "包含非法统计数值",
+    ambiguous_numeric_format: "含逗号数值格式，含义不明确，未转换",
+    ambiguous_log2fc_numeric_format: "log2FC 含逗号数值格式，含义不明确，未转换",
+    ambiguous_p_value_numeric_format: "P 值含逗号数值格式，含义不明确，未转换",
+    ambiguous_fdr_numeric_format: "FDR 含逗号数值格式，含义不明确，未转换",
+    ambiguous_sample_numeric_format: "样本值含逗号数值格式，含义不明确，未转换",
     fdr_above_threshold: "FDR 超过阈值",
     p_value_above_threshold: "P 值超过阈值",
     local_target_name_only: "旧库仅有靶点名称，规范基因标识待核对",
@@ -554,7 +563,7 @@ export function ProteomicsPage() {
                 <label className="form-label">FDR ≤<input className="field" type="number" min="0" max="1" step="0.01" value={thresholds.fdrMax} onChange={(event) => setThresholds((value) => ({ ...value, fdrMax: event.target.value }))} /></label>
                 <label className="form-label">P 值 ≤<input className="field" type="number" min="0" max="1" step="0.01" value={thresholds.pValueMax} onChange={(event) => setThresholds((value) => ({ ...value, pValueMax: event.target.value }))} /></label>
               </div>
-              <label className="form-label" htmlFor="proteomics-reference">候选靶点（可选）
+              <label className="form-label" htmlFor="proteomics-reference">参考符号（可选，用于名称对照）
                 <textarea className="field case-textarea case-textarea-short" id="proteomics-reference" value={referenceTargets} onChange={(event) => setReferenceTargets(event.target.value)} placeholder="TP53, IL6, MAPK1" />
               </label>
               <label className="proteomics-consent">
@@ -639,7 +648,7 @@ function ProteomicsResultView({
       <Metric label="本地映射" value={result.summary.databaseMappedCount} note={`外部映射 ${result.summary.externalMappedCount ?? 0} · 格式推测 ${result.summary.unverifiedSymbolCount}`} />
       <Metric label="未映射" value={result.summary.unmappedCount} />
       <Metric label="本地通路" value={result.summary.pathwayCount} />
-      <Metric label="候选交集" value={result.summary.candidateOverlapCount} />
+      <Metric label="入选符号重叠" value={result.summary.candidateOverlapCount} />
     </div>
 
     {result.differentialAnalysis && <section className="panel raw-matrix-method">
@@ -709,12 +718,13 @@ function ProteomicsResultView({
     </section>
 
     <section className="proteomics-result-section">
-      <h3 className="section-title-sm">与候选靶点交叉验证</h3>
+      <h3 className="section-title-sm">参考符号对照</h3>
+      <p className="section-help">这里只比较通过筛选的符号与输入参考符号的名称集合，可能包含未核实项；名称重叠不代表同物种身份已确认或生物学交叉验证。“参考中未入选”不等于实验未测到。</p>
       {result.validation.referenceTargets.length ? <div className="proteomics-validation-grid">
-        <div><span>共同靶点</span><p>{result.validation.overlap.join("、") || "无"}</p></div>
-        <div><span>组学特有</span><p>{result.validation.proteomicsOnly.slice(0, 30).join("、") || "无"}</p></div>
-        <div><span>候选未检出</span><p>{result.validation.referenceOnly.slice(0, 30).join("、") || "无"}</p></div>
-      </div> : <p className="section-help">本次未输入候选靶点，只生成蛋白组学内部结果。</p>}
+        <div><span>入选符号重叠</span><p>{result.validation.overlap.join("、") || "无"}</p></div>
+        <div><span>入选但不在参考集</span><p>{result.validation.proteomicsOnly.slice(0, 30).join("、") || "无"}</p></div>
+        <div><span>参考中未入选</span><p>{result.validation.referenceOnly.slice(0, 30).join("、") || "无"}</p></div>
+      </div> : <p className="section-help">本次未输入参考符号，只生成蛋白组学内部结果。</p>}
     </section>
 
     <section className="proteomics-result-section">

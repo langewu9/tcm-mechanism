@@ -28,7 +28,7 @@ from apps.proteomics.models import ProteomicsRowResult
 from apps.proteomics.raw_matrix import analyze_raw_matrix
 
 
-ALGORITHM_VERSION = "proteomics-py-1.10"
+ALGORITHM_VERSION = "proteomics-py-1.11"
 MAX_CELL_CHARACTERS = 50_000
 MAX_XLSX_EXPANDED_BYTES = 512 * 1024 * 1024
 PATHWAY_RELATION_TYPES = {
@@ -330,9 +330,13 @@ def resolve_mapping(columns: list[str], requested: dict[str, str]) -> ColumnMapp
 
 
 def _number(value: str) -> tuple[float | None, str | None]:
-    text = value.strip().replace(",", "")
+    text = value.strip()
     if text.lower() in MISSING_VALUES:
         return None, None
+    # No numeric locale has been declared. A comma may be a decimal or
+    # thousands separator; removing it would silently change the measurement.
+    if "," in text:
+        return None, "ambiguous_numeric_format"
     is_percent = text.endswith("%")
     try:
         parsed = float(text[:-1] if is_percent else text)
@@ -360,6 +364,7 @@ def _parse_rows(
     duplicate_labels: Counter[str] = Counter()
     missing_identifier_count = 0
     invalid_numeric_row_count = 0
+    ambiguous_numeric_row_count = 0
     reason_counts: Counter[str] = Counter()
 
     for row_index, raw in enumerate(rows):
@@ -386,6 +391,9 @@ def _parse_rows(
         if invalid_numeric:
             invalid_numeric_row_count += 1
             reasons.append("invalid_numeric_value")
+        if "ambiguous_numeric_format" in (log2fc_error, p_error, fdr_error):
+            ambiguous_numeric_row_count += 1
+            reasons.append("ambiguous_numeric_format")
         for field_name, field_error in (
             ("log2fc", log2fc_error),
             ("p_value", p_error),
@@ -393,6 +401,8 @@ def _parse_rows(
         ):
             if field_error:
                 qc_warnings.append(f"invalid_{field_name}")
+                if field_error == "ambiguous_numeric_format":
+                    qc_warnings.append(f"ambiguous_{field_name}_numeric_format")
 
         if label:
             duplicate_labels[_canonical_label(label)] += 1
@@ -442,6 +452,7 @@ def _parse_rows(
         "missingIdentifierCount": missing_identifier_count,
         "duplicateIdentifierCount": duplicate_count,
         "invalidNumericValueRowCount": invalid_numeric_row_count,
+        "ambiguousNumericFormatRowCount": ambiguous_numeric_row_count,
         "excludedRowCount": sum(not row.selected for row in output),
         "excludedReasonCounts": dict(sorted(reason_counts.items())),
         "selectedRowCount": sum(row.selected for row in output),
@@ -783,6 +794,11 @@ def _build_result(
         warnings.append("未配置 FDR/P 值列，本次没有按统计显著性筛选。")
     if qc["duplicateIdentifierCount"]:
         warnings.append("文件中存在重复标识；重复行已保留并分别计入结果。")
+    if qc["ambiguousNumericFormatRowCount"]:
+        warnings.append(
+            "数值字段中的逗号含义未声明，未按小数点或千分位猜测转换；"
+            "相关行已排除，请核对行级质量说明及原文件。"
+        )
     if heuristic_mapped:
         warnings.append("部分标识仅符合基因符号格式，未在本地知识库核实，请人工确认。")
     if any("local_target_name_only" in row.qc_warnings for row in selected_rows):
@@ -890,6 +906,7 @@ def run_proteomics_analysis(task: AnalysisTask) -> tuple[dict[str, Any], list[Pr
         qc["excludedRowCount"] = sum(not row.selected for row in rows)
         qc["selectedRowCount"] = sum(row.selected for row in rows)
         qc["invalidNumericValueRowCount"] += matrix_details["qc"]["rowsWithInvalidSampleValues"]
+        qc["ambiguousNumericFormatRowCount"] += matrix_details["qc"]["rowsWithAmbiguousNumericFormat"]
         qc["rawMatrix"] = matrix_details["qc"]
         qc["testedRowCount"] = matrix_details["qc"]["rowsTested"]
         parameters["mapping"] = {

@@ -123,7 +123,7 @@ def build_chart_payload(task: AnalysisTask, chart_key: str) -> dict:
         elif chart_key == "proteomics_summary":
             title = "蛋白组学分析概览"
             keys = ["selectedRowCount", "normalizedCount", "databaseMappedCount", "unmappedCount", "candidateOverlapCount", "pathwayCount"]
-            labels = ["筛选行", "标准化", "本地映射", "未映射", "候选交集", "通路"]
+            labels = ["筛选行", "规范化/格式候选", "本地映射", "未映射", "参考符号重叠", "通路"]
             data = [
                 {"label": label, "value": summary[key]}
                 for key, label in zip(keys, labels)

@@ -38,6 +38,24 @@ EXPORT_COLUMNS = [
 ]
 PDF_RESULT_ROW_LIMIT = 500
 PDF_FONT_NAME = "STSong-Light"
+REFERENCE_SYMBOL_NOTE = (
+    "参考符号对照只比较通过筛选的符号与输入参考符号的名称集合，可能包含未核实项；"
+    "名称重叠不代表同物种身份已确认或生物学交叉验证。“参考中未入选”不等于实验未测到。"
+)
+NUMERIC_FORMAT_REASON_LABELS = {
+    "ambiguous_numeric_format": "含逗号数值格式，含义不明确，未转换",
+    "ambiguous_log2fc_numeric_format": "log2FC 含逗号数值格式，含义不明确，未转换",
+    "ambiguous_p_value_numeric_format": "P 值含逗号数值格式，含义不明确，未转换",
+    "ambiguous_fdr_numeric_format": "FDR 含逗号数值格式，含义不明确，未转换",
+    "ambiguous_sample_numeric_format": "样本值含逗号数值格式，含义不明确，未转换",
+}
+
+
+def _quality_reason_text(reason):
+    prefix = "ambiguous_sample_numeric_format:"
+    if isinstance(reason, str) and reason.startswith(prefix):
+        return f"样本列 {reason[len(prefix):]} 含逗号数值格式，含义不明确，未转换"
+    return NUMERIC_FORMAT_REASON_LABELS.get(reason, reason)
 
 
 def _register_pdf_font():
@@ -169,7 +187,7 @@ def export_proteomics_pdf(task, rows):
         ("本地映射", "databaseMappedCount"),
         ("外部映射", "externalMappedCount"),
         ("未映射", "unmappedCount"),
-        ("候选交集", "candidateOverlapCount"),
+        ("入选符号重叠", "candidateOverlapCount"),
         ("通路数", "pathwayCount"),
     ]
     summary_rows = []
@@ -185,6 +203,8 @@ def export_proteomics_pdf(task, rows):
         header=False,
         cell_style=[("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#eef4f1"))],
     ))
+    story.append(Spacer(1, 2 * mm))
+    story.append(Paragraph(_pdf_text(REFERENCE_SYMBOL_NOTE), body_style))
 
     story.append(Paragraph("筛选与方法", heading_style))
     parameter_rows = [[Paragraph("项目", header_cell_style), Paragraph("设定", header_cell_style)]]
@@ -223,6 +243,20 @@ def export_proteomics_pdf(task, rows):
         ] for label, key in qc_labels if key in raw_matrix_qc)
         if len(raw_rows) > 1:
             story.append(_pdf_table(raw_rows, widths=[58 * mm, 35 * mm]))
+
+    excluded_reason_counts = qc.get("excludedReasonCounts")
+    format_reason_counts = {
+        reason: count for reason, count in excluded_reason_counts.items()
+        if reason in NUMERIC_FORMAT_REASON_LABELS or reason.startswith("ambiguous_sample_numeric_format:")
+    } if isinstance(excluded_reason_counts, dict) else {}
+    if format_reason_counts:
+        story.append(Paragraph("数值格式排除原因", heading_style))
+        reason_rows = [[Paragraph("原因", header_cell_style), Paragraph("行数", header_cell_style)]]
+        reason_rows.extend([
+            Paragraph(_pdf_text(_quality_reason_text(reason)), cell_style),
+            Paragraph(_pdf_text(_pdf_number(count)), cell_style),
+        ] for reason, count in list(format_reason_counts.items())[:100])
+        story.append(_pdf_table(reason_rows, widths=[180 * mm, 35 * mm]))
 
     releases = list(task.source_releases.select_related("source").order_by("source__name", "version"))
     if releases:
@@ -340,6 +374,7 @@ def export_proteomics_xlsx(task, rows):
     analysis.append(["SHA-256", task.dataset.content_sha256 if task.dataset else ""])
     analysis.append(["算法版本", task.result.get("algorithmVersion", "")])
     analysis.append(["分析参数", str(task.input_parameters)])
+    analysis.append(["参考符号对照说明", REFERENCE_SYMBOL_NOTE])
 
     worksheet = workbook.create_sheet("逐行结果")
     worksheet.append([label for _name, label in EXPORT_COLUMNS])
