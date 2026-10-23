@@ -351,7 +351,7 @@ export function NetworkPharmacologyPage() {
                 <Metric label="关联成分" value={result.summary.componentCount} />
               </div>
               <NetworkResultDownloads result={result} />
-              <NetworkPharmacologyCharts key={result.taskId} result={result} reactome={reactomeResult} />
+              <NetworkPharmacologyCharts key={`statistics-${result.taskId}`} result={result} reactome={reactomeResult} />
               <KnowledgeNetworkGraph network={result.network} knownTruncated={result.limits.nodesTruncated || result.limits.linksTruncated || result.limits.targetsTruncated} />
               {(result.summary.unmatchedHerbs.length > 0 || result.summary.unmatchedDiseases.length > 0 || Boolean(result.summary.unresolvedFormulas?.length)) && <div className="notice-error" role="status">{result.summary.unmatchedHerbs.length > 0 ? `未匹配中药或方剂：${result.summary.unmatchedHerbs.join("、")}。` : ""}{result.summary.unmatchedDiseases.length > 0 ? `未匹配疾病：${result.summary.unmatchedDiseases.join("、")}。` : ""}{result.summary.unresolvedFormulas?.length ? `已匹配方剂但本地没有带来源版本的组成关系：${result.summary.unresolvedFormulas.join("、")}。` : ""}当前按知识目录中的精确名称匹配，请检查数据源导入结果和实体名称。</div>}
               {result.summary.matchedFormulas?.length ? <p className="section-help">方剂 {result.summary.matchedFormulas.join("、")} 已按本地组成关系展开为中药：{result.summary.matchedHerbs.join("、") || "暂无可追溯组成"}。</p> : null}
@@ -369,10 +369,10 @@ export function NetworkPharmacologyPage() {
                 <label className="form-label">最低置信度<select className="field" value={requiredScore} onChange={(event) => setRequiredScore(Number(event.target.value))}><option value={400}>中等（400）</option><option value={700}>高（700）</option><option value={900}>最高（900）</option></select></label>
                 <div className="source-record-actions"><button className="btn btn-secondary" type="button" disabled={!shareWithString || stringSubmitting || result.targets.length > 200 || result.limits.targetsTruncated || Boolean(stringTask && ["queued", "running"].includes(stringTask.status))} onClick={() => void requestString()}>{stringSubmitting ? "正在创建 STRING 任务…" : "STRING PPI 网络"}</button>{result.targets.length > 200 || result.limits.targetsTruncated ? <span className="section-help">STRING 最多接收 200 个完整显示的靶点；当前结果过多，请缩小范围。</span> : null}</div>
                 {stringTask && <StringTaskResult task={stringTask} sourceTaskId={result.taskId} />}
-                {stringTask?.status === "succeeded" && <RAnalysisGallery key={stringTask.id} taskId={stringTask.id} />}
+                {stringTask?.status === "succeeded" && <RAnalysisGallery key={`string-gallery-${stringTask.id}`} taskId={stringTask.id} />}
               </section>}
-              <RAnalysisGallery key={result.taskId} taskId={result.taskId} />
-              {pathwayTask?.status === "succeeded" && <RAnalysisGallery key={pathwayTask.id} taskId={pathwayTask.id} />}
+              <RAnalysisGallery key={`network-gallery-${result.taskId}`} taskId={result.taskId} />
+              {pathwayTask?.status === "succeeded" && <RAnalysisGallery key={`reactome-gallery-${pathwayTask.id}`} taskId={pathwayTask.id} />}
             </div>
           </>}
         </section>

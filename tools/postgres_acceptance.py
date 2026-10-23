@@ -61,6 +61,10 @@ def main():
         execute([PG_BIN / "postgres", "-D", VAR / "data", "-h", "127.0.0.1", "-p", "55439",
                  "-k", profile["socket"], "-c", "max_connections=40", "-c", "shared_buffers=32MB", "-c", "jit=off"])
     elif args.service == "api":
+        # runserver creates request threads; keeping their DB connections alive
+        # can exhaust this isolated profile's 40 slots during browser acceptance.
+        # Leave persistent-connection policy for workers/production unchanged.
+        os.environ["DATABASE_CONN_MAX_AGE"] = "0"
         execute([sys.executable, APP / "manage.py", "runserver", "127.0.0.1:8021", "--noreload"])
     elif args.service == "worker":
         # Keep a parent process for interruption and hard-timeout callbacks.

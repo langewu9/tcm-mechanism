@@ -14,7 +14,7 @@
     "check:delivery": "node tests/delivery-assets.cjs",
     "build:delivery": "node tests/delivery-assets.cjs && tsc -b && vite build && node tests/delivery-assets.cjs dist/r-demo",
     "test:sources": "node tests/source-management.cjs && node tests/source-page-requests.cjs",
-    "test:network": "node tests/reactome-results.cjs && node tests/network-requests.cjs && node tests/network-overlap-restoration.cjs && node tests/network-raw-exports.cjs && node tests/string-results.cjs && node tests/network-composition.cjs",
+    "test:network": "node tests/reactome-results.cjs && node tests/network-requests.cjs && node tests/network-overlap-restoration.cjs && node tests/network-sibling-keys.cjs && node tests/network-raw-exports.cjs && node tests/string-results.cjs && node tests/network-composition.cjs",
     "preview": "vite preview"
   },
   "dependencies": {
