@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "test:api": "node tests/api-contracts.cjs && node tests/admin-monitor.cjs && node tests/complete-evidence.cjs && node tests/snapshot-evidence.cjs",
-    "test:research": "node tests/research-requests.cjs && node tests/catalog-evidence-figures.cjs && node tests/task-restoration.cjs && node tests/dashboard-task-links.cjs && node tests/workspace-feedback.cjs && node tests/existing-feature-audit.cjs && node tests/disease-evidence-snapshot.cjs && node tests/text-history-location.cjs && node tests/case-history-location.cjs && node tests/task-history-view.cjs",
+    "test:research": "node tests/research-requests.cjs && node tests/catalog-evidence-figures.cjs && node tests/task-restoration.cjs && node tests/dashboard-task-links.cjs && node tests/workspace-feedback.cjs && node tests/existing-feature-audit.cjs && node tests/disease-evidence-snapshot.cjs && node tests/text-history-location.cjs && node tests/case-history-location.cjs && node tests/task-history-view.cjs && node tests/artifact-preview.cjs",
     "test:r": "node tests/r-analysis-catalog.cjs",
     "test:demo": "node tests/demo-center.cjs",
     "check:delivery": "node tests/delivery-assets.cjs",

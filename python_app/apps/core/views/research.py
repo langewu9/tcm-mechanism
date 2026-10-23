@@ -30,6 +30,7 @@ from apps.proteomics.services import ALGORITHM_VERSION
 from ..services.research_retention import dataset_audit, retention_scope, set_archived
 from ..serializers.research import AnalysisTaskSummarySerializer, ResearchDatasetAuditEventSerializer
 from ..services.access_audit import SensitiveReadAuditMixin, mark_sensitive_access
+from ..services.artifact_integrity import ArtifactReadError, ArtifactUnavailable, verified_artifact_bytes
 
 
 class ResearchDashboardView(APIView):
@@ -720,10 +721,13 @@ class VisualizationArtifactDownloadView(APIView):
             artifact = queryset.get(pk=pk)
         except VisualizationArtifact.DoesNotExist as exc:
             raise NotFound("图表文件不存在或无权访问。") from exc
-        if not default_storage.exists(artifact.storage_key):
-            raise NotFound("图表文件暂不可用。")
+        mark_sensitive_access(request, operation="artifact.download", action="download", resources=[artifact])
+        try:
+            verified = verified_artifact_bytes(artifact)
+        except ArtifactReadError as exc:
+            raise ArtifactUnavailable() from exc
         response = FileResponse(
-            default_storage.open(artifact.storage_key, "rb"),
+            verified,
             as_attachment=not (
                 request.query_params.get("inline") == "1"
                 and artifact.file_format in {"svg", "png"}
@@ -734,5 +738,4 @@ class VisualizationArtifactDownloadView(APIView):
         response["X-Content-Type-Options"] = "nosniff"
         response["Cache-Control"] = "private, no-store"
         response["Content-Security-Policy"] = "sandbox"
-        mark_sensitive_access(request, operation="artifact.download", action="download", resources=[artifact])
         return response

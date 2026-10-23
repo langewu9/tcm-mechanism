@@ -35,6 +35,7 @@ function harness(savedId='10') {
   const jsx=(type,props)=>({type,props}), subject=new Module(filename);
   global.window={setTimeout(fn){const id=++timerId;timers.set(id,fn);return id;},clearTimeout(id){timers.delete(id);}};
   subject.require=name=>{
+    if(name==='../components/ArtifactPreview')return {ArtifactPreview:props=>jsx('img',props)};
     if(name==='react')return react;
     if(name==='react/jsx-runtime')return {jsx,jsxs:jsx,Fragment:'Fragment'};
     if(name==='react-router-dom')return {Link:'Link',useLocation:()=>({key:'synthetic',state:null}),useSearchParams:()=>[params,()=>{}]};

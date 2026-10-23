@@ -1,5 +1,6 @@
 import type { AnalysisTask } from "../api/datasets";
 import { parseSavedTaskId } from "../api/task-history";
+import { ArtifactPreview } from "./ArtifactPreview";
 
 type Artifact = { id: number; format: string; downloadUrl: string };
 const labels: Record<string, string> = {
@@ -45,7 +46,7 @@ export function SavedVisualizationResult({ task }: { task: AnalysisTask }) {
   if (!figure) return <p className="notice-error" role="alert">该图表的保存结果或来源关联不完整，暂不能展示或下载。</p>;
   const preview = figure.artifacts.find(item => item.format === "svg") ?? figure.artifacts.find(item => item.format === "png");
   return <div className="panel source-record"><h3>{figure.title} · {figure.renderer}</h3>
-    {preview && <img className="visualization-preview" src={`${preview.downloadUrl}?inline=1`} alt={figure.title} />}
+    {preview && <ArtifactPreview src={`${preview.downloadUrl}?inline=1`} alt={figure.title} />}
     <div className="source-record-actions">{figure.artifacts.map(item => <a className="btn btn-secondary" key={item.id} href={item.downloadUrl}>下载 {item.format.toUpperCase()}</a>)}</div>
   </div>;
 }

@@ -22,6 +22,7 @@ const enqueue = list => (...args) => {const value = deferred(); list.push({...va
 const filename = path.join(webRoot, 'src/pages/NetworkPharmacologyPage.tsx');
 const moduleUnderTest = new Module(filename);
 moduleUnderTest.require = name => {
+  if (name === '../components/ArtifactPreview') return {ArtifactPreview:props=>jsx('img',props)};
   if (name === 'react/jsx-runtime') return {jsx,jsxs:jsx,Fragment:'Fragment'};
   if (name === 'react') return fakeReact;
   if (name === 'react-router-dom') return {Link:'Link', useLocation:()=>({key:'current',state:null}), useSearchParams:()=>[new URLSearchParams(),()=>{}]};

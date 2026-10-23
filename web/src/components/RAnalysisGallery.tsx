@@ -4,6 +4,7 @@ import { restoreGalleryJobs } from "../api/task-restoration";
 import { createVisualization } from "../api/network";
 import { ApiError } from "../api/client";
 import { RDemoGallery } from "./RDemoGallery";
+import { ArtifactPreview } from "./ArtifactPreview";
 
 type Chart = { key: string; label: string; available: boolean; note: string };
 type Artifact = { id: number; format: string; downloadUrl: string };
@@ -139,7 +140,7 @@ export function RAnalysisGallery({ taskId }: { taskId: number }) {
         <RDemoGallery chartKey={chart.key} />
         {job?.status === "succeeded" && <>
           <p className="section-help">任务 #{job.id} · {String(value.rendererVersion ?? "")} · 父分析 #{taskId}</p>
-          {svg && <img className="visualization-preview" src={`${svg.downloadUrl}?inline=1`} alt={chart.label} />}
+          {svg && <ArtifactPreview src={`${svg.downloadUrl}?inline=1`} alt={chart.label} />}
           <div className="source-record-actions">{artifacts.map(item => <a className="btn btn-secondary" key={item.id} href={item.downloadUrl}>下载 {item.format.toUpperCase()}</a>)}</div>
         </>}
       </div>;

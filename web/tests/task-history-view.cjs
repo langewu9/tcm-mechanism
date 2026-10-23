@@ -11,7 +11,7 @@ function compile(relative,imports){
   return subject.exports;
 }
 const history=compile('src/api/task-history.ts',{});
-const figures=compile('src/components/SavedVisualizationResult.tsx',{'../api/task-history':history});
+const figures=compile('src/components/SavedVisualizationResult.tsx',{'../api/task-history':history,'./ArtifactPreview':{ArtifactPreview:props=>jsx('img',props)}});
 const {parseSavedTaskId,verifySavedTask,savedTaskDestination}=history;
 const {savedFigure,SavedVisualizationResult}=figures;
 class ApiError extends Error {}

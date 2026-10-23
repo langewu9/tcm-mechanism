@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { Activity, ArrowLeft, Network, RefreshCw } from "lucide-react";
 import { getAnalysisTask, getAnalysisTaskSummaries, type AnalysisTask } from "../api/datasets";
+import { ArtifactPreview } from "../components/ArtifactPreview";
 import { createVisualization, runNetworkPharmacology, runReactomeEnrichment, runStringNetwork, type NetworkPharmacologyResult } from "../api/network";
 import { ApiError } from "../api/client";
 import { KnowledgeNetworkGraph } from "../components/KnowledgeNetworkGraph";
@@ -393,7 +394,7 @@ function VisualizationResult({ task }: { task: AnalysisTask }) {
   const artifacts = value.artifacts ?? [];
   const svg = artifacts.find((artifact) => artifact.format === "svg");
   return <div className="panel source-record"><h3>R 图表 · {String(value.rendererVersion ?? "")}</h3>
-    {svg && <img className="visualization-preview" src={`${svg.downloadUrl}?inline=1`} alt="中药—疾病靶点交集柱状图" />}
+    {svg && <ArtifactPreview src={`${svg.downloadUrl}?inline=1`} alt="中药—疾病靶点交集柱状图" />}
     <div className="source-record-actions">{artifacts.map((artifact) => <a className="btn btn-secondary" key={artifact.id} href={artifact.downloadUrl}>下载 {artifact.format.toUpperCase()}</a>)}</div>
   </div>;
 }

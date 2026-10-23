@@ -83,6 +83,7 @@ function reset(values){rows=values;requested=[];listRequested=[];listError=null;
     if(name==='../api/network')return {};
     if(name==='../api/client')return {ApiError:Error};
     if(name==='./RDemoGallery')return {RDemoGallery:'RDemoGallery'};
+    if(name==='./ArtifactPreview')return {ArtifactPreview:props=>jsx('img',props)};
     throw new Error(name);
   };
   gallery._compile(ts.transpileModule(fs.readFileSync(galleryFile,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText,galleryFile);

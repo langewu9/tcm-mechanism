@@ -16,7 +16,7 @@ function harness(relative,imports,router={Link:'Link',useSearchParams:()=>[new U
     useMemo(fn){return fn();},useCallback(fn){return fn;},
   };
   const file=path.join(root,relative),subject=new Module(file);
-  subject.require=name=>name==='react'?react:name==='react/jsx-runtime'?{jsx,jsxs:jsx}:name==='lucide-react'?new Proxy({},{get:(_,key)=>key}):name==='react-router-dom'?router:name==='../api/client'?{ApiError}:imports[name]??(()=>{throw new Error(name);})();
+  subject.require=name=>name==='react'?react:name==='react/jsx-runtime'?{jsx,jsxs:jsx}:name.endsWith('/ArtifactPreview')?{ArtifactPreview:props=>jsx('img',props)}:name==='lucide-react'?new Proxy({},{get:(_,key)=>key}):name==='react-router-dom'?router:name==='../api/client'?{ApiError}:imports[name]??(()=>{throw new Error(name);})();
   subject._compile(compile(file),file);
   return {get value(){return value;},get writes(){return writes;},render(name){this.name=name??this.name;let guard=0;do{assert.ok(guard++<25,'Unbounded render');dirty=false;cursor=0;effects=[];value=subject.exports[this.name](this.props??{});effects.forEach(run=>run());}while(dirty);},cleanup(){hooks.forEach(item=>item?.cleanup?.());}};
 }

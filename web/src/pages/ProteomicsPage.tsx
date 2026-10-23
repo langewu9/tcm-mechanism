@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { ArtifactPreview } from "../components/ArtifactPreview";
 import { Activity, ArrowLeft, Download, Play, RefreshCw } from "lucide-react";
 import {
   getAnalysisTask,
@@ -749,7 +750,7 @@ function ProteomicsVisualizationResult({ task, title, alt }: { task: AnalysisTas
   const artifacts = value.artifacts ?? [];
   const svg = artifacts.find((artifact) => artifact.format === "svg");
   return <div className="panel source-record"><h3>{title} · {String(value.rendererVersion ?? "")}</h3>
-    {svg && <img className="visualization-preview" src={`${svg.downloadUrl}?inline=1`} alt={alt} />}
+    {svg && <ArtifactPreview src={`${svg.downloadUrl}?inline=1`} alt={alt} />}
     <div className="source-record-actions">{artifacts.map((artifact) => <a className="btn btn-secondary" key={artifact.id} href={artifact.downloadUrl}>下载 {artifact.format.toUpperCase()}</a>)}</div>
   </div>;
 }
