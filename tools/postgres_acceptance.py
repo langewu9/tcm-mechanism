@@ -63,7 +63,8 @@ def main():
     elif args.service == "api":
         execute([sys.executable, APP / "manage.py", "runserver", "127.0.0.1:8021", "--noreload"])
     elif args.service == "worker":
-        execute([APP / ".venv/bin/celery", "-A", "config", "worker", "--loglevel=INFO", "--pool=solo",
+        # Keep a parent process for interruption and hard-timeout callbacks.
+        execute([APP / ".venv/bin/celery", "-A", "config", "worker", "--loglevel=INFO", "--pool=prefork",
                  "--concurrency=1", "--hostname=pg-acceptance@%h"], APP)
     elif args.service == "web":
         node = Path.home() / ".cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node"
