@@ -1,4 +1,4 @@
-"""Read-only public knowledge catalogue and source provenance endpoints."""
+"""Versioned knowledge lookups and private, source-preserving query snapshots."""
 
 from django.db.models import Count, Q, Subquery, Value
 from django.db.models.functions import Upper
@@ -7,7 +7,7 @@ from django.shortcuts import get_object_or_404
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import serializers, viewsets
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import APIException, ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
@@ -16,6 +16,7 @@ from rest_framework.views import APIView
 
 from ..models import DataSource, EvidenceRelation, KnowledgeEntity, SourceEntityMapping
 from ..serializers import DataSourceSerializer, EvidenceRelationSerializer, KnowledgeEntitySerializer
+from ..serializers.research import AnalysisTaskSerializer
 from ..services.disease_names import ALIAS_DATA, disease_entity_queryset, expand_disease_queries, matched_disease_queries
 from ..services.herb_evidence import batch_herb_component_evidence
 from ..services.catalog_identity import exact_entity_queryset
@@ -176,12 +177,14 @@ class BatchHerbEvidenceEntitySerializer(serializers.Serializer):
     id = serializers.IntegerField()
     stableId = serializers.CharField()
     label = serializers.CharField()
+    sourceReleaseId = serializers.IntegerField(allow_null=True)
     sourceSlug = serializers.CharField(allow_null=True)
     sourceVersion = serializers.CharField(allow_null=True)
 
 
 class BatchHerbEvidenceRelationSerializer(serializers.Serializer):
     relationId = serializers.IntegerField()
+    id = serializers.IntegerField()
     subjectId = serializers.IntegerField()
     objectId = serializers.IntegerField()
     sourceReleaseId = serializers.IntegerField()
@@ -212,6 +215,7 @@ class BatchHerbEvidenceItemSerializer(serializers.Serializer):
 class BatchHerbEvidenceResponseSerializer(serializers.Serializer):
     dataQuality = serializers.JSONField(required=False)
     queryType = serializers.ChoiceField(choices=["herb", "compound"])
+    resultSha256 = serializers.CharField()
     results = BatchHerbEvidenceItemSerializer(many=True)
     evidenceSha256 = serializers.CharField()
 
@@ -228,6 +232,35 @@ class BatchHerbEvidenceView(APIView):
             query_type=values["queryType"],
             queries=values["queries"],
         )))
+
+
+class CatalogAnalysisRequestSerializer(BatchHerbEvidenceRequestSerializer):
+    expectedResultSha256 = serializers.RegexField(r"^[a-f0-9]{64}$")
+
+
+class CatalogResultConflict(APIException):
+    status_code = 409
+    default_code = "catalog_results_changed"
+    default_detail = "目录数据已更新，请重新检索后再保存关系图。"
+
+
+class CatalogEvidenceAnalysisView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(request=CatalogAnalysisRequestSerializer, responses={201: AnalysisTaskSerializer})
+    def post(self, request):
+        parameters = CatalogAnalysisRequestSerializer(data=request.data)
+        parameters.is_valid(raise_exception=True)
+        values = parameters.validated_data
+        from ..services.catalog_analysis import CatalogSnapshotChanged, save_catalog_analysis
+        try:
+            task = save_catalog_analysis(user=request.user, query_type=values["queryType"],
+                                         queries=values["queries"], expected_sha256=values["expectedResultSha256"])
+        except CatalogSnapshotChanged as exc:
+            raise CatalogResultConflict() from exc
+        except ValueError as exc:
+            raise ValidationError({"queries": str(exc)}) from exc
+        return Response(AnalysisTaskSerializer(task).data, status=201)
 
 
 class HomeStatsCountsSerializer(serializers.Serializer):

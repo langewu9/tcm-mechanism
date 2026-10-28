@@ -93,11 +93,13 @@ export type HerbEvidenceEntity = {
   id: number;
   stableId: string;
   label: string;
+  sourceReleaseId?: number | null;
   sourceSlug: string | null;
   sourceVersion: string | null;
 };
 
 export type HerbEvidenceRelation = {
+  id?: number;
   relationId?: number; subjectId?: number; objectId?: number; sourceReleaseId?: number;
   subject: string;
   object: string;
@@ -127,6 +129,7 @@ export type HerbEvidenceSearch = {
   dataQuality?: DataQualityNotice[];
   evidenceSha256?: string;
   queryType: "herb" | "compound";
+  resultSha256: string;
   results: HerbEvidenceItem[];
 };
 
@@ -180,5 +183,12 @@ export function searchHerbComponentEvidence(queryType: HerbEvidenceSearch["query
   return apiRequest<HerbEvidenceSearch>("/api/v1/catalog/herb-evidence/batch/", {
     method: "POST",
     body: { queryType, queries },
+  });
+}
+
+export function saveHerbEvidenceAnalysis(evidence: HerbEvidenceSearch) {
+  return apiRequest<AnalysisTask>("/api/v1/catalog/herb-evidence/analyses/", {
+    method: "POST",
+    body: { queryType: evidence.queryType, queries: evidence.results.map(item => item.query), expectedResultSha256: evidence.resultSha256 },
   });
 }

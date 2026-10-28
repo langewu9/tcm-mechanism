@@ -4,6 +4,8 @@ from django.conf import settings
 from django.core.files.storage import default_storage
 from django.db import transaction
 from django.db.models import Count, Q
+from django.db.models.fields.json import KeyTextTransform
+from django.db.models.functions import JSONObject, Substr
 from django.http import FileResponse, HttpResponse
 from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
@@ -15,6 +17,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from config.runtime_logs import record_runtime_event
+
 from ..exceptions import ResourceConflict, TaskQueueUnavailable
 from ..models import AnalysisTask, KnowledgeEntity, MedicalCase, MedicalCaseAuditEvent, MedicalCaseCandidate, ResearchDataset, VisualizationArtifact
 from ..serializers import AnalysisTaskSerializer, CaseAnalysisRequestSerializer, CaseCandidateReviewRequestSerializer, MedicalCaseAuditEventSerializer, MedicalCaseCandidateSerializer, MedicalCaseSerializer, ResearchAssistantRequestSerializer, ResearchDashboardSerializer, ResearchDatasetSerializer, VisualizationRequestSerializer
@@ -22,6 +26,9 @@ from apps.proteomics.serializers import ProteomicsRunRequestSerializer
 from apps.proteomics.models import ProteomicsRowResult
 from apps.proteomics.serializers_rows import ProteomicsRowResultSerializer
 from apps.proteomics.services import ALGORITHM_VERSION
+from ..services.research_retention import dataset_audit, retention_scope, set_archived
+from ..serializers.research import AnalysisTaskSummarySerializer, ResearchDatasetAuditEventSerializer
+from ..services.access_audit import SensitiveReadAuditMixin, mark_sensitive_access
 
 
 class ResearchDashboardView(APIView):
@@ -48,19 +55,22 @@ class ResearchDashboardView(APIView):
             pathways=Count("id", filter=Q(entity_type=KnowledgeEntity.EntityType.PATHWAY)),
         )
         counts.update(
-            datasets=ResearchDataset.objects.filter(**owner_filter).count(),
-            cases=MedicalCase.objects.filter(**owner_filter).count(),
+            datasets=ResearchDataset.objects.filter(archived_at__isnull=True, **owner_filter).count(),
+            cases=MedicalCase.objects.filter(archived_at__isnull=True, **owner_filter).count(),
             tasks=AnalysisTask.objects.filter(**owner_filter).count(),
         )
         latest_tasks = AnalysisTask.objects.filter(**owner_filter).order_by("-created_at")[:5]
-        return Response(
+        response = Response(
             ResearchDashboardSerializer(
                 {"stats": counts, "latest_tasks": latest_tasks}
             ).data
         )
+        mark_sensitive_access(request, operation="dashboard.view", action="view", resources=latest_tasks)
+        return response
 
 
-class ResearchDatasetViewSet(viewsets.ModelViewSet):
+class ResearchDatasetViewSet(SensitiveReadAuditMixin, viewsets.ModelViewSet):
+    sensitive_resource_type = "dataset"
     queryset = ResearchDataset.objects.none()
     serializer_class = ResearchDatasetSerializer
     permission_classes = [IsAuthenticated]
@@ -68,7 +78,7 @@ class ResearchDatasetViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         if getattr(self, "swagger_fake_view", False):
             return ResearchDataset.objects.none()
-        queryset = ResearchDataset.objects.all()
+        queryset = ResearchDataset.objects.select_related("owner")
         if not self.request.user.is_superuser:
             queryset = queryset.filter(owner=self.request.user)
         query = self.request.query_params.get("q", "").strip() if self.action == "list" else ""
@@ -76,18 +86,40 @@ class ResearchDatasetViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(
                 Q(name__icontains=query) | Q(original_filename__icontains=query)
             )
-        return queryset
+        return retention_scope(self, queryset)
 
+    @transaction.atomic
     def perform_create(self, serializer):
-        serializer.save(owner=self.request.user)
+        dataset = serializer.save(owner=self.request.user)
+        try:
+            dataset_audit(dataset, self.request.user, "created")
+        except Exception:
+            # A rolled-back upload must not leave an unaccounted storage object.
+            default_storage.delete(dataset.storage_key)
+            raise
+
+    @extend_schema(responses=OpenApiTypes.OBJECT)
+    @action(detail=False, methods=["get"])
+    def quota(self, request):
+        from ..services.upload_quota import upload_quota_usage
+
+        return Response(upload_quota_usage(request.user.pk))
 
     def perform_destroy(self, instance):
-        if instance.analysis_tasks.exists():
-            raise ResourceConflict("数据集已有分析任务，为保留结果溯源不能删除。")
-        storage_key = instance.storage_key
-        super().perform_destroy(instance)
-        if storage_key:
-            default_storage.delete(storage_key)
+        set_archived(instance, actor=self.request.user, archived=True)
+
+    @extend_schema(request=None, responses=ResearchDatasetSerializer)
+    @action(detail=True, methods=["post"])
+    def restore(self, request, pk=None):
+        dataset = set_archived(self.get_object(), actor=request.user, archived=False)
+        return Response(self.get_serializer(dataset).data)
+
+    @extend_schema(responses=ResearchDatasetAuditEventSerializer(many=True))
+    @action(detail=True, methods=["get"])
+    def audit(self, request, pk=None):
+        events = self.get_object().audit_events.select_related("actor")
+        page = self.paginate_queryset(events)
+        return self.get_paginated_response(ResearchDatasetAuditEventSerializer(page, many=True).data)
 
     @action(detail=True, methods=["get"])
     def download(self, request, pk=None):
@@ -134,6 +166,7 @@ class ResearchDatasetViewSet(viewsets.ModelViewSet):
 
             run_proteomics_task.apply_async(args=[task.pk])
         except Exception as exc:
+            record_runtime_event("task.queue_unavailable", request=request, task_id=task.pk, exception=exc)
             task.status = AnalysisTask.Status.FAILED
             task.progress = 100
             task.error_summary = "任务队列暂不可用，请稍后重试。"
@@ -145,7 +178,8 @@ class ResearchDatasetViewSet(viewsets.ModelViewSet):
         return Response(AnalysisTaskSerializer(task).data, status=status.HTTP_202_ACCEPTED)
 
 
-class MedicalCaseViewSet(viewsets.ModelViewSet):
+class MedicalCaseViewSet(SensitiveReadAuditMixin, viewsets.ModelViewSet):
+    sensitive_resource_type = "case"
     queryset = MedicalCase.objects.none()
     serializer_class = MedicalCaseSerializer
     permission_classes = [IsAuthenticated]
@@ -153,7 +187,7 @@ class MedicalCaseViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         if getattr(self, "swagger_fake_view", False):
             return MedicalCase.objects.none()
-        queryset = MedicalCase.objects.all()
+        queryset = MedicalCase.objects.select_related("owner", "reviewed_by")
         if not self.request.user.is_superuser:
             queryset = queryset.filter(owner=self.request.user)
         query = self.request.query_params.get("q", "").strip() if self.action == "list" else ""
@@ -163,7 +197,7 @@ class MedicalCaseViewSet(viewsets.ModelViewSet):
                 | Q(deidentified_text__icontains=query)
                 | Q(structured_data__diagnosis__icontains=query)
             )
-        return queryset
+        return retention_scope(self, queryset)
 
     def perform_create(self, serializer):
         from ..services.case_audit import case_field_values, create_case_audit_event
@@ -205,18 +239,13 @@ class MedicalCaseViewSet(viewsets.ModelViewSet):
                 )
 
     def perform_destroy(self, instance):
-        if instance.analysis_tasks.exists():
-            raise ResourceConflict("医案已有分析任务，为保留结果溯源不能删除。")
-        from ..services.case_audit import case_field_values, create_case_audit_event
+        set_archived(instance, actor=self.request.user, archived=True)
 
-        with transaction.atomic():
-            create_case_audit_event(
-                case=instance,
-                actor=self.request.user,
-                action=MedicalCaseAuditEvent.Action.DELETED,
-                before=case_field_values(instance),
-            )
-            super().perform_destroy(instance)
+    @extend_schema(request=None, responses=MedicalCaseSerializer)
+    @action(detail=True, methods=["post"])
+    def restore(self, request, pk=None):
+        case = set_archived(self.get_object(), actor=request.user, archived=False)
+        return Response(self.get_serializer(case).data)
 
     @action(detail=True, methods=["get"], url_path="audit")
     def audit(self, request, pk=None):
@@ -327,6 +356,7 @@ class MedicalCaseViewSet(viewsets.ModelViewSet):
 
             run_case_analysis_task.apply_async(args=[task.pk])
         except Exception as exc:
+            record_runtime_event("task.queue_unavailable", request=request, task_id=task.pk, exception=exc)
             task.status = AnalysisTask.Status.FAILED
             task.progress = 100
             task.error_summary = "医案分析任务队列暂不可用，请稍后重试。"
@@ -412,7 +442,8 @@ class MedicalCaseViewSet(viewsets.ModelViewSet):
         return Response(MedicalCaseCandidateSerializer(candidate).data)
 
 
-class AnalysisTaskViewSet(viewsets.ReadOnlyModelViewSet):
+class AnalysisTaskViewSet(SensitiveReadAuditMixin, viewsets.ReadOnlyModelViewSet):
+    sensitive_resource_type = "task"
     queryset = AnalysisTask.objects.none()
     serializer_class = AnalysisTaskSerializer
     permission_classes = [IsAuthenticated]
@@ -421,10 +452,26 @@ class AnalysisTaskViewSet(viewsets.ReadOnlyModelViewSet):
     def get_queryset(self):
         if getattr(self, "swagger_fake_view", False):
             return AnalysisTask.objects.none()
-        queryset = AnalysisTask.objects.select_related("dataset", "medical_case", "owner", "created_by")
+        queryset = AnalysisTask.objects.select_related("owner", "created_by")
+        if self.action == "summaries":
+            queryset = queryset.defer("input_parameters", "result").annotate(
+                list_display_parameters=JSONObject(
+                    name=Substr(KeyTextTransform("name", "input_parameters"), 1, 200),
+                    analysisKind=Substr(KeyTextTransform("analysisKind", "input_parameters"), 1, 80),
+                    chartKey=Substr(KeyTextTransform("chartKey", "input_parameters"), 1, 48),
+                    parentTaskId=Substr(KeyTextTransform("parentTaskId", "input_parameters"), 1, 20),
+                )
+            )
+        else:
+            queryset = queryset.prefetch_related("source_releases")
         if not self.request.user.is_superuser:
             queryset = queryset.filter(owner=self.request.user)
         return queryset
+
+    @extend_schema(responses=AnalysisTaskSummarySerializer(many=True))
+    @action(detail=False, methods=["get"], serializer_class=AnalysisTaskSummarySerializer)
+    def summaries(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
 
     @action(detail=True, methods=["post"], url_path="visualizations")
     def visualizations(self, request, pk=None):
@@ -449,6 +496,7 @@ class AnalysisTaskViewSet(viewsets.ReadOnlyModelViewSet):
 
                 run_visualization_task.apply_async(args=[task.pk])
             except Exception as exc:
+                record_runtime_event("task.queue_unavailable", request=request, task_id=task.pk, exception=exc)
                 task.status = AnalysisTask.Status.FAILED
                 task.progress = 100
                 task.error_summary = "R 图表任务队列暂不可用，请稍后重试。"
@@ -569,6 +617,7 @@ class ResearchAssistantView(APIView):
 
             run_research_assistant_task.apply_async(args=[task.pk])
         except Exception as exc:
+            record_runtime_event("task.queue_unavailable", request=request, task_id=task.pk, exception=exc)
             task.status = AnalysisTask.Status.FAILED
             task.progress = 100
             task.error_summary = "科研助手任务队列暂不可用，请稍后重试。"
@@ -617,4 +666,5 @@ class VisualizationArtifactDownloadView(APIView):
             # Otherwise Django's default DENY also blocks the intended iframe.
             response["X-Frame-Options"] = "SAMEORIGIN"
             response["Content-Security-Policy"] += "; frame-ancestors 'self'"
+        mark_sensitive_access(request, operation="artifact.download", action="download", resources=[artifact])
         return response

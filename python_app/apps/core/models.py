@@ -2,9 +2,10 @@
 
 from .domain.accounts import ResearcherProfile
 from .domain.knowledge import CanonicalIdentifier, EntityIdentifier, EvidenceRelation, KnowledgeEntity, SourceEntityMapping
-from .domain.research import AnalysisTask, MedicalCase, MedicalCaseAuditEvent, MedicalCaseCandidate, ResearchDataset, ResearchDatasetRow, VisualizationArtifact
+from .domain.research import AnalysisTask, MedicalCase, MedicalCaseAuditEvent, MedicalCaseCandidate, ResearchDataset, ResearchDatasetAuditEvent, ResearchDatasetRow, VisualizationArtifact
 from .domain.sources import DataSource, SourceRecord, SourceRelease, SyncRun
 from .domain.target_identity import TargetIdentityMapping, TargetMaster
+from .domain.security import ResearchUploadQuota, SensitiveAccessEvent
 
 __all__ = [
     "AnalysisTask",
@@ -17,12 +18,15 @@ __all__ = [
     "MedicalCaseAuditEvent",
     "MedicalCaseCandidate",
     "ResearchDataset",
+    "ResearchDatasetAuditEvent",
     "ResearchDatasetRow",
     "ResearcherProfile",
+    "ResearchUploadQuota",
     "SourceRelease",
     "SourceRecord",
     "SourceEntityMapping",
     "SyncRun",
+    "SensitiveAccessEvent",
     "VisualizationArtifact",
     "TargetMaster",
     "TargetIdentityMapping",

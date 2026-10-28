@@ -4,7 +4,7 @@ from django.db import transaction
 from rest_framework import serializers
 
 from ..exceptions import ResourceConflict
-from ..models import AnalysisTask, MedicalCase, MedicalCaseAuditEvent, MedicalCaseCandidate, ResearchDataset, ResearchDatasetRow
+from ..models import AnalysisTask, MedicalCase, MedicalCaseAuditEvent, MedicalCaseCandidate, ResearchDataset, ResearchDatasetAuditEvent, ResearchDatasetRow
 
 DATASET_ROW_STORAGE_LIMIT = 5000
 
@@ -34,6 +34,8 @@ class ResearchDatasetSerializer(serializers.ModelSerializer):
             "rows",
             "created_at",
             "updated_at",
+            "archived_at",
+            "archived_by",
         ]
         read_only_fields = [
             "id",
@@ -46,6 +48,8 @@ class ResearchDatasetSerializer(serializers.ModelSerializer):
             "columns",
             "created_at",
             "updated_at",
+            "archived_at",
+            "archived_by",
         ]
 
     def get_fields(self):
@@ -78,8 +82,8 @@ class ResearchDatasetSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         if self.instance is None and "file" not in attrs:
             raise serializers.ValidationError({"file": "请上传 CSV 或 Excel 文件。"})
-        if self.instance and "file" in attrs and self.instance.analysis_tasks.exists():
-            raise ResourceConflict("数据集已有分析任务，不能替换原始文件；请另存为新数据集。")
+        if self.instance and "file" in attrs:
+            raise ResourceConflict("原始文件须保留溯源，不能替换；请上传为新数据集。")
         return attrs
 
     def _store_upload(self, validated_data, upload, owner_id=None):
@@ -97,8 +101,12 @@ class ResearchDatasetSerializer(serializers.ModelSerializer):
         validated_data.update(stored, metadata=metadata)
         return stored["storage_key"]
 
+    @transaction.atomic
     def create(self, validated_data):
+        from ..services.upload_quota import check_locked_upload_quota
+
         upload = validated_data.pop("file")
+        check_locked_upload_quota(validated_data["owner"].pk, upload.size)
         storage_key = self._store_upload(validated_data, upload)
         try:
             parsed = self._parse_table(storage_key, validated_data["original_filename"])
@@ -132,32 +140,9 @@ class ResearchDatasetSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"file": str(exc)}) from exc
 
     def update(self, instance, validated_data):
-        upload = validated_data.pop("file", None)
-        old_storage_key = instance.storage_key
-        new_storage_key = self._store_upload(validated_data, upload, instance.owner_id) if upload else None
-        try:
-            parsed = self._parse_table(new_storage_key, validated_data["original_filename"]) if new_storage_key else None
-            if parsed:
-                validated_data["row_count"] = len(parsed.rows)
-                validated_data["columns"] = parsed.columns
-            with transaction.atomic():
-                updated = super().update(instance, validated_data)
-                if parsed:
-                    updated.rows.all().delete()
-                    ResearchDatasetRow.objects.bulk_create(
-                        [
-                            ResearchDatasetRow(dataset=updated, row_index=index, data=row)
-                            for index, row in enumerate(parsed.rows[:DATASET_ROW_STORAGE_LIMIT])
-                        ],
-                        batch_size=1000,
-                    )
-        except Exception:
-            if new_storage_key:
-                default_storage.delete(new_storage_key)
-            raise
-        if new_storage_key and old_storage_key:
-            default_storage.delete(old_storage_key)
-        return updated
+        if "file" in validated_data:
+            raise ResourceConflict("原始文件须保留溯源，不能替换；请上传为新数据集。")
+        return super().update(instance, validated_data)
 
 
 class MedicalCaseSerializer(serializers.ModelSerializer):
@@ -181,8 +166,20 @@ class MedicalCaseSerializer(serializers.ModelSerializer):
             "reviewed_by_username",
             "created_at",
             "updated_at",
+            "archived_at",
+            "archived_by",
         ]
-        read_only_fields = ["id", "owner_id", "owner_username", "review_status", "reviewed_at", "reviewed_by_username", "created_at", "updated_at"]
+        read_only_fields = ["id", "owner_id", "owner_username", "review_status", "reviewed_at", "reviewed_by_username", "created_at", "updated_at", "archived_at", "archived_by"]
+
+
+class ResearchDatasetAuditEventSerializer(serializers.ModelSerializer):
+    actor_username = serializers.CharField(source="actor.username", read_only=True)
+    dataset_id = serializers.ReadOnlyField()
+
+    class Meta:
+        model = ResearchDatasetAuditEvent
+        fields = ["id", "dataset_id", "actor_username", "action", "content_sha256", "created_at"]
+        read_only_fields = fields
 
 
 class MedicalCaseAuditEventSerializer(serializers.ModelSerializer):
@@ -328,6 +325,26 @@ class AnalysisTaskSerializer(serializers.ModelSerializer):
             "created_at",
             "started_at",
             "finished_at",
+        ]
+        read_only_fields = fields
+
+
+class AnalysisTaskSummarySerializer(serializers.ModelSerializer):
+    """List metadata only; full parameters, evidence and results stay in detail."""
+
+    owner_id = serializers.ReadOnlyField()
+    task_type = serializers.CharField(read_only=True)
+    status = serializers.CharField(read_only=True)
+    owner_username = serializers.CharField(source="owner.username", read_only=True)
+    requested_by_id = serializers.ReadOnlyField(source="created_by_id")
+    display_parameters = serializers.JSONField(source="list_display_parameters", read_only=True)
+
+    class Meta:
+        model = AnalysisTask
+        fields = [
+            "id", "owner_id", "owner_username", "requested_by_id", "task_type", "status",
+            "dataset", "medical_case", "parent_task", "display_parameters", "progress",
+            "error_summary", "created_at", "started_at", "finished_at",
         ]
         read_only_fields = fields
 

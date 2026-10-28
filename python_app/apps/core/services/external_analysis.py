@@ -16,6 +16,8 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
+from config.runtime_logs import record_runtime_event
+
 from apps.core.exceptions import TaskQueueUnavailable
 from apps.core.models import AnalysisTask, DataSource, MedicalCase, ResearchDataset, SourceRelease
 from apps.proteomics.external_reactome import (
@@ -209,6 +211,7 @@ def _enqueue(task: AnalysisTask) -> AnalysisTask:
 
         run_external_analysis_task.apply_async(args=[task.pk])
     except Exception as exc:
+        record_runtime_event("task.queue_unavailable", task_id=task.pk, exception=exc)
         task.status = AnalysisTask.Status.FAILED
         task.progress = 100
         task.error_summary = "分析任务队列暂不可用，请稍后重试。"
@@ -514,13 +517,15 @@ def execute_external_analysis(task: AnalysisTask) -> dict:
         task.save(update_fields=["status", "progress", "result", "finished_at"])
         return {"status": task.status, "taskId": task.pk}
     except ExternalAnalysisError as exc:
+        record_runtime_event("external.rejected", task_id=task.pk, exception=exc)
         task.status = AnalysisTask.Status.FAILED
         task.progress = 100
         task.error_summary = str(exc)
         task.finished_at = timezone.now()
         task.save(update_fields=["status", "progress", "error_summary", "finished_at"])
         return {"status": task.status, "taskId": task.pk}
-    except Exception:
+    except Exception as exc:
+        record_runtime_event("external.failed", task_id=task.pk, exception=exc)
         task.status = AnalysisTask.Status.FAILED
         task.progress = 100
         task.error_summary = "外部分析失败，请联系管理员并提供任务编号。"

@@ -26,7 +26,7 @@ const subject = new Module(filename);
 subject.require = name => {
   if (name === 'react') return fakeReact;
   if (name === 'react/jsx-runtime') return {jsx,jsxs:jsx,Fragment:'Fragment'};
-  if (name === 'react-router-dom') return {Link:'Link'};
+  if (name === 'react-router-dom') return {Link:'Link',useSearchParams:()=>[new URLSearchParams(),()=>{}]};
   if (name === 'lucide-react') return new Proxy({}, {get:(_,key)=>String(key)});
   if (name === '../api/client') return {ApiError:class extends Error {}};
   if (name === '../api/catalog') return catalogue;
@@ -34,6 +34,7 @@ subject.require = name => {
   if (name === '../api/network') return {runNetworkPharmacology:api('runNetworkPharmacology')};
   if (name === '../utils/downloads') return {...helpers.exports,downloadText:(...args)=>downloads.push(args)};
   if (name === './ReactomePathwayLookup') return {reactomeCatalogueCsv:()=>''};
+  if (name === './CatalogEvidenceFigures') return {CatalogEvidenceFigures:'CatalogEvidenceFigures'};
   if (name === './TargetIntersectionFigure') {
     const file = path.join(webRoot,'src/components/TargetIntersectionFigure.tsx'), child = new Module(file);
     child.require = value => value === 'react/jsx-runtime' ? {jsx,jsxs:jsx,Fragment:'Fragment'} : value === './TargetIdentityResults' ? {TargetIdentityResults:'TargetIdentityResults'} : load(value);

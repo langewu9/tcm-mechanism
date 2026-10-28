@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from django.db.models import Q, Subquery
 
 from apps.core.models import EvidenceRelation, KnowledgeEntity
 from .catalog_identity import exact_entity_names, exact_entity_queryset, structural_representatives
+from .herb_row_support import HerbRowSupport
 
 
 HERB_COMPOUND_TYPES = {"contains", "herb_compound", "has_compound"}
@@ -54,17 +57,25 @@ def _visible_relations(
 
 def _entity_record(entity: KnowledgeEntity) -> dict:
     release = entity.source_release
+    metadata = entity.metadata if isinstance(entity.metadata, dict) else {}
     return {
         "id": entity.pk,
         "stableId": entity.stable_id,
         "label": entity.label,
+        "sourceReleaseId": entity.source_release_id,
         "sourceSlug": release.source.slug if release else None,
         "sourceVersion": release.version if release else None,
+        "sourceEntityId": metadata.get("sourceEntityId"),
+        "sourceReferences": metadata.get("sourceReferences", []),
+        "identifierStatus": metadata.get("identifierStatus"),
+        "organism": entity.organism,
     }
 
 
 def _relation_record(relation: EvidenceRelation) -> dict:
+    metadata = relation.metadata if isinstance(relation.metadata, dict) else {}
     return {
+        "id": relation.pk,
         "relationId": relation.pk, "subjectId": relation.subject_id, "objectId": relation.object_id,
         "sourceReleaseId": relation.source_release_id,
         "subject": relation.subject.label,
@@ -76,6 +87,8 @@ def _relation_record(relation: EvidenceRelation) -> dict:
         "sourceSlug": relation.source_release.source.slug,
         "sourceVersion": relation.source_release.version,
         "sourceRecordId": relation.source_record_id,
+        "sourceOrigin": metadata.get("sourceOrigin"),
+        "sourceIdentity": metadata.get("sourceIdentity"),
         "score": float(relation.score) if relation.score is not None else None,
     }
 
@@ -104,6 +117,8 @@ def batch_herb_component_evidence(*, query_type: str, queries: list[str]) -> dic
                 relation_types=COMPOUND_TARGET_TYPES,
                 object_types=[KnowledgeEntity.EntityType.PROTEIN, KnowledgeEntity.EntityType.GENE],
             ) if compound_ids else ([], False)
+            support = HerbRowSupport(herb_edges)
+            target_edges = [relation for relation in target_edges if support.for_target(relation)]
             herbs = matches
             compounds = list({item.object_id: item.object for item in herb_edges}.values())
             targets = list({item.object_id: item.object for item in target_edges}.values())
@@ -136,4 +151,6 @@ def batch_herb_component_evidence(*, query_type: str, queries: list[str]) -> dic
         })
 
     from .data_quality import data_quality_notices
-    return {"queryType": query_type, "results": result_items, "dataQuality": data_quality_notices()}
+    result = {"queryType": query_type, "results": result_items, "dataQuality": data_quality_notices()}
+    canonical = json.dumps(result, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    return {**result, "resultSha256": hashlib.sha256(canonical.encode()).hexdigest()}

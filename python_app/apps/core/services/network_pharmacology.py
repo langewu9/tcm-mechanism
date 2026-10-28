@@ -14,6 +14,7 @@ from .catalog_identity import exact_entity_queryset, structural_representatives
 from .disease_resolution import resolve_intersection_disease
 from .target_identity import compare_target_identities
 from .data_quality import data_quality_notices
+from .herb_row_support import HerbRowSupport
 
 
 INPUT_SPLIT = re.compile(r"[,，、;；|/\n\r]+")
@@ -26,8 +27,8 @@ PATHWAY_TYPES = {
     "participatesin", "participates_in", "annotatedtopathway", "annotated_to_pathway",
     "associatedwithpathway", "associated_with_pathway",
 }
-STATISTICS_VERSION = "main-078d374-candidate-statistics-v1"
-RAW_EVIDENCE_VERSION = "network-raw-evidence-v1"
+STATISTICS_VERSION = "main-078d374-candidate-statistics-v2"
+RAW_EVIDENCE_VERSION = "network-raw-evidence-v2"
 RAW_EXPORT_LIMIT = 4000
 
 
@@ -142,13 +143,11 @@ def _raw_side_evidence(herb_relations, target_relations, disease_relations, *, h
     A herb row is a pair of real edges, so both source records are retained.
     The join stops after one sentinel row instead of materializing a Cartesian product.
     """
-    herbs_by_compound = defaultdict(list)
-    for relation in herb_relations:
-        herbs_by_compound[relation.object_id].append(relation)
+    support = HerbRowSupport(herb_relations)
     herb_rows = []
     herb_truncated = False
     for target_relation in target_relations:
-        for herb_relation in herbs_by_compound[target_relation.subject_id]:
+        for herb_relation in support.for_target(target_relation):
             if len(herb_rows) == limit:
                 herb_truncated = True
                 break
@@ -265,33 +264,28 @@ def build_network_pharmacology(
     compound_target_relations = read_relations(
         "compoundTargets", subject_ids=compound_ids, relation_types=COMPOUND_TARGET_TYPES,
     ) if compound_ids else []
+    support = HerbRowSupport(herb_compound_relations)
+    compound_target_relations = [relation for relation in compound_target_relations if support.for_target(relation)]
     disease_target_relations = read_relations(
         "diseaseTargets", subject_ids=disease_ids, relation_types=DISEASE_TARGET_TYPES,
         preferred_herb_ids=list(selected_herbs_by_stable_id),
     ) if diseases else []
     compound_by_id = {relation.object_id: relation.object for relation in herb_compound_relations}
     compound_target_counts: dict[int, set[int]] = defaultdict(set)
-    compound_evidence: dict[int, dict] = defaultdict(lambda: {
-        "herbs": set(), "compounds": set(), "sources": [],
-    })
     herb_evidence: dict[int, dict] = defaultdict(lambda: {
         "herbs": set(), "compounds": set(), "sources": [], "count": 0,
     })
     source_releases = {relation.source_release_id for relation in formula_herb_relations}
     for relation in herb_compound_relations:
-        evidence = compound_evidence[relation.object_id]
-        evidence["herbs"].add(relation.subject.label)
-        evidence["compounds"].add(relation.object.label)
-        evidence["sources"].append(_evidence_record(relation))
         source_releases.add(relation.source_release_id)
     for relation in compound_target_relations:
         compound_target_counts[relation.subject_id].add(relation.object_id)
         evidence = herb_evidence[relation.object_id]
-        compound_support = compound_evidence.get(relation.subject_id, {})
+        compound_support = support.for_target(relation)
         evidence["count"] += 1
-        evidence["compounds"].update(compound_support.get("compounds", {relation.subject.label}))
-        evidence["herbs"].update(compound_support.get("herbs", set()))
-        evidence["sources"].extend(compound_support.get("sources", []))
+        evidence["compounds"].add(relation.subject.label)
+        evidence["herbs"].update(item.subject.label for item in compound_support)
+        evidence["sources"].extend(_evidence_record(item) for item in compound_support)
         evidence["sources"].append(_evidence_record(relation))
         source_releases.add(relation.source_release_id)
 
@@ -499,9 +493,12 @@ def build_network_pharmacology(
         }
         if source_case_candidate:
             medical_case = MedicalCase.objects.select_for_update().get(pk=source_case_candidate.medical_case_id)
-            candidate = MedicalCaseCandidate.objects.select_for_update().select_related("task", "entity").get(
-                pk=source_case_candidate.pk,
-                medical_case=medical_case,
+            # The optional entity uses an outer join, which PostgreSQL cannot
+            # lock. Serialize the candidate and its source task explicitly.
+            candidate = (
+                MedicalCaseCandidate.objects.select_for_update(of=("self", "task"))
+                .select_related("task", "entity")
+                .get(pk=source_case_candidate.pk, medical_case=medical_case)
             )
             from .case_analysis import case_input_sha256
 

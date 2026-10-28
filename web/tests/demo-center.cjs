@@ -23,3 +23,18 @@ assert.ok(!/from ["']\.\.\/api\//.test(demoPage));
 assert.ok(!/Scenario|evaluateDemo|20 行|模块交付问题|key 字段/.test(demoPage));
 assert.ok(!fs.readFileSync(path.resolve(__dirname,'../src/components/AppShell.tsx'),'utf8').includes('ModuleDemoNotice'));
 console.log('PASS: dense-gallery manifest, rejection of old/small/invalid catalogs, six-chart pagination, categories, immutable input and removal of legacy simulated scenarios.');
+
+const configFile = path.resolve(__dirname, '../vite.config.ts');
+const configModule = {exports:{}};
+const compiled = ts.transpileModule(fs.readFileSync(configFile,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,esModuleInterop:true}}).outputText;
+let proxyEnvironment = {};
+new Function('require','module','exports',compiled)(name=>name==='vite'?{defineConfig:value=>value,loadEnv:()=>proxyEnvironment}:{default:()=>null,__esModule:true},configModule,configModule.exports);
+const defaultConfig = configModule.exports.default({mode:'development'});
+assert.equal(defaultConfig.server.proxy['^/api/'].target,'http://127.0.0.1:8020');
+proxyEnvironment = {TCM_API_PROXY_TARGET:'http://127.0.0.1:8021'};
+const acceptanceConfig = configModule.exports.default({mode:'development'});
+assert.equal(acceptanceConfig.server.proxy['^/api/'].target,'http://127.0.0.1:8021');
+const proxies = Object.keys(defaultConfig.server.proxy);
+assert.ok(proxies.some(key=>key.startsWith('^') && new RegExp(key).test('/api/v1/health/')));
+assert.ok(!proxies.some(key=>key.startsWith('^') ? new RegExp(key).test('/api-integration') : '/api-integration'.startsWith(key)));
+console.log('PASS: API proxy honors the selected backend and excludes frontend integration routes.');

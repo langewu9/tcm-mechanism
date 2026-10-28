@@ -26,7 +26,7 @@ ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS")
 CSRF_TRUSTED_ORIGINS = trusted_csrf_origins(env.list("CSRF_TRUSTED_ORIGINS"), debug=DEBUG)
 
 INSTALLED_APPS = [
-    "django.contrib.admin",
+    "config.admin_apps.PlatformAdminConfig",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
@@ -48,6 +48,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "config.access_audit.SensitiveAccessAuditMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -121,6 +122,8 @@ STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 MEDIA_ROOT = (BASE_DIR / env("MEDIA_ROOT", default="var/media")).resolve()
 MEDIA_URL = "media/"
+# Private operational diagnostics, separate from uploads and the business DB.
+RUNTIME_LOG_DIR = Path(env("RUNTIME_LOG_DIR", default=str(BASE_DIR / "var/runtime-logs")))
 PUBLIC_BASE_URL = env(
     "PUBLIC_BASE_URL",
     default="http://127.0.0.1:5173" if DEBUG else "",
@@ -167,6 +170,11 @@ STORAGES = {
     },
 }
 DATASET_UPLOAD_MAX_BYTES = env.int("DATASET_UPLOAD_MAX_BYTES", default=100 * 1024 * 1024)
+DATASET_STORAGE_QUOTA_BYTES = env.int("DATASET_STORAGE_QUOTA_BYTES", default=1024 * 1024 * 1024)
+DATASET_COUNT_QUOTA = env.int("DATASET_COUNT_QUOTA", default=100)
+DATA_UPLOAD_MAX_MEMORY_SIZE = env.int("API_REQUEST_MAX_BYTES", default=1024 * 1024)
+FILE_UPLOAD_MAX_MEMORY_SIZE = 2 * 1024 * 1024
+DATA_UPLOAD_MAX_NUMBER_FILES = 1
 PROTEOMICS_MAX_ROWS = env.int("PROTEOMICS_MAX_ROWS", default=25_000)
 PROTEOMICS_MAX_COLUMNS = env.int("PROTEOMICS_MAX_COLUMNS", default=250)
 PROTEOMICS_MAX_CELLS = env.int("PROTEOMICS_MAX_CELLS", default=1_000_000)
@@ -186,6 +194,8 @@ R_VIZ_MAX_RESPONSE_BYTES = env.int("R_VIZ_MAX_RESPONSE_BYTES", default=20 * 1024
 
 SECURE_SSL_REDIRECT = env.bool("DJANGO_SECURE_SSL_REDIRECT", default=not DEBUG)
 SESSION_COOKIE_SECURE = env.bool("DJANGO_SESSION_COOKIE_SECURE", default=not DEBUG)
+SESSION_COOKIE_NAME = env("DJANGO_SESSION_COOKIE_NAME", default="sessionid")
+CSRF_COOKIE_NAME = env("DJANGO_CSRF_COOKIE_NAME", default="csrftoken")
 CSRF_COOKIE_SECURE = env.bool("DJANGO_CSRF_COOKIE_SECURE", default=not DEBUG)
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = "Lax"
@@ -195,6 +205,10 @@ SECURE_REFERRER_POLICY = "same-origin"
 SECURE_HSTS_SECONDS = env.int("DJANGO_SECURE_HSTS_SECONDS", default=0)
 SECURE_HSTS_INCLUDE_SUBDOMAINS = env.bool("DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS", default=False)
 SECURE_HSTS_PRELOAD = env.bool("DJANGO_SECURE_HSTS_PRELOAD", default=False)
+# Subdomain coverage and browser preloading require a domain owner's explicit
+# decision. Keep HSTS for this host without requiring these optional policies.
+# All other deployment warnings still fail the production setup check.
+SILENCED_SYSTEM_CHECKS = ["security.W005", "security.W021"]
 if env.bool("DJANGO_USE_X_FORWARDED_PROTO", default=False):
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
@@ -208,6 +222,15 @@ REST_FRAMEWORK = {
     "EXCEPTION_HANDLER": "config.api_errors.api_exception_handler",
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework.authentication.SessionAuthentication",
+    ],
+    "DEFAULT_PARSER_CLASSES": [
+        "config.parsers.BoundedJSONParser",
+        "rest_framework.parsers.FormParser",
+        "rest_framework.parsers.MultiPartParser",
+    ],
+    "DEFAULT_THROTTLE_CLASSES": [
+        "apps.core.throttling.PlatformUserThrottle",
+        "apps.core.throttling.ResearchSubmissionThrottle",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
@@ -226,6 +249,8 @@ REST_FRAMEWORK = {
         "chembl": "10/hour",
         "login_ip": env("DJANGO_LOGIN_IP_RATE", default="30/min"),
         "login_account": env("DJANGO_LOGIN_ACCOUNT_RATE", default="10/min"),
+        "platform_user": env("DJANGO_USER_RATE", default="600/min"),
+        "research_submission": env("DJANGO_RESEARCH_SUBMISSION_RATE", default="120/hour"),
     },
 }
 

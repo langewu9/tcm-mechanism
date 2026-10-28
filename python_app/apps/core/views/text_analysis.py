@@ -1,5 +1,6 @@
 """The existing main free-text analysis workbench, served by Django."""
 
+from itertools import chain
 from django.db import transaction
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status
@@ -11,6 +12,7 @@ from rest_framework.views import APIView
 from apps.core.models import AnalysisTask, MedicalCase
 from apps.core.serializers import AnalysisTaskSerializer
 from apps.core.services.text_analysis import create_text_analysis
+from apps.core.services.access_audit import mark_sensitive_access
 
 
 class TextAnalysisRequestSerializer(serializers.Serializer):
@@ -36,13 +38,15 @@ class TextAnalysisView(APIView):
     @extend_schema(responses=TextAnalysisWorkspaceSerializer)
     def get(self, request):
         scope = {} if request.user.is_superuser else {"owner": request.user}
-        cases = list(MedicalCase.objects.filter(**scope).order_by("-created_at", "-id")[:201])
+        cases = list(MedicalCase.objects.filter(archived_at__isnull=True, **scope).order_by("-created_at", "-id")[:201])
         tasks = AnalysisTask.objects.filter(
             task_type=AnalysisTask.TaskType.TEXT_ANALYSIS, **scope,
         ).select_related("owner", "created_by").order_by("-created_at", "-id")[:8]
-        return Response(TextAnalysisWorkspaceSerializer({
+        response = Response(TextAnalysisWorkspaceSerializer({
             "tasks": tasks, "cases": cases[:200], "casesTruncated": len(cases) > 200,
         }).data)
+        mark_sensitive_access(request, operation="text_workspace.view", action="view", resources=chain(tasks, cases[:200]))
+        return response
 
     @extend_schema(request=TextAnalysisRequestSerializer, responses={201: AnalysisTaskSerializer})
     @transaction.atomic
@@ -52,7 +56,7 @@ class TextAnalysisView(APIView):
         data = serializer.validated_data
         medical_case = None
         if data["caseId"]:
-            cases = MedicalCase.objects.select_for_update().select_related("owner")
+            cases = MedicalCase.objects.select_for_update().select_related("owner").filter(archived_at__isnull=True)
             if not request.user.is_superuser:
                 cases = cases.filter(owner=request.user)
             medical_case = cases.filter(pk=data["caseId"]).first()

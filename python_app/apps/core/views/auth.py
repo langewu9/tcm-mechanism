@@ -33,14 +33,14 @@ logger = logging.getLogger(__name__)
 
 class LoginSerializer(serializers.Serializer):
     username = serializers.CharField(max_length=150)
-    password = serializers.CharField(write_only=True, trim_whitespace=False)
+    password = serializers.CharField(write_only=True, trim_whitespace=False, max_length=1024)
 
 
 class ResearcherRegistrationSerializer(serializers.Serializer):
     username = serializers.CharField(max_length=150)
     email = serializers.EmailField(max_length=254)
-    password = serializers.CharField(write_only=True, trim_whitespace=False)
-    password_confirmation = serializers.CharField(write_only=True, trim_whitespace=False)
+    password = serializers.CharField(write_only=True, trim_whitespace=False, max_length=1024)
+    password_confirmation = serializers.CharField(write_only=True, trim_whitespace=False, max_length=1024)
 
     def validate_username(self, value):
         value = value.strip()

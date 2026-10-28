@@ -1,0 +1,38 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block extrahead %}{{ block.super }}
+<script src="{% static 'core/integration_monitor.js' %}" defer></script>
+{% endblock %}
+{% block extrastyle %}{{ block.super }}
+<style>
+  #maintenance-monitor pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 28rem; overflow: auto; padding: 12px; background: var(--darkened-bg); }
+  #maintenance-monitor .check-body { padding: 12px; }
+  #maintenance-monitor .errornote:empty { display: none; }
+</style>
+{% endblock %}
+{% block breadcrumbs %}<div class="breadcrumbs"><a href="{% url 'admin:index' %}">首页</a> &rsaquo; API 接入监测</div>{% endblock %}
+{% block content %}
+<div id="maintenance-monitor" data-status-url="{{ status_url }}" data-test-url="{{ test_url }}">
+  <p>仅平台超级管理员可用。打开页面只读取本地配置状态；模型及 ChEMBL 连接测试必须逐次确认。</p>
+  <p id="monitor-error" class="errornote" role="alert"></p>
+  <section class="module">
+    <h2>服务状态</h2>
+    <div class="check-body"><button id="monitor-refresh" type="button">刷新状态</button><pre id="monitor-status" aria-live="polite">正在读取本地配置状态…</pre></div>
+  </section>
+  <p><button id="monitor-local" type="button">一键测试本地接口</button> 只执行疾病、中药、成分、交集和比对检查，不调用模型或 ChEMBL。</p>
+  {% for check in checks %}
+  <form class="module" data-check="{{ check.target }}" data-local-check="{{ check.local|yesno:'true,false' }}" method="post" action="{{ test_url }}">
+    {% csrf_token %}
+    <input type="hidden" name="target" value="{{ check.target }}">
+    <h2>{{ check.title }}</h2>
+    <div class="check-body">
+      <p>{{ check.description }}</p>
+      {% if check.consent %}<p><label><input type="checkbox" name="consent" required> {{ check.consent }}</label></p>{% endif %}
+      <button type="submit" {% if check.unavailable %}disabled data-unavailable="true"{% endif %}>运行测试</button>
+      <pre data-result aria-live="polite">{% if check.unavailable %}旧依赖缺失，暂不可测试。{% else %}尚未测试。{% endif %}</pre>
+    </div>
+  </form>
+  {% endfor %}
+</div>
+{% endblock %}

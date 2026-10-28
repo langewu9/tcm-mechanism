@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { getAnalysisTask, getAnalysisTasks, type AnalysisTask } from "../api/datasets";
+import { getAnalysisTask, getAnalysisTaskSummaries, type AnalysisTask } from "../api/datasets";
+import { restoreGalleryJobs } from "../api/task-restoration";
 import { createVisualization } from "../api/network";
 import { ApiError } from "../api/client";
 import { RChartSource, RChartSourceProvider } from "./RChartSource";
@@ -16,6 +17,9 @@ export function rChartCatalog(task: AnalysisTask): Chart[] {
   const result = record(task.result);
   const network = record(result.network);
   const hasGraph = list(network.links).length > 0;
+  if (task.task_type === "network" && result.analysisKind === "catalog_evidence" && !result.queryType) return [
+    { key: "evidence_network", label: "中药—成分—靶点目录关系图", available: hasGraph, note: "使用已保存的本地目录快照；R 图合并同一对实体的重复连线，完整来源记录保留在分析任务中。" },
+  ];
   const ppi = task.task_type === "proteomics" ? record(result.externalString) : result;
   const hasPpi = ppi.source === "STRING" && ppi.networkType === "physical"
     && (ppi.status === "succeeded" || (ppi.status === undefined && ppi.analysisKind === "string_ppi")) && list(ppi.edges).length > 0;
@@ -69,14 +73,11 @@ export function RAnalysisGallery({ taskId, additionalCharts = [], initialSource 
     const current = ++generation.current;
     setParent(null); setJobs({}); setError(null); setBusy(null);
     renderLock.current = false;
-    Promise.all([getAnalysisTask(taskId), getAnalysisTasks(1, taskId)]).then(([source, page]) => {
+    Promise.all([getAnalysisTask(taskId), getAnalysisTaskSummaries(1, taskId)]).then(async ([source, page]) => {
+      if (generation.current !== current) return;
+      const restored = await restoreGalleryJobs(page.results, taskId, new Set(rChartCatalog(source).map(chart => chart.key)));
       if (generation.current !== current) return;
       setParent(source);
-      const restored: Record<string, AnalysisTask> = {};
-      for (const job of page.results) {
-        const key = job.input_parameters.chartKey;
-        if (job.task_type === "visualization" && job.parent_task === taskId && typeof key === "string" && !restored[key]) restored[key] = job;
-      }
       setJobs(restored);
     }).catch(cause => { if (generation.current === current) setError(cause instanceof ApiError ? cause.message : "R 分析目录加载失败。"); });
     return () => { generation.current++; };

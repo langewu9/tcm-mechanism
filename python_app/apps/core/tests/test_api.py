@@ -201,7 +201,7 @@ class PrivateWorkspaceApiTests(APITestCase):
         self.assertEqual(response.data["error"]["code"], "VALIDATION_ERROR")
         self.assertEqual(ResearchDataset.objects.filter(name="Too large").count(), 0)
 
-    def test_only_dataset_owner_can_delete_and_deletion_removes_private_file(self):
+    def test_only_dataset_owner_can_archive_and_original_file_is_retained(self):
         with tempfile.TemporaryDirectory() as media_root, override_settings(MEDIA_ROOT=media_root):
             self.client.force_authenticate(self.owner)
             create_response = self.client.post(
@@ -224,7 +224,9 @@ class PrivateWorkspaceApiTests(APITestCase):
             self.client.force_authenticate(self.owner)
             delete_response = self.client.delete(reverse("dataset-detail", args=[dataset.pk]))
             self.assertEqual(delete_response.status_code, 204)
-            self.assertFalse(default_storage.exists(storage_key))
+            self.assertTrue(default_storage.exists(storage_key))
+            dataset.refresh_from_db()
+            self.assertIsNotNone(dataset.archived_at)
 
     def test_case_update_and_delete_are_limited_to_the_owner(self):
         self.client.force_authenticate(self.other_user)
@@ -356,8 +358,10 @@ class PrivateWorkspaceApiTests(APITestCase):
 
         deleted = self.client.delete(reverse("case-detail", args=[case_id]))
         self.assertEqual(deleted.status_code, 204)
-        deletion = MedicalCaseAuditEvent.objects.get(case_id_snapshot=case_id, action=MedicalCaseAuditEvent.Action.DELETED)
-        self.assertIsNone(deletion.case)
+        deletion = MedicalCaseAuditEvent.objects.get(case_id_snapshot=case_id, action=MedicalCaseAuditEvent.Action.ARCHIVED)
+        self.assertEqual(deletion.case_id, case_id)
+        case.refresh_from_db()
+        self.assertIsNotNone(case.archived_at)
 
     def test_case_audit_is_owner_private_and_superuser_can_review(self):
         self.client.force_authenticate(self.owner)

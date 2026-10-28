@@ -273,7 +273,9 @@ make_network_plot <- function(payload) {
     preferred <- c("herb", "ingredient", "compound", "gene", "protein", "target", "pathway", "disease")
     types <- c(intersect(preferred, unique(nodes$type)), setdiff(unique(nodes$type), preferred))
     nodes$x <- match(nodes$type, types)
-    nodes$y <- ave(seq_len(nrow(nodes)), nodes$type, FUN = function(group) seq(-1, 1, length.out = length(group)))
+    nodes$y <- ave(seq_len(nrow(nodes)), nodes$type, FUN = function(group) {
+      if (length(group) == 1L) 0 else seq(-1, 1, length.out = length(group))
+    })
   }
   edges <- lapply(payload$edges, function(item) {
     if (!is.character(item$source) || length(item$source) != 1L ||

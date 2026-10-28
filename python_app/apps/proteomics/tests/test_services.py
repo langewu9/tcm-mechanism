@@ -469,7 +469,9 @@ class ProteomicsServiceTests(TestCase):
         self.assertEqual(result["qc"]["rawMatrix"]["rowsTested"], 2)
         self.assertEqual(len(stored_rows), 2)
         self.assertTrue(all(not row.selected for row in stored_rows))
-        self.assertEqual(release_ids, [])
+        # Full row exports keep mapping provenance even when no row passes the
+        # differential thresholds; this does not create a pathway result.
+        self.assertEqual(release_ids, [self.release.pk])
 
     def test_celery_task_persists_results_and_is_idempotent(self):
         with patch("apps.proteomics.tasks.run_opt_in_reactome") as external_analysis, patch(
@@ -486,7 +488,7 @@ class ProteomicsServiceTests(TestCase):
         self.assertEqual(outcome["status"], AnalysisTask.Status.SUCCEEDED)
         self.assertEqual(self.task.status, AnalysisTask.Status.SUCCEEDED)
         self.assertEqual(self.task.progress, 100)
-        self.assertEqual(self.task.result["algorithmVersion"], "proteomics-py-1.6")
+        self.assertEqual(self.task.result["algorithmVersion"], "proteomics-py-1.9")
         self.assertEqual(ProteomicsRowResult.objects.filter(task=self.task).count(), 6)
         self.assertEqual(list(self.task.source_releases.values_list("id", flat=True)), [self.release.pk])
         self.assertEqual(run_proteomics_task.run(self.task.pk)["status"], "skipped")

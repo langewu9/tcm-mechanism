@@ -2,6 +2,15 @@
 .gitignore
 .env
 **/.env
+**/.env.*
+!.env.production.example
+!**/.env.example
+deploy/certs/*
+!deploy/certs/.gitkeep
+**/backups
+**/*.dump
+**/*.dump.sha256
+**/*.dump.partial
 **/.venv
 **/node_modules
 **/dist

@@ -1,4 +1,6 @@
 from django.http import Http404
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -16,6 +18,7 @@ class CorpusQuery(serializers.Serializer):
 class CaseCorpusListView(APIView):
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(operation_id="case_corpus_list", parameters=[CorpusQuery], responses=OpenApiTypes.OBJECT)
     def get(self, request):
         query = CorpusQuery(data=request.query_params)
         query.is_valid(raise_exception=True)
@@ -36,6 +39,7 @@ class CaseCorpusListView(APIView):
 class CaseCorpusSummaryView(APIView):
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(operation_id="case_corpus_summary", responses=OpenApiTypes.OBJECT)
     def get(self, request):
         from apps.core.services.case_analysis import case_model_configuration
         return Response({**corpus_summary(), "modelConfiguration": case_model_configuration()})
@@ -44,6 +48,7 @@ class CaseCorpusSummaryView(APIView):
 class CaseCorpusDetailView(APIView):
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(operation_id="case_corpus_detail", responses=OpenApiTypes.OBJECT)
     def get(self, request, pk):
         release = active_release()
         document = CaseCorpusDocument.objects.using("case_rag").filter(release=release, pk=pk).select_related("release").first() if release else None

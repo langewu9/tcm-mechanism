@@ -25,8 +25,12 @@ x-django-environment: &django-environment
   CASE_RAG_DATABASE_URL: ${CASE_RAG_DATABASE_URL:-sqlite:////app/var/case-rag/corpus.sqlite3}
   CELERY_BROKER_URL: redis://:${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env.production}@redis:6379/0
   CACHE_URL: redis://:${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env.production}@redis:6379/1
+  RUNTIME_LOG_DIR: /app/var/runtime-logs
   DJANGO_LOGIN_IP_RATE: ${DJANGO_LOGIN_IP_RATE:-30/min}
   DJANGO_LOGIN_ACCOUNT_RATE: ${DJANGO_LOGIN_ACCOUNT_RATE:-10/min}
+  DJANGO_USER_RATE: ${DJANGO_USER_RATE:-600/min}
+  DJANGO_RESEARCH_SUBMISSION_RATE: ${DJANGO_RESEARCH_SUBMISSION_RATE:-120/hour}
+  API_REQUEST_MAX_BYTES: ${API_REQUEST_MAX_BYTES:-1048576}
   SOURCE_SCHEDULED_PREVIEWS_ENABLED: ${SOURCE_SCHEDULED_PREVIEWS_ENABLED:-false}
   S3_STORAGE_ENABLED: "true"
   S3_BUCKET_NAME: ${S3_BUCKET_NAME:?Set S3_BUCKET_NAME in .env.production}
@@ -38,6 +42,8 @@ x-django-environment: &django-environment
   R_VIZ_BASE_URL: http://r-viz:8001
   R_VIZ_API_TOKEN: ${R_VIZ_API_TOKEN:?Set R_VIZ_API_TOKEN in .env.production}
   DATASET_UPLOAD_MAX_BYTES: ${DATASET_UPLOAD_MAX_BYTES:-104857600}
+  DATASET_STORAGE_QUOTA_BYTES: ${DATASET_STORAGE_QUOTA_BYTES:-1073741824}
+  DATASET_COUNT_QUOTA: ${DATASET_COUNT_QUOTA:-100}
   STRING_DB_VERSION: ${STRING_DB_VERSION:-}
   CASE_MODEL_BASE_URL: ${CASE_MODEL_BASE_URL:-}
   CASE_MODEL_NAME: ${CASE_MODEL_NAME:-}
@@ -96,18 +102,36 @@ services:
       start_period: 60s
     networks: [visualization]
 
+  setup:
+    build: *python-build
+    command: ["sh", "-c", "python manage.py check --deploy --fail-level WARNING && python manage.py migrate --noinput && python manage.py migrate case_rag --database=case_rag --noinput && python manage.py collectstatic --noinput"]
+    environment: *django-environment
+    volumes:
+      - django_static:/app/staticfiles
+      - case_rag_data:/app/var/case-rag
+      - runtime_logs:/app/var/runtime-logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks: [data]
+
   api:
     build: *python-build
     restart: unless-stopped
-    command: ["sh", "-c", "python manage.py migrate --noinput && python manage.py migrate case_rag --database=case_rag --noinput && python manage.py collectstatic --noinput && exec gunicorn config.wsgi:application --bind 0.0.0.0:8020 --workers 3 --timeout 120 --access-logfile - --error-logfile -"]
+    command: ["gunicorn", "--config", "python:config.gunicorn", "config.wsgi:application"]
     environment:
       <<: *django-environment
       MEDIA_ROOT: /app/var/media
     volumes:
-      - django_static:/app/staticfiles
+      - django_static:/app/staticfiles:ro
+      - runtime_logs:/app/var/runtime-logs
       - case_rag_data:/app/var/case-rag
     expose: ["8020"]
     depends_on:
+      setup:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
@@ -134,7 +158,10 @@ services:
       ADMIN_NOTIFICATION_EMAILS: ""
     volumes:
       - case_rag_data:/app/var/case-rag
+      - runtime_logs:/app/var/runtime-logs
     depends_on:
+      setup:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
@@ -191,6 +218,7 @@ volumes:
   django_static:
   celery_schedule:
   case_rag_data:
+  runtime_logs:
 
 networks:
   edge:

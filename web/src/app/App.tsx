@@ -1,4 +1,4 @@
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { lazy, Suspense } from "react";
 import { PageLoadBoundary, PageLoading } from "./PageLoadBoundary";
 import { HomePage } from "../pages/HomePage";
@@ -15,7 +15,6 @@ const NetworkPharmacologyPage = lazy(() => import("../pages/NetworkPharmacologyP
 const KnowledgeExplorerPage = lazy(() => import("../pages/KnowledgeExplorerPage").then((module) => ({ default: module.KnowledgeExplorerPage })));
 const ResearchAssistantPage = lazy(() => import("../pages/ResearchAssistantPage").then((module) => ({ default: module.ResearchAssistantPage })));
 const DashboardPage = lazy(() => import("../pages/DashboardPage").then((module) => ({ default: module.DashboardPage })));
-const ApiIntegrationPage = lazy(() => import("../pages/ApiIntegrationPage").then((module) => ({ default: module.ApiIntegrationPage })));
 const AdminOverviewPage = lazy(() => import("../pages/AdminOverviewPage").then((module) => ({ default: module.AdminOverviewPage })));
 const AnalysisPage = lazy(() => import("../pages/AnalysisPage").then((module) => ({ default: module.AnalysisPage })));
 const DemoCenterPage = lazy(() => import("../pages/DemoCenterPage").then((module) => ({ default: module.DemoCenterPage })));
@@ -38,8 +37,8 @@ export function App() {
       <Route path="/analysis" element={<AnalysisPage />} />
       <Route path="/admin" element={<AdminOverviewPage />} />
       <Route path="/admin/sources" element={<SourcesPage />} />
-      <Route path="/admin/integrations" element={<ApiIntegrationPage />} />
-      <Route path="/api-integration" element={<ApiIntegrationPage />} />
+      <Route path="/admin/integrations" element={<Navigate to="/dashboard" replace />} />
+      <Route path="/api-integration" element={<Navigate to="/dashboard" replace />} />
     </Route></Route>
     <Route path="*" element={<main className="site-home"><section className="empty-state"><strong>页面不存在</strong><p>请检查访问地址，或返回平台首页。</p><a className="btn btn-secondary" href="/">返回首页</a></section></main>} />
   </Routes></Suspense></PageLoadBoundary></BrowserRouter>;

@@ -13,6 +13,7 @@ from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from apps.core.models import DataSource, EvidenceRelation, KnowledgeEntity, SourceRelease, SyncRun
+from apps.sources.legacy_identity import IDENTITY_POLICY, check_identity_consistency
 from apps.sources.connectors.sqlite_tcm import (
     MAX_TARGETS_PER_ROW,
     SQLiteSourceError,
@@ -26,6 +27,7 @@ from apps.sources.connectors.sqlite_tcm import (
 SQLITE_CONNECTOR = "sqlite-herb-compound-target"
 EVIDENCE_TYPE = "curated_sqlite_database"
 _SPACE = re.compile(r"\s+")
+_SYMBOL_CANDIDATE = re.compile(r"^[A-Z][A-Z0-9_.-]{0,63}$")
 
 
 def _canonical(value: str) -> str:
@@ -38,6 +40,9 @@ def _stable_id(source: DataSource, kind: str, label: str) -> str:
 
 
 def _configuration_sha256(configuration: dict) -> str:
+    if configuration.get("rowMetadataColumn"):
+        # Identity policy changes must create a new release and retire old rows.
+        configuration = {**configuration, "identityPolicy": IDENTITY_POLICY}
     encoded = json.dumps(configuration, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
 
@@ -53,7 +58,7 @@ def _sqlite_snapshot(source: DataSource):
 
 def _source_rows(source: DataSource):
     try:
-        yield from iter_configured_rows(source.configuration)
+        yield from iter_configured_rows(source.configuration, include_metadata=True)
     except SQLiteSourceError as exc:
         raise ValidationError(str(exc)) from exc
 
@@ -65,14 +70,17 @@ def _ensure_snapshot_unchanged(source: DataSource, expected_checksum: str) -> No
 
 
 def _row_entities_and_relations(source: DataSource, row):
-    kind, row_id, first_value, second_value, third_value = row
+    kind, row_id, first_value, second_value, third_value = row[:5]
+    source_record = row[5] if len(row) == 6 else None
+    identity = source_record["identity"] if source_record else {}
     herb = clean_cell(first_value) if kind == "herb" else ""
     compound = clean_cell(second_value) if kind == "herb" else ""
     disease = clean_cell(first_value) if kind in {"diseaseTarget", "diseaseHerbTarget"} else ""
     disease_herb = clean_cell(second_value) if kind == "diseaseHerbTarget" else ""
     raw_targets = third_value if kind in {"herb", "diseaseHerbTarget"} else second_value
     source_file = clean_cell(third_value) if kind == "diseaseTarget" else ""
-    targets = list(dict.fromkeys(split_targets(raw_targets)))
+    target_values = [clean_cell(raw_targets)] if (source.configuration or {}).get("targetCellMode", "list") == "single" else split_targets(raw_targets)
+    targets = list(dict.fromkeys(value for value in target_values if value))
     if len(targets) > MAX_TARGETS_PER_ROW:
         raise ValidationError(f"源文件中单行拆分出的靶点超过 {MAX_TARGETS_PER_ROW} 个，请检查分隔符和数据内容。")
     entities: dict[tuple[str, str], dict] = {}
@@ -84,8 +92,27 @@ def _row_entities_and_relations(source: DataSource, row):
         stable_id = _stable_id(source, kind, label)
         key = (entity_type, stable_id)
         metadata = {"source": source.slug, "sourceKind": kind}
+        source_id = identity.get({"herb": "herbId", "compound": "compoundId", "target": "targetId"}.get(kind))
+        if source_id:
+            # Provider IDs are case-sensitive and scoped to this source/kind.
+            digest = hashlib.sha256(source_id.encode("utf-8")).hexdigest()
+            stable_id = f"sqlite:{source.slug}:{kind}:id:{digest}"
+            key = (entity_type, stable_id)
+            metadata["sourceEntityId"] = source_id
+            metadata["identityBasis"] = "source_identifier"
+            reference_keys = ("uniprot",) if kind == "target" else ("pubchem", "chembl") if kind == "compound" else ()
+            metadata["sourceReferences"] = [{"namespace": namespace, "identifier": identity[namespace],
+                                             "status": "source_reported_unverified"}
+                                            for namespace in reference_keys if identity.get(namespace)]
         if kind == "target":
-            metadata["symbol"] = label
+            # Old worksheets mix protein names and symbols in the same target column.
+            # A label is never evidence of an approved HGNC/UniProt identity.
+            metadata["identifierStatus"] = "unverified_symbol" if _SYMBOL_CANDIDATE.fullmatch(label) else "name_only"
+            if metadata["identifierStatus"] == "unverified_symbol":
+                metadata["symbol"] = label
+            if identity.get("targetSymbol"):
+                metadata["symbol"] = identity["targetSymbol"]
+                metadata["identifierStatus"] = "unverified_symbol"
         entities[key] = {
             "entity_type": entity_type,
             "stable_id": stable_id,
@@ -125,6 +152,10 @@ def _row_entities_and_relations(source: DataSource, row):
             ("herb_disease_target", disease_herb_id, target_id, f"diseaseHerbTarget:{row_id}:herb-target:{target_id.rsplit(':', 1)[-1]}", row_id, {"diseaseStableId": disease_id, "diseaseLabel": disease})
             for target_id in target_ids
         )
+    if source_record:
+        provenance = {"sourceOrigin": {key: source_record[key] for key in ("workbookSha256", "sheet", "sourceRow")},
+                      "sourceIdentity": identity, "rawFields": source_record["rawFields"]}
+        relation_specs = [(*spec[:5], {**spec[5], **provenance}) for spec in relation_specs]
     return list(entities.values()), relation_specs
 
 
@@ -136,9 +167,14 @@ def preview_sqlite_sync(run: SyncRun) -> None:
     seen: dict[str, dict[str, str]] = defaultdict(dict)
     relation_count = 0
     rows_seen = 0
+    identity_proofs = {}
     for row in _source_rows(source):
         entities, relations = _row_entities_and_relations(source, row)
         for entity in entities:
+            try:
+                check_identity_consistency(entity, identity_proofs)
+            except ValueError as exc:
+                raise ValidationError(str(exc)) from exc
             seen[entity["entity_type"]][entity["stable_id"]] = entity["label"]
         relation_count += len(relations)
         rows_seen += 1
@@ -171,6 +207,8 @@ def preview_sqlite_sync(run: SyncRun) -> None:
                 "connector": SQLITE_CONNECTOR,
                 "databaseFile": source.configuration["databaseFile"],
                 "table": source.configuration["table"],
+                "rowMetadataColumn": source.configuration.get("rowMetadataColumn"),
+                "identityPolicy": IDENTITY_POLICY if source.configuration.get("rowMetadataColumn") else None,
                 "diseaseTargetTable": source.configuration.get("diseaseTargetTable") or None,
                 "diseaseHerbTargetTable": source.configuration.get("diseaseHerbTargetTable") or None,
                 "configurationSha256": configuration_sha256,
@@ -227,6 +265,7 @@ def preview_sqlite_sync(run: SyncRun) -> None:
         "tableRowCounts": snapshot.table_row_counts,
         "fileBytes": snapshot.file_size,
         "totalRows": rows_seen,
+        "targetCellMode": (source.configuration or {}).get("targetCellMode", "list"),
         "uniqueHerbs": len(seen.get(KnowledgeEntity.EntityType.HERB, {})),
         "uniqueCompounds": len(seen.get(KnowledgeEntity.EntityType.COMPOUND, {})),
         "uniqueTargets": len(seen.get(KnowledgeEntity.EntityType.PROTEIN, {})),
@@ -347,9 +386,15 @@ def apply_sqlite_sync(run: SyncRun) -> None:
     seen_ids: set[str] = set()
     rows_seen = 0
     batch = []
+    identity_proofs = {}
 
     with transaction.atomic():
         for row in _source_rows(source):
+            for entity in _row_entities_and_relations(source, row)[0]:
+                try:
+                    check_identity_consistency(entity, identity_proofs)
+                except ValueError as exc:
+                    raise ValidationError(str(exc)) from exc
             batch.append(row)
             if len(batch) < 250:
                 continue

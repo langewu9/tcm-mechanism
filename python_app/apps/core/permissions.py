@@ -8,3 +8,10 @@ class IsPlatformAdministrator(BasePermission):
 
     def has_permission(self, request, view):
         return bool(request.user and request.user.is_authenticated and request.user.is_superuser)
+
+
+class IsPlatformMaintenanceAdministrator(IsPlatformAdministrator):
+    """Technical maintenance follows the stricter Django admin-site boundary."""
+
+    def has_permission(self, request, view):
+        return bool(super().has_permission(request, view) and request.user.is_active and request.user.is_staff)

@@ -5,6 +5,7 @@ from ..views import BatchHerbEvidenceView, DataSourceViewSet, DiseaseAliasSearch
 from ..views.disease_evidence import DiseaseEvidenceSearchView
 from ..views.pathway_catalog import ReactomePathwayCatalogView
 from ..views.catalog_visualization import CatalogSnapshotView
+from ..views.catalog import CatalogEvidenceAnalysisView
 
 router = DefaultRouter()
 router.register("sources", DataSourceViewSet, basename="source")
@@ -17,6 +18,7 @@ urlpatterns = [
     path("diseases/alias-search/", DiseaseAliasSearchView.as_view(), name="disease-alias-search"),
     path("diseases/evidence-search/", DiseaseEvidenceSearchView.as_view(), name="disease-evidence-search"),
     path("herb-evidence/batch/", BatchHerbEvidenceView.as_view(), name="batch-herb-evidence"),
+    path("herb-evidence/analyses/", CatalogEvidenceAnalysisView.as_view(), name="catalog-evidence-analysis"),
     path("entities/<int:entity_id>/neighborhood/", EntityNeighborhoodView.as_view(), name="entity-neighborhood"),
     path("", include(router.urls)),
 ]

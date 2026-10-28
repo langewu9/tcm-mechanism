@@ -7,7 +7,7 @@ from pathlib import Path
 import openpyxl
 
 from .config import DATABASE_DIR, PROJECT_ROOT
-from .data_service import SOURCE_FILES
+from .source_catalog import SOURCE_FILES
 
 
 CACHE_DB = PROJECT_ROOT / "tcm_pharmacology_platform" / "data_cache.db"
@@ -64,7 +64,7 @@ def build_herb_tables(con: sqlite3.Connection):
         target_i = _column_index(header, meta["target"])
         extra_indexes = [header.index(c) for c in meta["columns"] if c in header and c not in {meta["herb"], meta["component"], meta["target"]}]
         batch = []
-        for row in ws.iter_rows(values_only=True):
+        for row in ws.iter_rows(min_row=2, values_only=True):
             herb = _cell(row, herb_i)
             comp = _cell(row, comp_i)
             target = _cell(row, target_i)
@@ -90,7 +90,7 @@ def build_disease_tables(con: sqlite3.Connection):
     herb_i = _column_index(header, "中药")
     target_i = _column_index(header, "靶点基因")
     batch = []
-    for row in ws.iter_rows(values_only=True):
+    for row in ws.iter_rows(min_row=2, values_only=True):
         batch.append((_cell(row, disease_i), _cell(row, herb_i), _cell(row, target_i)))
         if len(batch) >= 5000:
             con.executemany("insert into disease_herb_target(disease, herb, target) values (?, ?, ?)", batch)
@@ -108,7 +108,7 @@ def build_disease_tables(con: sqlite3.Connection):
     disease_i = _column_index(header, "疾病")
     source_i = _column_index(header, "来源文件")
     batch = []
-    for row in ws.iter_rows(values_only=True):
+    for row in ws.iter_rows(min_row=2, values_only=True):
         batch.append((_cell(row, disease_i), _cell(row, target_i), _cell(row, source_i)))
         if len(batch) >= 5000:
             con.executemany("insert into disease_target(disease, target, source_file) values (?, ?, ?)", batch)

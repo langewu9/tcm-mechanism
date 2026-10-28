@@ -4,6 +4,7 @@ import { Bot, CircleHelp, LoaderCircle, Search, X } from "lucide-react";
 import { ApiError } from "../api/client";
 import { createResearchAssistantTask } from "../api/assistant";
 import { getAnalysisTask, type AnalysisTask } from "../api/datasets";
+import { restoreLatestAssistantTask } from "../api/task-restoration";
 import { searchCatalogEntities, type KnowledgeEntity, type KnowledgeSearchPage } from "../api/catalog";
 import { getCaseCorpusSummary, type CaseCategory, type CaseCorpusSummary, type ReferenceCase } from "../api/caseCorpus";
 import { CaseCorpusEvidence } from "../components/CaseCorpusEvidence";
@@ -59,13 +60,34 @@ export function ResearchAssistantPage() {
   const mounted = useRef(true);
   const submitting = useRef(false);
   const searchSequence = useRef(0);
-  const submissionGeneration = useRef(0);
 
   useEffect(() => {
     mounted.current = true;
     getCaseCorpusSummary().then(data => { if (mounted.current) setCorpus(data); }).catch(() => {});
     return () => { mounted.current = false; searchSequence.current += 1; };
   }, []);
+  const [restoring, setRestoring] = useState(true);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
+  const [restoreAttempt, setRestoreAttempt] = useState(0);
+  const [pollError, setPollError] = useState<string | null>(null);
+  const [pollAttempt, setPollAttempt] = useState(0);
+  const taskGeneration = useRef(0);
+
+  useEffect(() => {
+    let active = true;
+    const generation = taskGeneration.current;
+    setRestoring(true); setRestoreError(null);
+    void restoreLatestAssistantTask().then((saved) => {
+      if (!active || generation !== taskGeneration.current || !saved) return;
+      setTask(saved);
+      // Restoration never restores model consent or resubmits a saved question.
+      const question = saved.input_parameters.question;
+      if (typeof question === "string") setQuestion((current) => current || question.slice(0, 2000));
+    }).catch((cause: unknown) => {
+      if (active && generation === taskGeneration.current) setRestoreError(errorMessage(cause));
+    }).finally(() => { if (active) setRestoring(false); });
+    return () => { active = false; };
+  }, [restoreAttempt]);
 
   useEffect(() => {
     const draft = (location.state as { draftQuestion?: unknown } | null)?.draftQuestion;
@@ -78,24 +100,19 @@ export function ResearchAssistantPage() {
 
   useEffect(() => {
     if (!task || !["queued", "running"].includes(task.status)) return;
-    let active = true; let timer = 0;
-    const taskId = task.id;
-    const generation = submissionGeneration.current;
-    async function refresh() {
-      try {
-        const latest = await getAnalysisTask(taskId);
-        if (!active || generation !== submissionGeneration.current) return;
-        setTask(latest); setError(null);
-        if (["queued", "running"].includes(latest.status)) timer = window.setTimeout(refresh, 1500);
-      } catch (cause) {
-        if (!active || generation !== submissionGeneration.current) return;
-        setError(errorMessage(cause));
-        timer = window.setTimeout(refresh, 3000);
-      }
-    }
-    timer = window.setTimeout(refresh, 1500);
+    let active = true;
+    const generation = taskGeneration.current;
+    const timer = window.setTimeout(() => {
+      void getAnalysisTask(task.id).then((updated) => {
+        if (!active || generation !== taskGeneration.current) return;
+        if (updated.id !== task.id || updated.task_type !== "research_assistant") throw new Error("任务身份不一致。");
+        setTask(updated); setPollError(null);
+      }).catch((cause: unknown) => {
+        if (active && generation === taskGeneration.current) setPollError(errorMessage(cause));
+      });
+    }, 1500);
     return () => { active = false; window.clearTimeout(timer); };
-  }, [task?.id, task?.status]);
+  }, [task, pollAttempt]);
 
   async function searchKnowledge(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -115,9 +132,10 @@ export function ResearchAssistantPage() {
 
   async function submitQuestion(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!question.trim() || submitting.current || busy) return;
+    if (!question.trim() || submitting.current || busy || restoring) return;
     submitting.current = true;
-    submissionGeneration.current += 1;
+    taskGeneration.current += 1;
+    setRestoreError(null); setPollError(null);
     searchSequence.current += 1;
     setError(null);
     setTask(null);
@@ -147,6 +165,8 @@ export function ResearchAssistantPage() {
 
       <div className="page-heading"><div className="page-heading-copy"><h1 className="page-title">科研助手</h1><p className="page-description">选择本地数据，查询相关研究问题。</p></div><Link to="/research" className="btn btn-secondary"><Search size={16} />浏览知识目录</Link></div>
       {error && <div className="notice-error workspace-notice" role="alert">{error}</div>}
+      {restoring && <p className="notice-info workspace-notice" role="status">正在读取最近的助手任务…</p>}
+      {restoreError && <div className="notice-error workspace-notice" role="alert"><p>最近任务读取失败：{restoreError}</p><button className="btn btn-secondary" type="button" disabled={restoring || busy} onClick={() => setRestoreAttempt((value) => value + 1)}>重新读取历史任务</button></div>}
       <div className="case-workspace-grid workspace-split">
         <section className="panel case-form">
           <div className="panel-header"><div><h2 className="section-title-sm">补充知识目录（可选）</h2><p className="section-help">提交问题后会检索参考医案库；也可选 1–8 个实体补充关系证据。</p></div><span className="page-heading-icon"><Search size={19} /></span></div>
@@ -169,12 +189,13 @@ export function ResearchAssistantPage() {
             <label className="form-label" htmlFor="assistant-question">问题<textarea className="field case-textarea" id="assistant-question" maxLength={2000} value={question} onChange={(event) => { setQuestion(event.target.value); setAllowModel(false); }} placeholder="例如：检索咳嗽伴咳痰的医案，并查看证型与方药原文。" required /></label>
             <p className="section-help">{corpus?.available ? `参考医案 ${corpus.recordCount.toLocaleString("zh-CN")} 条 · 关键词检索` : "参考医案库连接待核验"}{corpus?.modelConfiguration?.configured ? ` · 模型配置：${corpus.modelConfiguration.name}` : " · 生成模型未配置，可正常检索原案"}</p>
             <label className="proteomics-consent"><input type="checkbox" checked={allowModel} disabled={!corpus?.modelConfiguration?.configured} onChange={(event) => setAllowModel(event.target.checked)} /><span><strong>使用本机 / 内网模型整理本次证据</strong><small>发送本次问题、所选知识记录和参考医案片段；不发送个人医案或附件。</small></span></label></div>
-            <div className="case-form-footer"><p>未勾选时只检索并保存本地目录及医案出处，不生成模型回答。</p><button className="btn btn-primary" type="submit" disabled={busy || !question.trim()}>{busy ? <LoaderCircle size={15} className="spin" /> : <Bot size={15} />}{busy ? "正在提交…" : allowModel ? "检索并分析" : "检索证据"}</button></div>
+            <div className="case-form-footer"><p>未勾选时只检索并保存本地目录及医案出处，不生成模型回答。</p><button className="btn btn-primary" type="submit" disabled={busy || restoring || !question.trim()}>{busy ? <LoaderCircle size={15} className="spin" /> : <Bot size={15} />}{busy ? "正在提交…" : allowModel ? "检索并分析" : "检索证据"}</button></div>
           </form>
           {!task && <div className="panel empty-state"><CircleHelp size={25} /><strong>等待问题</strong><p>提交问题即可检索参考医案；需要模型回答时，再单独同意本次发送。</p></div>}
           {task && <section className="panel assistant-task-result" aria-live="polite">
             <div className="case-list-heading"><div><p className="section-help">任务 #{task.id}</p><h2 className="section-title-sm">{task.status === "queued" || task.status === "running" ? "正在整理证据" : task.status === "succeeded" ? "证据与回答" : "任务未完成"}</h2></div><span className={`status-badge ${task.status === "succeeded" ? "status-success" : task.status === "failed" ? "status-warning" : ""}`}>{taskStatusLabels[task.status]}{["queued", "running"].includes(task.status) ? ` · ${task.progress}%` : ""}</span></div>
             {task.status === "failed" && <div className="notice-error" role="alert">{task.error_summary}</div>}
+            {pollError && <div className="notice-error" role="alert"><p>暂时无法读取任务进度：{pollError} 任务未重新提交。</p><button className="btn btn-secondary" type="button" onClick={() => { setPollError(null); setPollAttempt((value) => value + 1); }}>重新读取任务</button></div>}
             {result && <>
               {result.answer && <><h3 className="section-title-sm">模型回答</h3><p className="assistant-answer">{result.answer}</p><p className="section-help">模型：{result.model?.name ?? "未知"} · 版本：{result.model?.version ?? "未知"}。内容为研究假设，须回看引用记录。</p></>}
               <p className="section-help">检索问题：{String(task.input_parameters.question ?? "")}</p>

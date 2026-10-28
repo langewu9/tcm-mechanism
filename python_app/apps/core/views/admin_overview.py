@@ -1,14 +1,17 @@
 """Read-only platform overview migrated from the main branch admin page."""
 
+from itertools import chain
 from django.contrib.auth import get_user_model
-from django.db.models import Count
+from django.db.models import Count, IntegerField, OuterRef, Subquery, Value
+from django.db.models.functions import Coalesce
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.core.models import AnalysisTask, ResearchDataset
+from apps.core.models import AnalysisTask, MedicalCase, ResearchDataset
 from apps.core.permissions import IsPlatformAdministrator
+from apps.core.services.access_audit import mark_sensitive_access
 
 
 class AdminOverviewUserSerializer(serializers.Serializer):
@@ -71,15 +74,29 @@ class AdminOverviewView(APIView):
     @extend_schema(responses=AdminOverviewSerializer)
     def get(self, request):
         user_model = get_user_model()
+
+        def owned_count(model):
+            rows = (
+                model.objects.filter(owner_id=OuterRef("pk"))
+                .order_by()
+                .values("owner_id")
+                .annotate(total=Count("pk"))
+            )
+            return Coalesce(
+                Subquery(rows.values("total")[:1]), Value(0), output_field=IntegerField()
+            )
+
         users = user_model.objects.annotate(
-            dataset_count=Count("research_datasets", distinct=True),
-            case_count=Count("medical_cases", distinct=True),
-            task_count=Count("analysis_tasks", distinct=True),
+            dataset_count=owned_count(ResearchDataset),
+            case_count=owned_count(MedicalCase),
+            task_count=owned_count(AnalysisTask),
         ).order_by("-date_joined", "-id")
         datasets = ResearchDataset.objects.select_related("owner").order_by("-created_at", "-id")[:10]
         tasks = AnalysisTask.objects.select_related("owner").order_by("-created_at", "-id")[:10]
-        return Response(
+        response = Response(
             AdminOverviewSerializer(
                 {"users": users, "datasets": datasets, "tasks": tasks}
             ).data
         )
+        mark_sensitive_access(request, operation="admin_overview.view", action="view", resources=chain(users, datasets, tasks))
+        return response

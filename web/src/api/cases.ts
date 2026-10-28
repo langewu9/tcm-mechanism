@@ -5,6 +5,8 @@ export type MedicalCase = {
   id: number;
   owner_id: number;
   owner_username: string;
+  archived_at: string | null;
+  archived_by: number | null;
   title: string;
   deidentified_text: string;
   structured_data: Record<string, unknown>;
@@ -23,7 +25,7 @@ export type CaseAuditEvent = {
   case_id_snapshot: number;
   case_title_snapshot: string;
   actor_username: string | null;
-  action: "created" | "updated" | "reviewed" | "candidate" | "analyzed" | "deleted";
+  action: "created" | "updated" | "reviewed" | "candidate" | "analyzed" | "deleted" | "archived" | "restored";
   changed_fields: string[];
   content_hashes: Record<string, { before: string | null; after: string | null }>;
   metadata: Record<string, unknown>;
@@ -76,9 +78,11 @@ export type NewMedicalCase = Pick<MedicalCase, "title" | "deidentified_text" | "
   structured_data: Record<string, string>;
 };
 
-export const getMedicalCases = (page = 1) => apiRequest<Page<MedicalCase>>(`/api/v1/research/cases/?page=${page}`);
+export const getMedicalCases = (page = 1, archived = false) => apiRequest<Page<MedicalCase>>(`/api/v1/research/cases/?page=${page}&archived=${archived}`);
 export const createMedicalCase = (data: NewMedicalCase) =>
   apiRequest<MedicalCase>("/api/v1/research/cases/", { method: "POST", body: data });
+export const restoreMedicalCase = (id: number) =>
+  apiRequest<MedicalCase>(`/api/v1/research/cases/${id}/restore/`, { method: "POST" });
 export const deleteMedicalCase = (id: number) =>
   apiRequest<void>(`/api/v1/research/cases/${id}/`, { method: "DELETE" });
 export const getMedicalCaseAudit = (id: number) =>

@@ -1,7 +1,6 @@
 import hashlib
 
 from django.db import transaction
-from django.db.models import Q
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
@@ -18,6 +17,7 @@ from apps.sources.connectors.pubchem import (
     validate_pubchem_mappings,
 )
 from apps.sources.connectors.uniprot import UniProtCatalogSnapshot, UniProtProtein, fetch_uniprot_human_catalog
+from apps.sources.uniprot_identity import build_identity_plan
 from apps.sources.connectors.string import (
     STRING_CONNECTOR,
     STRING_SOURCE_SLUG,
@@ -196,19 +196,10 @@ def apply_reactome_sync(run: SyncRun, *, snapshot=None) -> None:
         DataSource.objects.filter(pk=run.source_id).update(last_success_at=now)
 
 
-def _canonical_identifier(value: str) -> str:
-    return " ".join(value.strip().casefold().split())
-
-
 def build_uniprot_preview(source: DataSource, snapshot: UniProtCatalogSnapshot) -> dict:
     incoming_accessions = {protein.accession for protein in snapshot.proteins}
-    existing = {
-        row.identifier: row
-        for row in EntityIdentifier.objects.filter(
-            namespace="uniprot",
-            identifier__in=incoming_accessions,
-        ).select_related("source_release", "source_release__source", "entity")
-    }
+    plan = build_identity_plan(source, snapshot)
+    existing = plan.existing
     owned_accessions = set(
         EntityIdentifier.objects.filter(
             namespace="uniprot",
@@ -216,23 +207,13 @@ def build_uniprot_preview(source: DataSource, snapshot: UniProtCatalogSnapshot) 
             is_active=True,
         ).values_list("identifier", flat=True)
     )
-    symbols = {protein.primary_gene for protein in snapshot.proteins if protein.primary_gene}
-    local_symbol_entities: dict[str, set[int]] = {}
-    candidates = KnowledgeEntity.objects.filter(
-        entity_type=KnowledgeEntity.EntityType.PROTEIN,
-        is_active=True,
-    ).filter(Q(source_release__isnull=True) | ~Q(source_release__source=source))
-    for entity in candidates.only("id", "stable_id", "label", "metadata", "synonyms"):
-        metadata = entity.metadata if isinstance(entity.metadata, dict) else {}
-        symbol = metadata.get("symbol") or metadata.get("gene_symbol")
-        if symbol and str(symbol) in symbols:
-            local_symbol_entities.setdefault(_canonical_identifier(str(symbol)), set()).add(entity.pk)
-
     create_count = sum(accession not in existing for accession in incoming_accessions)
+    expected_metadata = {protein.accession: _identifier_values(protein)[0][2] for protein in snapshot.proteins}
     unchanged_count = sum(
         row.is_active
         and row.source_release.source_id == source.pk
         and row.source_release.version == snapshot.release_version
+        and row.metadata == expected_metadata[row.identifier]
         for row in existing.values()
     )
     update_count = len(incoming_accessions) - create_count - unchanged_count
@@ -249,14 +230,7 @@ def build_uniprot_preview(source: DataSource, snapshot: UniProtCatalogSnapshot) 
         "wouldUpdate": update_count,
         "unchanged": unchanged_count,
         "wouldRetire": len(owned_accessions - incoming_accessions),
-        "geneSymbolsMappedToExistingTargets": sum(
-            len(local_symbol_entities.get(_canonical_identifier(symbol), set())) == 1
-            for symbol in symbols
-        ),
-        "ambiguousLocalGeneSymbols": sum(
-            len(local_symbol_entities.get(_canonical_identifier(symbol), set())) > 1
-            for symbol in symbols
-        ),
+        **plan.summary,
         "releaseDate": snapshot.source_release_date,
     }
 
@@ -331,17 +305,18 @@ def _uniprot_fallback_entity(protein: UniProtProtein, now, release: SourceReleas
 
 
 def _identifier_values(protein: UniProtProtein) -> tuple[tuple[str, str, dict], ...]:
-    values = [("uniprot", protein.accession, {"primaryGene": protein.primary_gene})]
+    values = [("uniprot", protein.accession, {"primaryGene": protein.primary_gene, "taxonId": 9606})]
     values.extend(
-        ("uniprot-gene-name", name, {"scope": "gene_name"})
+        ("uniprot-gene-name", name, {"scope": "gene_name", "taxonId": 9606})
         for name in protein.gene_names
         if name
     )
     if protein.protein_name and len(protein.protein_name) <= 160:
-        values.append(("uniprot-protein-name", protein.protein_name, {"scope": "protein_name"}))
+        values.append(("uniprot-protein-name", protein.protein_name, {"scope": "protein_name", "taxonId": 9606}))
     return tuple(values)
 
 
+@transaction.atomic
 def apply_uniprot_sync(run: SyncRun, *, snapshot=None) -> None:
     if run.source.slug != UNIPROT_SOURCE_SLUG:
         raise ValidationError("该同步连接器只用于 UniProt 人类审核蛋白目录。")
@@ -360,29 +335,17 @@ def apply_uniprot_sync(run: SyncRun, *, snapshot=None) -> None:
             namespace="uniprot",
         ).values_list("identifier", flat=True)
     )
-    existing_accession_rows = {
-        row.identifier: row
-        for row in EntityIdentifier.objects.filter(
-            namespace="uniprot", identifier__in=incoming_accessions
-        )
-    }
+    plan = build_identity_plan(run.source, snapshot, lock=True)
+    if (run.preview_summary or {}).get("identityPlanSha256") != plan.summary["identityPlanSha256"]:
+        raise ValidationError("UniProt 本地身份依据在预览后变化或预览版本过旧，请重新预览再应用。")
+    if plan.summary["identifierConflicts"]:
+        raise ValidationError("UniProt 已有编号存在物种、符号或归属冲突；未修改知识目录，请先核对再重新预览。")
+    existing_accession_rows = plan.existing
     fallback_by_key: dict[tuple[str, str], KnowledgeEntity] = {}
     entity_for_accession: dict[str, KnowledgeEntity] = {}
-    symbol_entities: dict[str, set[int]] = {}
-    local_targets = KnowledgeEntity.objects.filter(
-        entity_type=KnowledgeEntity.EntityType.PROTEIN,
-        is_active=True,
-    ).filter(Q(source_release__isnull=True) | ~Q(source_release__source=run.source))
-    for entity in local_targets.only("id", "metadata"):
-        metadata = entity.metadata if isinstance(entity.metadata, dict) else {}
-        symbol = metadata.get("symbol") or metadata.get("gene_symbol")
-        if symbol:
-            symbol_entities.setdefault(_canonical_identifier(str(symbol)), set()).add(entity.pk)
-
     for protein in snapshot.proteins:
-        matches = symbol_entities.get(_canonical_identifier(protein.primary_gene), set()) if protein.primary_gene else set()
-        if len(matches) == 1:
-            entity_for_accession[protein.accession] = KnowledgeEntity(pk=next(iter(matches)))
+        if protein.accession in plan.local_entities:
+            entity_for_accession[protein.accession] = plan.local_entities[protein.accession]
         else:
             entity = _uniprot_fallback_entity(protein, now, run.release)
             key = (entity.entity_type, entity.stable_id)
@@ -479,6 +442,7 @@ def apply_uniprot_sync(run: SyncRun, *, snapshot=None) -> None:
         run.records_retired = retired_count
         run.preview_summary = {
             **(run.preview_summary or {}),
+            **plan.summary,
             "mode": "apply",
             "appliedAt": now.isoformat(),
             "checksumSha256": snapshot.checksum_sha256,

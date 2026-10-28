@@ -51,7 +51,7 @@ class DataSourceListView(generics.ListCreateAPIView):
         return SQLiteSourceCreateSerializer if self.request.method == "POST" else self.serializer_class
 
     def get_queryset(self):
-        latest_runs = SyncRun.objects.filter(source_id=OuterRef("pk")).order_by("-created_at")
+        latest_runs = SyncRun.objects.filter(source_id=OuterRef("pk")).order_by("-created_at", "-id")
         return DataSource.objects.annotate(
             latest_run_status=Subquery(latest_runs.values("status")[:1]),
             latest_run_at=Subquery(latest_runs.values("created_at")[:1]),
@@ -202,6 +202,12 @@ class SourceSyncApplyView(APIView):
                 raise ValidationError("预览记录缺少可应用的来源版本信息。")
             if not source.enabled:
                 raise ValidationError("该数据源已停用，不能执行同步。")
+            if connector == UNIPROT_CONNECTOR:
+                summary = preview.preview_summary or {}
+                if not summary.get("identityPlanSha256"):
+                    raise ValidationError("这份 UniProt 旧预览缺少身份核对依据，请重新预览。")
+                if summary.get("identifierConflicts", 0):
+                    raise ValidationError("UniProt 已有编号存在归属冲突，请先核对物种与符号，再重新预览。")
             if SyncRun.objects.filter(preview_summary__basedOn=preview.pk).exclude(
                 status=SyncRun.Status.FAILED
             ).exists():

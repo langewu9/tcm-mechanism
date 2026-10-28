@@ -4,6 +4,22 @@
 
 ## 当前架构
 
+2026-10-20 本地压测完成：独立 PostgreSQL/Redis、3 个 Gunicorn worker、30,000 个合成任务，容量阶段 36,890 次请求无请求错误或校验失败；19 个阶段另含正式限流验证。混合读写 40/80 并发约 158 次/秒，p95 约 356/730 ms。报告、图表、阶段 CSV 和边界见 [`reports/loadtest-2026-10-20/压测报告.md`](reports/loadtest-2026-10-20/压测报告.md)。这是本机短测，不是公网容量验收，生产配置未改。
+
+2026-10-20 数据库性能审核：保留业务表划分，新增三个经 6 万行临时表执行计划对照的任务/同步历史索引，前端列表改读摘要再按需获取完整详情。同一批 13 个任务的列表由 644,862 降至 6,186 字节，历史结果与权限保持；两种数据库各 421 项回归通过。详见 [`docs/database-performance-audit-2026-10-20.md`](docs/database-performance-audit-2026-10-20.md)。
+
+2026-10-20 基础框架已补充安全 JSON 错误边界、私有响应禁止缓存、输入/共享限流、列表查询优化和独立部署初始化。升级后的 SQLite/PostgreSQL 各 413 项回归通过，本机 Nginx/Gunicorn/TLS 链路通过；UI 样式产物未变。已完成项、依赖公告和未验收范围见 [`docs/framework-audit-2026-10-20.md`](docs/framework-audit-2026-10-20.md)。修改仅保存在本地 Git，未推送。
+
+2026-10-20 业务核验发现并修复共享成分导致中药记录串联、非法 FDR 回退放行；当前 395 项 PostgreSQL/SQLite 回归通过，身份确认仍缺物种和权威目录依据。范围和 main 对照记录见 [`docs/business-result-audit-2026-10-20.md`](docs/business-result-audit-2026-10-20.md)。
+
+2026-10-20 已完成独立 PostgreSQL 本地链路、HIT 原始编号样本与备份恢复演练；当前结果和未完成范围见 [`docs/postgres-acceptance-2026-10-20.md`](docs/postgres-acceptance-2026-10-20.md)。本轮没有改动页面布局或推送远程。
+
+2026-10-19 本轮改动、对应模块位置、验证结果及更新注意事项见 [`docs/changes-2026-10-19.md`](docs/changes-2026-10-19.md)。
+
+最新本地修补、服务启动、验收结果与待接依赖见 [`docs/local-acceptance-2026-10-19.md`](docs/local-acceptance-2026-10-19.md)；研究资料归档规则见 [`docs/research-retention.md`](docs/research-retention.md)。
+
+原表到目录、接口和图表的逐层核对及映射修正见 [`docs/data-consistency-2026-10-19.md`](docs/data-consistency-2026-10-19.md)。
+
 - `web/`：独立的 React + TypeScript + Vite 前端。首页复用了现有 Next 页面结构和样式，新增了 Django 会话登录入口。
 - `python_app/`：Django 5.2 + Django REST Framework API、服务端会话认证、权限和管理后台。代码按认证、知识目录和研究工作区分模块。
 - `deploy/compose.python.yml`：本地 PostgreSQL 开发服务。

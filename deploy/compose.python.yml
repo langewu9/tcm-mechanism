@@ -68,6 +68,7 @@ services:
     volumes:
       - tcm_platform_media:/app/var/media
       - ../python_app/var/case-rag:/app/var/case-rag
+      - tcm_platform_runtime_logs:/app/var/runtime-logs
       - ../var/source-databases:/app/var/source-databases:ro
     depends_on:
       postgres:
@@ -102,6 +103,7 @@ services:
     volumes:
       - tcm_platform_media:/app/var/media
       - ../python_app/var/case-rag:/app/var/case-rag
+      - tcm_platform_runtime_logs:/app/var/runtime-logs
       - ../var/source-databases:/app/var/source-databases:ro
     depends_on:
       postgres:
@@ -141,6 +143,7 @@ volumes:
   tcm_platform_redisdata:
   tcm_platform_media:
   tcm_platform_celery_schedule:
+  tcm_platform_runtime_logs:
 
 networks:
   visualization:

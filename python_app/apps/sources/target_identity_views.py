@@ -1,4 +1,6 @@
 from django.db.models import Count, Q
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from apps.core.models import TargetIdentityMapping, TargetMaster
@@ -23,6 +25,10 @@ def target_identity_summary():
 
 class TargetIdentityListView(APIView):
     permission_classes = [IsPlatformAdministrator]
+    @extend_schema(operation_id="target_identity_list", responses=OpenApiTypes.OBJECT, parameters=[
+        OpenApiParameter("status", str, enum=["verified", "candidate", "ambiguous", "conflict", "unmapped"]),
+        OpenApiParameter("search", str), OpenApiParameter("page", int),
+    ])
     def get(self, request):
         release = current_release()
         if not release: return Response({'count': 0, 'results': [], 'available': False})

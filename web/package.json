@@ -2,12 +2,13 @@
   "name": "qihuang-web",
   "private": true,
   "version": "0.1.0",
+  "packageManager": "pnpm@9.15.9",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "test:api": "node tests/api-contracts.cjs",
-    "test:research": "node tests/research-requests.cjs && node tests/evidence-entity-tables.cjs && node tests/target-intersection.cjs && node tests/target-identity.cjs",
+    "test:api": "node tests/api-contracts.cjs && node tests/admin-monitor.cjs",
+    "test:research": "node tests/research-requests.cjs && node tests/catalog-evidence-figures.cjs && node tests/task-restoration.cjs && node tests/workspace-feedback.cjs && node tests/evidence-entity-tables.cjs && node tests/target-intersection.cjs && node tests/target-identity.cjs",
     "test:r": "node tests/r-analysis-catalog.cjs && node tests/r-widget-events.cjs && node tests/home-research-r.cjs",
     "test:demo": "node tests/demo-center.cjs",
     "check:delivery": "node tests/delivery-assets.cjs",
@@ -28,9 +29,15 @@
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "10.4.20",
-    "postcss": "8.4.49",
+    "postcss": "8.5.23",
     "tailwindcss": "3.4.17",
     "typescript": "^5.7.2",
     "vite": "^6.0.7"
+  },
+  "pnpm": {
+    "overrides": {
+      "postcss": "8.5.23",
+      "postcss-selector-parser": "7.1.6"
+    }
   }
 }
