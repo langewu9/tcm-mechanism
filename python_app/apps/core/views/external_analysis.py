@@ -133,4 +133,5 @@ class ComponentCompareView(APIView):
             )
         except ValueError as exc:
             raise ValidationError({"components": str(exc)}) from exc
-        return Response(result)
+        from apps.core.services.catalog_visualization import fingerprint_result
+        return Response(fingerprint_result(result))

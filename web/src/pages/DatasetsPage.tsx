@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Database, Download, FileSpreadsheet, Trash2, Upload } from "lucide-react";
 import { deleteDataset, getDatasets, uploadDataset, type DatasetPage, type ResearchDataset } from "../api/datasets";
 import { ApiError, apiRequestBlob } from "../api/client";
+import "../styles/chart-gallery.css";
 
 function errorMessage(error: unknown) {
   return error instanceof ApiError ? error.message : "请求未完成，请稍后重试。";
@@ -148,12 +149,12 @@ export function DatasetsPage() {
   return <>
     <div className="page-heading">
       <div className="page-heading-copy">
-        <p className="page-kicker">Data assets</p>
+
         <div className="flex items-center gap-3">
           <span className="page-heading-icon"><Database size={20} /></span>
-          <h1 className="page-title">研究数据资产</h1>
+          <h1 className="page-title">数据库</h1>
         </div>
-        <p className="page-description">导入、追踪并管理用于检索与分析的 CSV、Excel 数据集。</p>
+        <p className="page-description">上传、预览和管理 CSV、Excel 数据集。</p>
       </div>
       <div className="page-heading-action"><span className="status-badge status-success" aria-live="polite">{count} 个数据集</span></div>
     </div>
@@ -161,7 +162,7 @@ export function DatasetsPage() {
     {error && <div className="notice-error workspace-notice" role="alert">{error}</div>}
     {notice && <div className="notice-success workspace-notice" role="status">{notice}</div>}
 
-    <div className="grid gap-5 xl:grid-cols-[380px_minmax(0,1fr)]">
+    <div className="database-layout workspace-split">
       <form className="panel space-y-3 p-5" onSubmit={submit} aria-label="上传研究数据集">
         <div>
           <h2 className="text-lg font-black">上传数据集</h2>
@@ -170,7 +171,7 @@ export function DatasetsPage() {
         <label className="form-label" htmlFor="dataset-name">数据集名称<input className="field mt-2" id="dataset-name" name="name" maxLength={200} placeholder="例如：麦门冬汤六味中药成分靶点数据" required disabled={uploading} /></label>
         <label className="form-label" htmlFor="dataset-description">数据说明<textarea className="field mt-2 min-h-20" id="dataset-description" name="description" placeholder="描述来源、字段含义与使用范围" disabled={uploading} /></label>
         <label className="form-label" htmlFor="dataset-file">选择文件<input className="field mt-2" id="dataset-file" name="file" type="file" accept=".csv,.tsv,.xls,.xlsx" required disabled={uploading} /></label>
-        <p className="section-help">原始文件保存在服务器私有存储中，下载时校验访问权限；保留字段名、行数及前 5,000 行供后续检查。</p>
+        <p className="section-help">文件保存于平台，支持查看字段与前 5,000 行预览。</p>
         {uploadMessage && <p className={uploadMessage.failed ? "notice-error" : "notice-success"} role={uploadMessage.failed ? "alert" : "status"}>{uploadMessage.text}</p>}
         <button className="btn btn-primary" type="submit" disabled={mutating}>
           <Upload size={17} />{uploading ? "导入中..." : "导入数据"}
@@ -180,7 +181,7 @@ export function DatasetsPage() {
       <section className="panel overflow-hidden" aria-labelledby="dataset-list-heading" aria-busy={loading}>
         <div className="panel-header"><div><h2 id="dataset-list-heading" className="section-title-sm">数据集列表</h2><p className="section-help">按最近导入时间排序，删除会移除服务器原始文件副本，本机原始文件不受影响。</p></div></div>
         <div className="overflow-x-auto">
-          <table className="data-table" aria-label="数据集列表">
+          <table className="data-table database-table" aria-label="数据集列表">
             <thead><tr>
               <th className="py-2" scope="col">名称</th>
               <th scope="col">文件</th>

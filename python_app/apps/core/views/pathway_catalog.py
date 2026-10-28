@@ -5,6 +5,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.core.services.pathway_catalog import search_reactome_pathways
+from apps.core.services.catalog_visualization import fingerprint_result
 
 
 class PathwayQuerySerializer(serializers.Serializer):
@@ -35,6 +36,7 @@ class PathwayItemSerializer(serializers.Serializer):
 
 
 class PathwayCatalogResponseSerializer(serializers.Serializer):
+    evidenceSha256 = serializers.CharField()
     query = serializers.CharField()
     catalogTotal = serializers.IntegerField()
     matchedTotal = serializers.IntegerField()
@@ -53,4 +55,4 @@ class ReactomePathwayCatalogView(APIView):
     def get(self, request):
         serializer = PathwayQuerySerializer(data=request.query_params)
         serializer.is_valid(raise_exception=True)
-        return Response(search_reactome_pathways(serializer.validated_data["query"]))
+        return Response(fingerprint_result(search_reactome_pathways(serializer.validated_data["query"])))

@@ -6,6 +6,7 @@ import math
 NEW_CHART_KEYS = {
     'ppi_network', 'ppi_degree', 'evidence_network', 'gene_pathway_network',
     'gene_pathway_distribution', 'proteomics_go_kegg_bar', 'reactome_enrichment',
+    'catalog_summary', 'catalog_degree',
 }
 
 
@@ -47,6 +48,12 @@ def evidence_graph(network, *, physical=False, required_score=0):
         pair = tuple(sorted((left, right)))
         if pair not in edges or score > edges[pair]['score']:
             edges[pair] = {'source': pair[0], 'target': pair[1], 'score': float(score)}
+        if not physical:
+            # Preserve evidence direction and provenance despite display-pair deduplication.
+            provenance = {key: text(edge.get(key), 160) for key in ('relation', 'sourceSlug', 'sourceVersion', 'sourceRecordId', 'evidenceType')}
+            provenance.update(source=left, target=right)
+            items = edges[pair].setdefault('evidence', [])
+            if provenance not in items and len(items) < 5: items.append(provenance)
     if not edges:
         raise ValueError('没有有效证据关系，不能生成网络或分布图。')
     return nodes, list(edges.values())
@@ -70,6 +77,29 @@ def build_catalog_payload(task, chart_key):
                     row['label'] = f"#{index} {row['label']}"[:120]
         payload['sourceVersions'] = list(task.source_releases.order_by('pk').values('source__slug', 'version')[:50])
         return seal(payload)
+    if chart_key in {'catalog_summary', 'catalog_degree'}:
+        if task.task_type != 'network' or result.get('analysisKind') != 'catalog_evidence':
+            raise ValueError('当前任务不是已保存的目录检索快照。')
+        if chart_key == 'catalog_summary':
+            data = result.get('catalogSummary') or []
+            title, axis = '检索实体与证据概览', '按本地主键去重的实体 / 关系数量'
+            if result.get('queryType') == 'comparison': title, axis = '名称对照数量概览', '规范化名称数量（非化学鉴定）'
+        elif result.get('queryType') == 'pathway':
+            data = result.get('catalogCoverage') or []
+            title, axis = '本地通路靶点注释分布', '唯一靶点数（非统计富集）'
+        else:
+            nodes, edges = evidence_graph(result.get('network'))
+            adjacent = neighbors(nodes, edges)
+            ranked = sorted(nodes, key=lambda key: (-len(adjacent[key]), key))[:30]
+            data = [{'label': f"{nodes[key]['label']} [{key}]"[:120], 'value': len(adjacent[key])} for key in ranked]
+            title, axis = '检索网络实体连接度', '完整查询网络的唯一邻居数（非因果排名）'
+        data = [row for row in data if isinstance(row, dict) and text(row.get('label')) and number(row.get('value'))]
+        if not data: raise ValueError('本次检索没有可绘制的统计条目。')
+        data = sorted(data, key=lambda row: -row['value'])[:30] if chart_key == 'catalog_degree' else data[:30]
+        subtitle = f"本次检索快照 · 来源版本数 {task.source_releases.count()} · 非疗效或富集结论"
+        if result.get('queryType') == 'comparison':
+            subtitle = '名称对照快照 · 别名源版本 '+text((result.get('queryResult') or {}).get('aliasSourceCommit'))+' · 同家族候选不计入精确交集'
+        return finish({'chartType': 'bar', 'title': title, 'yLabel': axis, 'subtitle': subtitle, 'data': data})
     if chart_key.startswith('ppi_'):
         source = result.get('externalString') if task.task_type == 'proteomics' else result
         if not isinstance(source, dict) or source.get('networkType') != 'physical' or source.get('source') != 'STRING' or source.get('status', 'succeeded') != 'succeeded' or (task.task_type == 'proteomics' and source.get('status') != 'succeeded'):

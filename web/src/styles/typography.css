@@ -1,0 +1,66 @@
+/* Offline-first typography for the research product and its chart labels. */
+:root {
+  --text-caption: 15px;
+  --text-small: 16px;
+  --text-body: 17px;
+  --text-control: 17px;
+  --font-ui: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", "Noto Sans SC", system-ui, sans-serif;
+  --font-body: var(--font-ui);
+  --font-heading: var(--font-ui);
+  --font-display: var(--font-ui);
+  --font-handwriting: var(--font-ui);
+  --font-ancient: var(--font-ui);
+  --font-mono: "Cascadia Code", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+body {
+  font-size: var(--text-body);
+  font-family: var(--font-ui);
+  font-weight: 400;
+  line-height: 1.6;
+  font-synthesis: none;
+  font-kerning: normal;
+}
+
+small { font-size: var(--text-caption); line-height: 1.6; }
+:root .text-xs { font-size: var(--text-caption); line-height: 1.65; }
+:root .text-sm { font-size: var(--text-small); line-height: 1.65; }
+
+/* The root specificity replaces legacy heavy headings without !important. */
+:root :is(h1, h2, h3, h4, h5, h6, strong, b, th) {
+  font-family: var(--font-ui);
+  font-weight: 600;
+}
+
+:root :is(button, input, textarea, select) {
+  font-family: var(--font-ui);
+  font-weight: 400;
+}
+
+:root :is(button, .btn, .side-nav-item, .site-nav-links a, .form-label) {
+  font-weight: 500;
+}
+
+:root :is(.page-kicker, .side-nav-label, .hero-badge) {
+  font-weight: 600;
+  letter-spacing: .08em;
+}
+
+svg text {
+  font-family: var(--font-ui);
+  font-weight: 500;
+}
+
+.data-table, .master-source-table, .proteomics-metric, .master-table-stats,
+.hero-metrics, .stat-card, .knowledge-stat {
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+.master-table-stats dd, .knowledge-stat dd {
+  font-weight: 500;
+}
+
+code, pre, kbd, samp, .integration-json, .source-checksum {
+  font-family: var(--font-mono);
+  font-variant-ligatures: none;
+}

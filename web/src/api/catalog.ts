@@ -1,8 +1,12 @@
 import { apiRequest } from "./client";
+import type { AnalysisTask } from "./datasets";
+export type CatalogSnapshotQuery = { queryType: "herb" | "compound" | "disease" | "pathway" | "entity" | "comparison"; queries?: string[]; entityId?: number; detected?: string; reference?: string; expectedSha256: string };
+export const createCatalogSnapshot = (input: CatalogSnapshotQuery) => apiRequest<AnalysisTask>("/api/v1/catalog/visualization-snapshots/", { method: "POST", body: input });
 export type HomeStats = { counts: { herbs: number; compounds: number; targets: number; pathways: number } };
 export const getHomeStats = () => apiRequest<HomeStats>("/api/v1/home-stats/");
 
 export type ReactomeCatalogResult = {
+  evidenceSha256?: string;
   query: string; catalogTotal: number; matchedTotal: number; maxItems: number; truncated: boolean;
   sourceCode: string; warnings: string[];
   sources: Array<{ sourceSlug: string; sourceVersion: string; checksumSha256: string }>;
@@ -75,7 +79,11 @@ export type EvidenceRelation = {
   observed_at: string | null;
 };
 
+export type DataQualityNotice = { source: string; version: string; quarantinedRows: number; verifiedTargetIds: number; message: string };
+
 export type EntityNeighborhood = {
+  compoundProperties?: { source: string; sourceVersion: string; sourceCompoundId: string; values: Record<string, number | null>; conflicts: string[]; fieldSourceRecords: Record<string, string>; sourceRecordId: string | null; note: string } | null;
+  evidenceSha256?: string;
   entity: KnowledgeEntity;
   relations: EvidenceRelation[];
   truncated: boolean;
@@ -90,6 +98,7 @@ export type HerbEvidenceEntity = {
 };
 
 export type HerbEvidenceRelation = {
+  relationId?: number; subjectId?: number; objectId?: number; sourceReleaseId?: number;
   subject: string;
   object: string;
   subjectType: string;
@@ -104,6 +113,7 @@ export type HerbEvidenceRelation = {
 
 export type HerbEvidenceItem = {
   query: string;
+  searchedNames?: string[];
   matches: HerbEvidenceEntity[];
   ambiguous: boolean;
   herbs: HerbEvidenceEntity[];
@@ -114,6 +124,8 @@ export type HerbEvidenceItem = {
 };
 
 export type HerbEvidenceSearch = {
+  dataQuality?: DataQualityNotice[];
+  evidenceSha256?: string;
   queryType: "herb" | "compound";
   results: HerbEvidenceItem[];
 };
@@ -129,6 +141,8 @@ export type DiseaseEvidenceLink = {
 };
 
 export type DiseaseEvidenceSearch = {
+  dataQuality?: DataQualityNotice[];
+  evidenceSha256?: string;
   query: string;
   expandedQueries: string[];
   aliasSource: string;

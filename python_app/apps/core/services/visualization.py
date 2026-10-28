@@ -53,7 +53,18 @@ def build_chart_payload(task: AnalysisTask, chart_key: str) -> dict:
     if task.task_type == AnalysisTask.TaskType.NETWORK:
         charts = result.get("charts") or {}
         if chart_key == "overlap":
-            title = "中药—疾病靶点交集"
+            summary = result.get("summary") or {}
+            if summary.get("unmatchedDiseases") or summary.get("matchedDiseases") == []:
+                raise VisualizationInputError("疾病名称尚未匹配，不能把未取得的数据绘制为零交集；请重新查询。")
+            if summary.get("matchedHerbs") == [] and not summary.get("matchedFormulas"):
+                raise VisualizationInputError("中药或方剂名称尚未匹配，请确认名称后重新查询。")
+            if any(summary.get(key) == 0 for key in ("herbTargetCount", "diseaseTargetCount")):
+                raise VisualizationInputError("查询已匹配但缺少一侧靶点证据，暂不能绘制交集统计。")
+            stages = (result.get("rawLimits") or {}).get("inputRelationsTruncated") or {}
+            partial = bool(summary.get("unmatchedHerbs") or summary.get("unresolvedFormulas") or
+                (summary.get("diseaseResolution") or {}).get("entitiesTruncated") or
+                any(stages.get(key) for key in ("formulaHerbs", "herbCompounds", "compoundTargets", "diseaseTargets")))
+            title = "中药—疾病已返回靶点统计" + ("（当前返回子集）" if partial else "")
             rows = charts.get("overlap") or []
             data = [{"label": row.get("name"), "value": row.get("value")} for row in rows]
         elif chart_key in {"components", "pathways"}:
@@ -358,7 +369,9 @@ def execute_visualization_task(task: AnalysisTask) -> dict:
     }
 
 
+@transaction.atomic
 def queue_visualization(*, parent_task: AnalysisTask, user, chart_key: str) -> tuple[AnalysisTask, bool]:
+    parent_task = AnalysisTask.objects.select_for_update().get(pk=parent_task.pk)
     payload = build_chart_payload(parent_task, chart_key)
     existing = AnalysisTask.objects.filter(
         owner=parent_task.owner,

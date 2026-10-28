@@ -5,4 +5,7 @@ import "./styles/main-utilities.css";
 import "./styles/app.css";
 import "./styles/legacy-global.css";
 import "./styles/legacy-product.css";
+import "./styles/typography.css";
+import "./styles/readability.css";
+import "./styles/workspace-layout.css";
 ReactDOM.createRoot(document.getElementById("root")!).render(<React.StrictMode><App /></React.StrictMode>);

@@ -232,21 +232,24 @@ class VisualizationRequestSerializer(serializers.Serializer):
         "proteomics_go_kegg_enrichment", "proteomics_volcano",
         "ppi_network", "ppi_degree", "evidence_network", "gene_pathway_network",
         "gene_pathway_distribution", "proteomics_go_kegg_bar", "reactome_enrichment",
+        "catalog_summary", "catalog_degree",
     ])
 
 
 class ResearchAssistantRequestSerializer(serializers.Serializer):
     question = serializers.CharField(max_length=2000, trim_whitespace=True)
     entityIds = serializers.ListField(
-        child=serializers.IntegerField(min_value=1), min_length=1, max_length=8
+        child=serializers.IntegerField(min_value=1), min_length=0, max_length=8
     )
     useModel = serializers.BooleanField(default=False)
+    caseIds = serializers.ListField(child=serializers.IntegerField(min_value=1), max_length=4, required=False, default=list)
+    caseCategory = serializers.ChoiceField(choices=["", "pulmonary", "stroke", "stomach", "pharyngitis", "general"], required=False, default="")
     confirmModelSharing = serializers.BooleanField(default=False)
 
     def validate(self, attrs):
         if attrs["useModel"] and not attrs["confirmModelSharing"]:
             raise serializers.ValidationError({
-                "confirmModelSharing": "请先确认本次问题和所选本地证据可以发送到已配置的本机/内网模型。"
+                "confirmModelSharing": "请先确认本次问题、所选知识记录及检索到的医案片段可以发送到已配置的本机/内网模型。"
             })
         if any(ord(character) < 32 and character not in "\n\r\t" for character in attrs["question"]):
             raise serializers.ValidationError({"question": "问题中包含不支持的控制字符。"})
@@ -354,10 +357,14 @@ class NetworkPharmacologyRequestSerializer(serializers.Serializer):
     def validate_disease(self, value):
         if not value.strip():
             raise serializers.ValidationError("请输入疾病名称。")
+        if any(ord(character) < 32 for character in value):
+            raise serializers.ValidationError("疾病名称包含不支持的控制字符。")
         return value.strip()
 
 
 class NetworkPharmacologyResponseSerializer(serializers.Serializer):
+    dataQuality = serializers.JSONField(required=False)
+    targetIdentity = serializers.JSONField(required=False)
     taskId = serializers.IntegerField()
     summary = serializers.JSONField()
     targets = serializers.ListField(child=serializers.JSONField())

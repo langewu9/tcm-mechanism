@@ -1,0 +1,142 @@
+/* Shared reading sizes and room for text across the existing product. */
+.app-frame, .auth-page { --color-ink-faint: #6d5c4c; --color-ink-soft: #70533d; }
+.demo-center { --color-ink-faint: #786958; }
+.app-main-inner { width: min(100%, 1560px); min-width: 0; }
+.app-main { padding: 28px 24px 112px; }
+.app-header { min-height: 88px; gap: 20px; padding: 16px 24px; }
+.app-header-copy h1 { font-size: 21px; }
+.app-header-copy p { font-size: var(--text-caption); }
+.app-header-actions { min-width: 0; gap: 14px; }
+.header-search { min-height: 48px; font-size: var(--text-small); }
+.header-user strong { font-size: 16px; }
+.header-user small { font-size: var(--text-caption); }
+.icon-button { width: 46px; height: 46px; flex-shrink: 0; }
+.brand-lockup { gap: 12px; margin-bottom: 24px; }
+.brand-lockup strong { font-size: 19px; white-space: nowrap; }
+.brand-lockup small { font-size: var(--text-caption); }
+.side-nav-item { min-height: 50px; font-size: 16px; gap: 12px; }
+.side-nav-label { font-size: var(--text-caption); letter-spacing: .05em; }
+.sidebar-user strong, .sidebar-service strong { font-size: 16px; }
+.sidebar-user small, .sidebar-service small { font-size: var(--text-caption); line-height: 1.6; }
+.sidebar-service { padding-block: 14px; }
+.mobile-nav-item { min-height: 70px; font-size: 14px; padding: 10px 4px; gap: 5px; }
+.page-heading { flex-wrap: wrap; gap: 20px; padding-bottom: 24px; margin-bottom: 28px; }
+.page-heading-copy { flex: 1 1 400px; }
+.page-title { font-size: clamp(30px, 2.6vw, 40px); line-height: 1.35; }
+.page-description { max-width: 72rem; font-size: 18px; line-height: 1.8; }
+.section-title-sm { font-size: 22px; line-height: 1.5; }
+.section-help { font-size: var(--text-small); line-height: 1.75; }
+.panel-header { flex-wrap: wrap; padding: 22px 24px; gap: 18px; }
+.panel-header > div:first-child { flex: 1 1 240px; min-width: 0; }
+.panel-header > svg, .panel-header > .page-heading-icon { flex-shrink: 0; }
+.form-label { font-size: var(--text-small); line-height: 1.65; }
+.field { min-height: 50px; padding: 12px 16px; font-size: var(--text-control); line-height: 1.6; }
+.field-with-icon .field { padding-left: 46px; }
+textarea.field { min-height: 110px; }
+.btn { min-height: 46px; padding: 10px 18px; font-size: 16px; line-height: 1.6; }
+.btn svg, .tool-tab svg, .side-nav-item svg { flex-shrink: 0; }
+.tool-tabs { gap: 12px; }
+.tool-tab { min-height: 82px; padding: 14px 18px; gap: 12px; }
+.tool-tab > :last-child { min-width: 0; overflow-wrap: anywhere; }
+.tool-tab strong { font-size: 17px; line-height: 1.55; }
+.tool-tab small { font-size: var(--text-caption); line-height: 1.65; white-space: normal; }
+.subview-tabs { gap: 10px; padding-block: 14px; }
+.subview-tab { min-height: 44px; padding: 10px 16px; font-size: 16px; line-height: 1.5; }
+.status-badge { min-height: 30px; padding: 4px 10px; font-size: var(--text-caption); line-height: 1.5; white-space: nowrap; }
+.notice-error, .notice-success { padding: 16px 18px; font-size: 16px; line-height: 1.7; }
+.data-table, .master-source-table { font-size: 15px; line-height: 1.7; }
+.data-table th, .data-table td { padding: 14px 16px; }
+.master-source-table th, .master-source-table td { padding: 12px 14px; }
+.data-table .btn { min-height: 40px; padding: 7px 10px; font-size: 14px; }
+.table-pager, .case-pagination { flex-wrap: wrap; gap: 12px; font-size: var(--text-caption); padding: 16px 20px; }
+.empty-state p { max-width: 36rem; font-size: var(--text-small); line-height: 1.8; }
+.case-form-fields { padding: 24px; gap: 20px; }
+.case-form-footer { flex-wrap: wrap; padding: 20px 24px; gap: 16px; }
+.case-form-footer p { flex: 1 1 200px; font-size: var(--text-caption); line-height: 1.7; }
+.case-list-heading, .case-record-top, .dashboard-section-heading { flex-wrap: wrap; gap: 16px; }
+.research-query-form { padding: 24px; }
+.research-query-form > .case-form-fields { padding: 16px 0 0; }
+.research-workbench-grid { gap: 24px; }
+.research-workbench-results { min-height: 520px; }
+.case-summary, .dataset-description, .knowledge-evidence-text, .dashboard-task-summary { font-size: 16px; line-height: 1.8; }
+.dashboard-panel, .source-record, .source-run-record, .dataset-record, .catalog-r-section { padding: 24px; }
+.dashboard-stat-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); }
+.figure-card { padding: 24px; }
+.proteomics-metrics, .proteomics-qc-grid { gap: 14px; }
+.proteomics-metric { padding: 16px; gap: 6px; }
+.proteomics-metric span { font-size: 15px; }
+.proteomics-metric strong { font-size: 26px; }
+.proteomics-metric small { font-size: var(--text-caption); line-height: 1.65; }
+.proteomics-column-grid, .proteomics-threshold-grid { gap: 18px; }
+.proteomics-export-actions { gap: 10px; }
+.integration-grid, .integration-status-grid { gap: 16px; }
+.integration-card, .integration-status-card { padding: 20px; gap: 12px; }
+.integration-status-card strong { font-size: 17px; line-height: 1.5; }
+.integration-status-card .status-badge { justify-self: start; }
+.integration-card-title h3 { font-size: 20px; }
+.integration-json, .raw-details pre { font-size: 14px; line-height: 1.75; }
+.r-chart-viewer-toolbar { flex-wrap: wrap; align-items: center; gap: 16px; }
+.r-chart-expanded { inset: 20px; max-width: 1720px; margin-inline: auto; padding: 24px; }
+.r-chart-expanded .r-chart-viewer-toolbar { flex-wrap: wrap; padding: 12px 0; gap: 16px; }
+.r-chart-expanded .r-chart-viewer-toolbar > strong { flex: 1 1 260px; min-width: 0; overflow-wrap: anywhere; font-size: 21px; line-height: 1.5; }
+.r-chart-expanded .r-chart-viewer-toolbar > .btn { flex-shrink: 0; }
+.demo-content { width: min(calc(100% - 64px), 1440px); margin: 32px auto 48px; }
+.demo-center .site-nav { width: min(calc(100% - 64px), 1440px); gap: 20px; }
+.demo-center .site-nav nav > a { display: inline-flex; }
+.demo-center .site-brand { font-size: 21px; }
+.auth-card { width: min(100%, 560px); padding: 32px; }
+.auth-page:has(> .auth-card) { grid-template-columns: minmax(0, 1fr); padding: clamp(24px, 5vw, 64px); }
+.auth-card > .auth-back { color: var(--color-cinnabar); font-size: 16px; }
+.auth-form { gap: 20px; }
+.auth-card-heading span { font-size: 17px; line-height: 1.8; }
+.restored-assistant-popover { width: 420px; height: min(680px, calc(100dvh - 160px)); min-height: 320px; max-width: calc(100vw - 32px); }
+.restored-assistant-message { font-size: 16px; padding: 12px 16px; line-height: 1.75; }
+.restored-assistant-input { flex-wrap: wrap; padding: 16px; gap: 10px; }
+.restored-assistant-input .field { flex: 1 1 180px; }
+@media (min-width: 1200px) {
+  .app-sidebar { display: flex; width: 18rem; padding: 24px 18px; }
+  .app-content { padding-left: 18rem; }
+  .mobile-brand, .mobile-nav { display: none; }
+  .app-main { padding: 32px clamp(24px, 2vw, 40px) 48px; }
+  .app-header { padding-inline: clamp(24px, 2vw, 40px); }
+}
+@media (min-width: 1280px) {
+  .research-workbench-grid { grid-template-columns: clamp(360px, 24vw, 420px) minmax(0, 1fr); }
+}
+@media (min-width: 1200px) and (max-width: 1450px) {
+  .header-user, .header-search span { display: none; }
+  .header-search { width: 48px; justify-content: center; padding: 0; }
+}
+@media (max-width: 1199px) {
+  .app-sidebar { display: none; }
+  .app-content { padding-left: 0; }
+  .mobile-brand { display: flex; font-size: 20px; }
+  .mobile-nav { display: grid; }
+  .assistant-float, .restored-assistant-float { bottom: 100px; }
+  .case-workspace-grid, .source-sync-layout { grid-template-columns: minmax(0, 1fr); }
+  .dashboard-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  .dashboard-stat-grid { grid-template-columns: minmax(0, 1fr); }
+  .tool-tab { position: relative; padding: 14px; gap: 0; }
+  .tool-tab > svg { position: absolute; top: 17px; left: 14px; width: 18px; height: 18px; }
+  .tool-tab > :last-child { width: 100%; }
+  .tool-tab strong { padding-left: 28px; }
+  .tool-tab small { word-break: keep-all; overflow-wrap: anywhere; }
+}
+@media (max-width: 700px) {
+  .app-header-copy, .header-user { display: none; }
+  .app-main { padding: 24px 16px 112px; }
+  .app-header { min-height: 76px; padding: 12px 16px; gap: 12px; }
+  .app-header-actions { gap: 10px; }
+  .page-heading-copy { flex-basis: 100%; }
+  .page-description { font-size: 17px; }
+  .panel-header, .case-form-fields, .research-query-form, .case-form-footer { padding: 20px; }
+  .figure-card, .dashboard-panel, .source-record, .source-run-record, .dataset-record, .catalog-r-section { padding: 20px; }
+  .tool-tab { padding: 12px; }
+  .tool-tab strong { font-size: 16px; }
+  .r-chart-expanded { inset: 8px; padding: 16px; }
+  .r-chart-expanded .r-chart-viewer-toolbar > strong { flex-basis: 140px; font-size: 18px; }
+  .demo-content, .demo-center .site-nav { width: calc(100% - 32px); }
+  .auth-card { padding: 24px 20px; }
+}

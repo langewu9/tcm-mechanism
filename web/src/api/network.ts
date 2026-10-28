@@ -1,9 +1,22 @@
 import { apiRequest } from "./client";
 import type { AnalysisTask } from "./datasets";
+import type { DataQualityNotice } from "./catalog";
 
 export type NetworkRawTable = "herbLinks" | "diseaseTargets" | "diseaseHerbLinks" | "directDiseaseHerbLinks";
 
+export type TargetIdentityRecord = { entityId: number; label: string; source: string; originalTaxon: string; status: string; method: string; masterKey: string | null; geneKey: string | null };
+export type TargetIdentityOverlap = { key: string; label: string; taxon: string; herbRecords: TargetIdentityRecord[]; diseaseRecords: TargetIdentityRecord[]; recordCounts: { herb: number; disease: number } };
+export type TargetIdentityResult = { available: boolean; version: string; comparisonVersion?: string; reason?: string; referenceVersion?: string; referenceSha256?: string; referenceTaxon?: string; releaseId?: number;
+  coverage?: { scope: string; rawRowLimitsApplied: boolean };
+  herb?: { records: number; verifiedRecords: number; pendingRecords: number; geneUnresolvedRecords?: number; genes: number; proteins: number; statuses: Record<string, number> };
+  disease?: { records: number; verifiedRecords: number; pendingRecords: number; geneUnresolvedRecords?: number; genes: number; proteins: number; statuses: Record<string, number> };
+  verifiedGeneIntersectionCount?: number; verifiedProteinIntersectionCount?: number; pendingGeneOverlapCount?: number;
+  geneIntersections?: TargetIdentityOverlap[]; proteinIntersections?: TargetIdentityOverlap[]; pendingCandidates?: TargetIdentityOverlap[]; pendingRowsTruncated?: boolean;
+};
+
 export type NetworkPharmacologyResult = {
+  dataQuality?: DataQualityNotice[];
+  targetIdentity?: TargetIdentityResult;
   taskId: number;
   summary: {
     herb: string;
@@ -17,6 +30,14 @@ export type NetworkPharmacologyResult = {
     disease: string;
     matchedDiseases: string[];
     unmatchedDiseases: string[];
+    diseaseResolution?: {
+      status: "exact" | "alias" | "needs_selection" | "unmatched";
+      input: string;
+      resolvedTerms: string[];
+      aliasVersion: string;
+      entitiesTruncated: boolean;
+      candidates: Array<{ label: string; sourceSlugs: string[] }>;
+    };
     diseaseTargetCount: number;
     herbTargetCount: number;
     strictIntersectionCount: number;
@@ -43,6 +64,8 @@ export type NetworkPharmacologyResult = {
   raw?: Record<NetworkRawTable, Array<Record<string, string | number | null>>>;
   rawLimits?: {
     formatVersion: string;
+    structuralRowsCollapsed?: boolean;
+    structuralEvidencePolicy?: string;
     rowLimit: number;
     tablesTruncated: Record<NetworkRawTable, boolean>;
     inputRelationsTruncated: Partial<Record<"formulaHerbs" | "herbCompounds" | "compoundTargets" | "diseaseTargets" | "pathways", boolean>>;

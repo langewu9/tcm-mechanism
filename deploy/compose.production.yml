@@ -22,6 +22,7 @@ x-django-environment: &django-environment
   DJANGO_USE_X_FORWARDED_PROTO: "true"
   DJANGO_SECURE_HSTS_SECONDS: "31536000"
   DATABASE_URL: postgres://tcm_platform:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.production}@postgres:5432/tcm_platform
+  CASE_RAG_DATABASE_URL: ${CASE_RAG_DATABASE_URL:-sqlite:////app/var/case-rag/corpus.sqlite3}
   CELERY_BROKER_URL: redis://:${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env.production}@redis:6379/0
   CACHE_URL: redis://:${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env.production}@redis:6379/1
   DJANGO_LOGIN_IP_RATE: ${DJANGO_LOGIN_IP_RATE:-30/min}
@@ -98,12 +99,13 @@ services:
   api:
     build: *python-build
     restart: unless-stopped
-    command: ["sh", "-c", "python manage.py migrate --noinput && python manage.py collectstatic --noinput && exec gunicorn config.wsgi:application --bind 0.0.0.0:8020 --workers 3 --timeout 120 --access-logfile - --error-logfile -"]
+    command: ["sh", "-c", "python manage.py migrate --noinput && python manage.py migrate case_rag --database=case_rag --noinput && python manage.py collectstatic --noinput && exec gunicorn config.wsgi:application --bind 0.0.0.0:8020 --workers 3 --timeout 120 --access-logfile - --error-logfile -"]
     environment:
       <<: *django-environment
       MEDIA_ROOT: /app/var/media
     volumes:
       - django_static:/app/staticfiles
+      - case_rag_data:/app/var/case-rag
     expose: ["8020"]
     depends_on:
       postgres:
@@ -121,7 +123,7 @@ services:
   worker:
     build: *python-build
     restart: unless-stopped
-    command: ["celery", "-A", "config", "worker", "--loglevel=INFO", "--concurrency=2"]
+    command: ["celery", "-A", "config", "worker", "--loglevel=INFO", "--concurrency=2", "--queues=celery,r_visualization"]
     environment:
       <<: *django-environment
       MEDIA_ROOT: /app/var/media
@@ -130,6 +132,8 @@ services:
       EMAIL_HOST_PASSWORD: ""
       DEFAULT_FROM_EMAIL: ""
       ADMIN_NOTIFICATION_EMAILS: ""
+    volumes:
+      - case_rag_data:/app/var/case-rag
     depends_on:
       postgres:
         condition: service_healthy
@@ -186,6 +190,7 @@ volumes:
   redis_data:
   django_static:
   celery_schedule:
+  case_rag_data:
 
 networks:
   edge:

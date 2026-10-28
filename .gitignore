@@ -38,3 +38,4 @@ models/
 web/node_modules/
 web/dist/
 /public/r-demo/
+/public/r-public-demo/

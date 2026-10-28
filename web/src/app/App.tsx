@@ -7,7 +7,7 @@ import { RegisterPage } from "../pages/RegisterPage";
 import { VerifyEmailPage } from "../pages/VerifyEmailPage";
 import { RequireAuth } from "./RequireAuth";
 import { WorkspaceLayout } from "../components/AppShell";
-const CasesPage = lazy(() => import("../pages/CasesPage").then((module) => ({ default: module.CasesPage })));
+const CasesPage = lazy(() => import("../pages/CaseLibraryPage").then((module) => ({ default: module.CaseLibraryPage })));
 const DatasetsPage = lazy(() => import("../pages/DatasetsPage").then((module) => ({ default: module.DatasetsPage })));
 const ProteomicsPage = lazy(() => import("../pages/ProteomicsPage").then((module) => ({ default: module.ProteomicsPage })));
 const SourcesPage = lazy(() => import("../pages/SourcesPage").then((module) => ({ default: module.SourcesPage })));
@@ -41,6 +41,6 @@ export function App() {
       <Route path="/admin/integrations" element={<ApiIntegrationPage />} />
       <Route path="/api-integration" element={<ApiIntegrationPage />} />
     </Route></Route>
-    <Route path="*" element={<main className="site-home"><section className="empty-state"><strong>页面尚未接入</strong><p>这个模块会在对应业务源码确认后补齐。</p><a className="btn btn-secondary" href="/">返回首页</a></section></main>} />
+    <Route path="*" element={<main className="site-home"><section className="empty-state"><strong>页面不存在</strong><p>请检查访问地址，或返回平台首页。</p><a className="btn btn-secondary" href="/">返回首页</a></section></main>} />
   </Routes></Suspense></PageLoadBoundary></BrowserRouter>;
 }

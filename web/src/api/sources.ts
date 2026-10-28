@@ -36,6 +36,10 @@ export type SyncRun = {
   preview_summary: {
     mode?: "preview" | "apply";
     connector?: string;
+    actorCommand?: string;
+    rows?: number;
+    relations?: number;
+    quarantined?: number;
     basedOn?: number;
     sourceVersion?: string | null;
     releaseVersion?: string;

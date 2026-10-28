@@ -18,6 +18,9 @@ import { createVisualization } from "../api/network";
 import { StringNetworkResult } from "../components/StringNetworkResult";
 import { RAnalysisGallery } from "../components/RAnalysisGallery";
 import { RDemoGallery } from "../components/RDemoGallery";
+import { SubviewTabs } from "../components/SubviewTabs";
+import { RChartSource } from "../components/RChartSource";
+import { RChartViewer, hasInteractiveRenderer } from "../components/RChartViewer";
 
 const initialMapping = {
   geneColumn: "",
@@ -139,6 +142,7 @@ function downloadBlob(filename: string, blob: Blob) {
 }
 
 export function ProteomicsPage() {
+  const [workspaceSubview, setWorkspaceSubview] = useState("settings");
   const [datasets, setDatasets] = useState<ResearchDataset[]>([]);
   const [datasetId, setDatasetId] = useState<number | "">("");
   const [task, setTask] = useState<AnalysisTask | null>(null);
@@ -183,6 +187,7 @@ export function ProteomicsPage() {
         const latestTask = taskResponse.results.find((item) => item.task_type === "proteomics");
         if (latestTask) {
           setTask(latestTask);
+          setWorkspaceSubview("results");
           if (latestTask.dataset) setDatasetId(latestTask.dataset);
           const latestVisualization = taskResponse.results.find((item) =>
             item.task_type === "visualization"
@@ -352,6 +357,7 @@ export function ProteomicsPage() {
         stringRequiredScore: Number(stringRequiredScore),
       });
       setTask(taskResponse);
+      setWorkspaceSubview("results");
       setNotice(`分析任务 #${taskResponse.id} 已进入后台队列。`);
     } catch (cause) {
       setError(errorMessage(cause));
@@ -398,17 +404,16 @@ export function ProteomicsPage() {
   }
 
   return <>
-    <RDemoGallery />
-
-      <div className="page-heading"><div className="page-heading-copy"><p className="page-kicker">Proteomics analysis</p><h1 className="page-title">差异蛋白组学分析</h1>
-        <p className="page-description">复用 main 分支的差异蛋白筛选和本地网络逻辑；逐行保留筛选、映射和排除原因，未验证的符号会明确标出。</p></div>
-        <Link to="/datasets" className="btn btn-secondary"><ArrowLeft size={16} />数据集管理</Link>
+      <div className="page-heading"><div className="page-heading-copy"><h1 className="page-title">差异蛋白组学分析</h1>
+        <p className="page-description">分析差异蛋白、关联靶点与通路，查看图表并追溯每行数据的筛选和映射结果。</p></div>
+        <Link to="/datasets" className="btn btn-secondary"><ArrowLeft size={16} />数据库</Link>
       </div>
 
       {error && <div className="notice-error workspace-notice" role="alert">{error}</div>}
       {notice && <div className="notice-success workspace-notice" role="status">{notice}</div>}
 
-      <div className="case-workspace-grid proteomics-workspace-grid">
+      <SubviewTabs label="蛋白组学工作区" value={workspaceSubview} onChange={setWorkspaceSubview} keepMounted views={[
+        { key: "settings", label: "分析设置", content:
         <form className="panel case-form" onSubmit={(event) => void submit(event)} aria-label="启动差异蛋白分析">
           <div className="panel-header"><div><h2 className="section-title-sm">分析设置</h2><p className="section-help">数据集原始文件不会发送到外部服务。</p></div><span className="page-heading-icon"><Activity size={19} /></span></div>
           <div className="case-form-fields">
@@ -435,7 +440,7 @@ export function ProteomicsPage() {
                 </div>
               </> : <section className="raw-matrix-design">
                 <label className="form-label">实验设计<select className="field" value={matrixDesignType} onChange={(event) => setMatrixDesignType(event.target.value as "unpaired" | "paired" | "multifactor")}><option value="unpaired">独立样本（非配对）</option><option value="paired">配对样本</option><option value="multifactor">多因素（分类因素加性模型）</option></select></label>
-                <p className="section-help">请按实验记录明确指定样本分组，不会根据列名、顺序或数值猜测设计。多因素首版只拟合各因素主效应，不含交互项。</p>
+                <p className="section-help">请按实验记录明确指定样本分组，不会根据列名、顺序或数值猜测设计。多因素模型只拟合各因素主效应，不含交互项。</p>
                 <label className="form-label">蛋白/基因标识列<input className="field" value={matrixIdentifierColumn} onChange={(event) => setMatrixIdentifierColumn(event.target.value)} placeholder="例如：Gene Symbol、UniProt" required /></label>
                 {matrixDesignType === "unpaired" ? <>
                   <label className="form-label">对照组样本列<textarea className="field case-textarea case-textarea-short" value={controlSampleColumns} onChange={(event) => setControlSampleColumns(event.target.value)} placeholder="例如：Control_1, Control_2, Control_3" required /></label>
@@ -483,10 +488,10 @@ export function ProteomicsPage() {
             <button className="btn btn-primary" type="submit" disabled={!selectedDataset || submitting || task?.status === "queued" || task?.status === "running"}>
               {submitting ? <RefreshCw size={16} className="spin" /> : <Play size={16} />}{submitting ? "正在提交…" : "提交后台分析"}
             </button></div>
-        </form>
-
+        </form> },
+        { key: "results", label: "分析结果", content:
         <section className="case-list" aria-labelledby="proteomics-results-heading">
-          <div className="case-list-heading"><div><p className="page-kicker">Reproducible analysis</p><h2 id="proteomics-results-heading" className="section-title-sm">分析结果</h2></div>
+          <div className="case-list-heading"><div><h2 id="proteomics-results-heading" className="section-title-sm">分析结果</h2></div>
             {task && <span className={`status-badge ${task.status === "failed" ? "status-error" : task.status === "succeeded" ? "status-success" : "status-warning"}`}>{taskStatusLabel(task.status)}</span>}
           </div>
           {!task ? <div className="panel empty-state"><Activity size={27} /><strong>等待分析任务</strong><p>选择一个已上传的数据集并提交分析设置。</p></div>
@@ -500,15 +505,16 @@ export function ProteomicsPage() {
                 </div>}</div>
               {(task.status === "queued" || task.status === "running") && <div className="analysis-progress" role="status"><span>任务已排队，分析过程在后台运行。</span><progress max={100} value={task.progress} /></div>}
               {task.status === "failed" && <div className="notice-error" role="alert">{task.error_summary || "分析失败，请检查文件和列映射。"}</div>}
-              {result && <ProteomicsResultView result={result} task={task} showRows={showRows} rowPage={rowPage} rowPageNumber={rowPageNumber}
+              {result && <ProteomicsResultView key={task.id} result={result} task={task} showRows={showRows} rowPage={rowPage} rowPageNumber={rowPageNumber}
                 visualizationTask={visualizationTask} volcanoVisualizationTask={volcanoVisualizationTask} visualizationSubmitting={visualizationSubmitting}
                 onCreateVolcanoVisualization={() => void requestVolcanoVisualization()}
                 onCreateGoKeggVisualization={() => void requestGoKeggVisualization()}
                 onToggleRows={() => { setShowRows((value) => !value); setRowPageNumber(1); }}
                 onRowPageChange={setRowPageNumber} />}
             </article>}
-        </section>
-      </div>
+        </section> },
+        { key: "demo", label: "演示图库", content: <RDemoGallery defaultOpen /> },
+      ]} />
 
   </>;
 }
@@ -534,8 +540,11 @@ function ProteomicsResultView({
   onToggleRows: () => void;
   onRowPageChange: (page: number) => void;
 }) {
+  const [resultSubview, setResultSubview] = useState("overview");
   return <div className="proteomics-result-content">
-    <p className="section-help">原始文件 SHA-256：<code>{result.dataset.sha256}</code> · 算法版本：{result.algorithmVersion} · 来源版本数：{task.source_releases.length}</p>
+    <SubviewTabs label="蛋白组学结果子页" value={resultSubview} onChange={setResultSubview} keepMounted views={[
+      { key: "overview", label: "结果概览", content: <>
+    <details className="raw-details"><summary>分析记录与来源版本</summary><p className="section-help">原始文件 SHA-256：<code>{result.dataset.sha256}</code> · 算法版本：{result.algorithmVersion} · 来源版本数：{task.source_releases.length}</p></details>
     <div className="proteomics-metrics">
       <Metric label="通过筛选" value={result.summary.selectedRowCount} />
       <Metric label="唯一标识" value={result.summary.uniqueLabelCount} />
@@ -548,7 +557,7 @@ function ProteomicsResultView({
     {result.differentialAnalysis && <section className="panel raw-matrix-method">
       <h3 className="section-title-sm">原始矩阵统计设计</h3>
       <dl className="dataset-provenance"><div><dt>统计检验</dt><dd>{result.differentialAnalysis.designType === "paired" ? "配对 t 检验" : result.differentialAnalysis.designType === "multifactor" ? "多因素加性线性模型对比 t 检验" : "非配对 Welch t 检验"}</dd></div><div><dt>效应量</dt><dd>{result.differentialAnalysis.designType === "paired" ? "每对样本实验组减对照组的 log2 差值均值" : result.differentialAnalysis.designType === "multifactor" ? "控制模型中其他因素后的 log2 均值差" : "实验组减对照组的平均 log2 强度"}</dd></div><div><dt>多重校正</dt><dd>{result.differentialAnalysis.pValueAdjustment}</dd></div><div><dt>变换 / 归一化</dt><dd>{result.differentialAnalysis.inputScaleTransform === "log2" ? "log2 转换" : "不转换"} / {{ none: "不再归一化", median_center: "样本中位数中心化" }[result.differentialAnalysis.normalization] ?? result.differentialAnalysis.normalization}</dd></div><div><dt>缺失策略</dt><dd>{{ complete_rows: "仅完整样本行", available_replicates: "使用可用重复值" }[result.differentialAnalysis.missingPolicy] ?? result.differentialAnalysis.missingPolicy}</dd></div>{result.differentialAnalysis.designType === "paired" ? <div><dt>配对样本</dt><dd>{result.differentialAnalysis.samplePairs.map((pair) => `${pair.pairId}：${pair.controlSample} ↔ ${pair.treatmentSample}`).join("；")}</dd></div> : result.differentialAnalysis.designType === "multifactor" ? <><div><dt>主要对比</dt><dd>{result.differentialAnalysis.contrast?.factor}：{result.differentialAnalysis.contrast?.treatmentLevel} − {result.differentialAnalysis.contrast?.referenceLevel}</dd></div><div><dt>模型因素</dt><dd>{result.differentialAnalysis.factorNames?.map((name) => `${name}（${result.differentialAnalysis?.factorLevels?.[name]?.join("、")}）`).join("；")}</dd></div><div><dt>设计模型</dt><dd>{result.differentialAnalysis.model}</dd></div></> : <><div><dt>对照组样本</dt><dd>{result.differentialAnalysis.controlSamples?.join("、")}</dd></div><div><dt>实验组样本</dt><dd>{result.differentialAnalysis.treatmentSamples?.join("、")}</dd></div></>}</dl>
-      <p className="notice-warning">统计模型只适用于所选实验设计；未做数值插补，统计结果应按实验设计和领域规范复核。多因素首版假设样本相互独立、误差方差相同且残差近似正态，只估计主效应，不拟合交互项或随机效应。</p>
+      <p className="notice-warning">统计模型只适用于所选实验设计；未做数值插补，统计结果应按实验设计和领域规范复核。多因素模型假设样本相互独立、误差方差相同且残差近似正态，只估计主效应，不拟合交互项或随机效应。</p>
     </section>}
 
     <section className="proteomics-qc panel">
@@ -565,14 +574,23 @@ function ProteomicsResultView({
     </section>
 
     {result.warnings.map((warning) => <p className="notice-warning" key={warning}>{warning}</p>)}
-    <div className="notice-info"><Activity size={17} /><span>{result.summary.enrichmentNote}</span></div>
-
-    <section className="proteomics-result-section">
+    <div className="notice-info"><Activity size={17} /><span>结果依据本任务保存的数据生成，筛选、映射和外部服务状态详见各结果页。</span></div>
+      </> },
+      { key: "charts", label: "R 图表", content: <RAnalysisGallery key={task.id} taskId={task.id} additionalCharts={[
+        { key: "proteomics_volcano", label: "差异蛋白火山图", content: <RChartSource chartKey="proteomics_volcano"><section className="proteomics-result-section">
       <div className="case-list-heading"><div><h3 className="section-title-sm">差异蛋白火山图</h3><p className="section-help">根据本任务已保存的 log2FC、P 值和筛选状态生成，最多绘制 5,000 行；不发送原始文件或医案。</p></div>
         <button className="btn btn-secondary" type="button" disabled={visualizationSubmitting || Boolean(volcanoVisualizationTask && ["queued", "running", "succeeded"].includes(volcanoVisualizationTask.status))} onClick={onCreateVolcanoVisualization}>{visualizationSubmitting ? "正在创建图表…" : volcanoVisualizationTask?.status === "succeeded" ? "R 火山图已生成" : volcanoVisualizationTask?.status === "failed" ? "重试生成 R 火山图" : "生成 R 火山图"}</button></div>
       {volcanoVisualizationTask && <ProteomicsVisualizationResult task={volcanoVisualizationTask} title="差异蛋白火山图" alt="差异蛋白火山图；横轴为 log2 Fold Change，纵轴为负对数 P 值，颜色区分阈值筛选结果" />}
-    </section>
-
+    </section></RChartSource> },
+        { key: "proteomics_go_kegg_enrichment", label: "GO / KEGG 富集气泡图", content: <RChartSource chartKey="proteomics_go_kegg_enrichment"><section className="proteomics-result-section">
+          <h3 className="section-title-sm">GO / KEGG 富集气泡图</h3>
+          <p className="section-help">只使用当前任务保存的富集结果，不发送原始文件或医案。</p>
+          <button className="btn btn-secondary" type="button" disabled={!result.externalGProfiler?.terms.length || visualizationSubmitting || Boolean(visualizationTask && ["queued", "running", "succeeded"].includes(visualizationTask.status))} onClick={onCreateGoKeggVisualization}>{!result.externalGProfiler?.terms.length ? "缺少所需分析数据" : visualizationSubmitting ? "正在创建图表…" : visualizationTask?.status === "succeeded" ? "R 气泡图已生成" : visualizationTask?.status === "failed" ? "重试生成 R 气泡图" : "生成 R 富集气泡图"}</button>
+          {visualizationTask && <ProteomicsVisualizationResult task={visualizationTask} title="GO / KEGG 富集气泡图" alt="GO / KEGG 富集气泡图；横轴为 GeneRatio，点大小为命中数，颜色表示 FDR 显著性" />}
+        </section></RChartSource> },
+      ]} /> },
+      { key: "enrichment", label: "富集数据", content: <>
+    {!result.externalReactome && !result.externalGProfiler && <p className="section-help">本次任务未启用外部富集；可在图表页查看结果或打开演示图库。</p>}
     {result.externalReactome && <section className="proteomics-result-section">
       <div className="case-list-heading"><div><h3 className="section-title-sm">MyGene.info / Reactome 外部结果</h3><p className="section-help">{result.externalReactome.organism} · {result.externalReactome.source}{result.externalReactome.sourceVersion ? ` ${result.externalReactome.sourceVersion}` : " · 版本未返回"}</p></div>
         <span className="status-badge">{{ succeeded: "有显著通路", no_significant_pathways: "无显著通路", no_mapped_identifiers: "没有可映射标识", unavailable: "服务不可用", disabled: "服务已停用" }[result.externalReactome.status] ?? result.externalReactome.status}</span>
@@ -594,16 +612,13 @@ function ProteomicsResultView({
       {result.externalGProfiler.terms.length > 0 ? <div className="table-scroll"><table className="data-table"><thead><tr><th>类别</th><th>功能条目</th><th>条目 ID</th><th>命中数</th><th>查询数</th><th>GeneRatio</th><th>条目基因数</th><th>有效背景数</th><th>FDR</th></tr></thead><tbody>
         {result.externalGProfiler.terms.map((term) => <tr key={`${term.source}:${term.termId}`}><td>{term.source}</td><td>{term.name}</td><td>{term.termId}</td><td>{term.intersectionSize ?? "—"}</td><td>{term.querySize ?? "—"}</td><td>{formatNumber(term.geneRatio)}</td><td>{term.termSize ?? "—"}</td><td>{term.effectiveDomainSize ?? "—"}</td><td>{formatNumber(term.adjustedPValue)}</td></tr>)}
       </tbody></table></div> : <p className="section-help">本次没有可展示的 GO/KEGG 显著条目。</p>}
-      {result.externalGProfiler.terms.length > 0 && <>
-        <div className="source-record-actions"><button className="btn btn-secondary" type="button" disabled={visualizationSubmitting || Boolean(visualizationTask && ["queued", "running", "succeeded"].includes(visualizationTask.status))} onClick={onCreateGoKeggVisualization}>{visualizationSubmitting ? "正在创建图表…" : visualizationTask?.status === "succeeded" ? "R 气泡图已生成" : visualizationTask?.status === "failed" ? "重试生成 R 气泡图" : "生成 R 富集气泡图"}</button><span className="section-help">只把最多 100 条富集结果的名称、类别、GeneRatio、FDR 和命中数交给 R 绘图；不发送原始文件或医案。</span></div>
-        {visualizationTask && <ProteomicsVisualizationResult task={visualizationTask} title="GO / KEGG 富集气泡图" alt="GO / KEGG 富集气泡图；横轴为 GeneRatio，点大小为命中数，颜色表示 FDR 显著性" />}
-      </>}
+      {result.externalGProfiler.terms.length > 0 && <button className="btn btn-secondary" type="button" onClick={() => setResultSubview("charts")}>前往 R 图表子页</button>}
       {result.externalGProfiler.terms.some((term) => term.matchedIdentifiers.length > 0) && <details className="case-notes"><summary>查看命中标识</summary>{result.externalGProfiler.terms.filter((term) => term.matchedIdentifiers.length > 0).slice(0, 30).map((term) => <p key={`${term.source}:${term.termId}`}><strong>{term.name}</strong>：{term.matchedIdentifiers.join("、")}</p>)}</details>}
     </section>}
 
-    <RAnalysisGallery key={task.id} taskId={task.id} />
-    {result.externalString && <StringNetworkResult result={result.externalString} task={task} />}
-
+      </> },
+      { key: "ppi", label: "PPI 结果", content: result.externalString ? <StringNetworkResult result={result.externalString} task={task} /> : <p className="section-help">本次任务没有可用的 STRING PPI 结果。</p> },
+      { key: "validation", label: "验证与通路", content: <>
     <section className="proteomics-result-section">
       <div className="case-list-heading"><h3 className="section-title-sm">Top degree 候选蛋白</h3><span className="section-help">degree 表示本地已登记通路关联数，不代表因果结论。</span></div>
       {result.topNodes.length ? <div className="table-scroll"><table className="data-table"><thead><tr><th>基因/蛋白</th><th>映射状态</th><th>degree</th><th>log2FC</th><th>FDR</th><th>方向</th><th>通路</th></tr></thead><tbody>
@@ -625,6 +640,8 @@ function ProteomicsResultView({
       {result.pathways.length ? <ul className="proteomics-pathways">{result.pathways.slice(0, 100).map((pathway) => <li key={pathway.stableId}><strong>{pathway.name}</strong><span>{pathway.stableId} · {pathway.source} {pathway.version}</span></li>)}</ul> : <p className="section-help">没有命中当前本地通路目录。</p>}
     </section>
 
+      </> },
+      { key: "qc", label: "逐行 QC", content: <>
     {result.unmapped.length > 0 && <details className="case-notes"><summary>未映射标识（{result.summary.unmappedCount} 个）</summary>
       <p>{result.unmapped.join("、")}{result.unmappedTruncated ? "……（其余可在逐行 QC 中查看）" : ""}</p></details>}
 
@@ -643,6 +660,8 @@ function ProteomicsResultView({
           <span>第 {rowPageNumber} 页 / 共 {rowPage.count} 行</span><button className="btn btn-secondary" type="button" disabled={!rowPage.next} onClick={() => onRowPageChange(rowPageNumber + 1)}>下一页</button></div>}
       </>}
     </section>
+      </> },
+    ]} />
   </div>;
 }
 
@@ -652,8 +671,11 @@ function ProteomicsVisualizationResult({ task, title, alt }: { task: AnalysisTas
   const value = task.result as { rendererVersion?: string; artifacts?: Array<{ id: number; format: string; downloadUrl: string }> };
   const artifacts = value.artifacts ?? [];
   const svg = artifacts.find((artifact) => artifact.format === "svg");
-  return <div className="panel source-record"><h3>{title} · {String(value.rendererVersion ?? "")}</h3>
-    {svg && <img className="visualization-preview" src={`${svg.downloadUrl}?inline=1`} alt={alt} />}
+  const html = artifacts.find((artifact) => artifact.format === "html");
+  return <div className="panel source-record"><h3>{title}</h3>
+    {!hasInteractiveRenderer(value.rendererVersion) && <p className="notice-info">此任务提供静态图表，可查看或下载原始图片。</p>}
+    <RChartViewer key={task.id} title={alt} interactive={hasInteractiveRenderer(value.rendererVersion)}
+      svgUrl={svg && `${svg.downloadUrl}?inline=1`} htmlUrl={html && `${html.downloadUrl}?inline=1`} />
     <div className="source-record-actions">{artifacts.map((artifact) => <a className="btn btn-secondary" key={artifact.id} href={artifact.downloadUrl}>下载 {artifact.format.toUpperCase()}</a>)}</div>
   </div>;
 }

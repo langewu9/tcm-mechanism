@@ -5,12 +5,12 @@ import { getAnalysisTask, type AnalysisTask } from "../api/datasets";
 import { createVisualization, runNetworkPharmacology, runReactomeEnrichment, runStringNetwork, type NetworkPharmacologyResult } from "../api/network";
 import { ApiError } from "../api/client";
 import { KnowledgeNetworkGraph } from "../components/KnowledgeNetworkGraph";
-import { NetworkPharmacologyCharts } from "../components/NetworkPharmacologyCharts";
 import { NetworkResultDownloads } from "../components/NetworkResultDownloads";
-import { ReactomeEnrichmentResult, readReactomeEnrichment } from "../components/ReactomeEnrichmentResult";
+import { ReactomeEnrichmentResult } from "../components/ReactomeEnrichmentResult";
 import { StringTaskResult } from "../components/StringNetworkResult";
 import { RAnalysisGallery } from "../components/RAnalysisGallery";
-import { RDemoGallery } from "../components/RDemoGallery";
+import { RChartViewer, hasInteractiveRenderer } from "../components/RChartViewer";
+import { TargetIntersectionFigure, TargetIntersectionNotice, intersectionState } from "../components/TargetIntersectionFigure";
 
 type QueryTask = { sourceTaskId: number; task: AnalysisTask };
 
@@ -50,7 +50,6 @@ export function NetworkPharmacologyPage() {
   const pathwayTask = pathwayBinding?.sourceTaskId === result?.taskId ? pathwayBinding?.task ?? null : null;
   const stringTask = stringBinding?.sourceTaskId === result?.taskId ? stringBinding?.task ?? null : null;
   const visualizationTask = visualizationBinding?.sourceTaskId === result?.taskId ? visualizationBinding?.task ?? null : null;
-  const reactomeResult = readReactomeEnrichment(pathwayTask, result?.taskId);
 
   useEffect(() => {
     mounted.current = true;
@@ -185,7 +184,7 @@ export function NetworkPharmacologyPage() {
   }
 
   async function requestVisualization() {
-    if (!result || visualizationSubmitting || Boolean(visualizationTask && ["queued", "running"].includes(visualizationTask.status))) return;
+    if (!result || !intersectionState(result).comparable || visualizationSubmitting || Boolean(visualizationTask && ["queued", "running"].includes(visualizationTask.status))) return;
     const generation = queryGeneration.current;
     const sourceTaskId = result.taskId;
     if (!isCurrentQuery(generation, sourceTaskId) || submittingGeneration.current.visualization === generation) return;
@@ -204,12 +203,11 @@ export function NetworkPharmacologyPage() {
   }
 
   return <>
-    <RDemoGallery />
 
-      <div className="page-heading"><div className="page-heading-copy"><p className="page-kicker">Network pharmacology</p><h1 className="page-title">中药—疾病靶点交集</h1><p className="page-description">在已导入的本地知识目录中匹配中药成分靶点和疾病靶点，展示关系证据与来源版本。</p></div><Link to="/" className="btn btn-secondary"><ArrowLeft size={16} />返回首页</Link></div>
+      <div className="page-heading"><div className="page-heading-copy"><h1 className="page-title">中药—疾病靶点交集</h1><p className="page-description">在已导入的本地知识目录中匹配中药成分靶点和疾病靶点，展示关系证据与来源版本。</p></div><Link to="/" className="btn btn-secondary"><ArrowLeft size={16} />返回首页</Link></div>
       {error && <div className="notice-error workspace-notice" role="alert">{error}</div>}
       {pollingError && <div className="notice-error workspace-notice" role="status">{pollingError}</div>}
-      <div className="case-workspace-grid">
+      <div className="case-workspace-grid workspace-split">
         <form className="panel case-form" onSubmit={(event) => void submit(event)}>
           <div className="panel-header"><div><h2 className="section-title-sm">设置查询条件</h2><p className="section-help">最多输入 12 味中药或方剂；名称需与已导入目录匹配，方剂会沿带来源版本的组成关系展开。</p></div><span className="page-heading-icon"><Network size={19} /></span></div>
           <div className="case-form-fields">
@@ -220,28 +218,36 @@ export function NetworkPharmacologyPage() {
         </form>
         <section className="case-list" aria-live="polite">
           {!result ? <div className="panel empty-state"><Network size={27} /><strong>等待查询条件</strong><p>数据会在本地知识目录中检索，不会调用外部服务。</p></div> : <>
-            <div className="case-list-heading"><div><p className="page-kicker">Evidence-backed result</p><h2 className="section-title-sm">分析任务 #{result.taskId}</h2></div><span className="status-badge status-success">已保存，可在任务记录中追溯</span></div>
+            <div className="case-list-heading"><div><h2 className="section-title-sm">分析任务 #{result.taskId}</h2></div><span className={`status-badge ${intersectionState(result).comparable && !intersectionState(result).partial ? "status-success" : "status-pending"}`}>{intersectionState(result).badge} · 已保存</span></div>
             <div className="panel proteomics-result-panel">
-              <div className="source-record-actions"><button className="btn btn-secondary" type="button" disabled={visualizationSubmitting || Boolean(visualizationTask && ["queued", "running"].includes(visualizationTask.status))} onClick={() => void requestVisualization()}>生成 R 图表</button></div>
+              <TargetIntersectionNotice result={result} onDiseaseSelect={(label) => {
+                if (!isCurrentQuery(queryGeneration.current, result.taskId) || localSubmissionInFlight.current) return;
+                queryGeneration.current += 1; currentSourceTaskId.current = null;
+                setDisease(label); setResult(null); setPathwayBinding(null); setStringBinding(null); setVisualizationBinding(null);
+                setShareWithReactome(false); setShareWithString(false); setPollingError(null); setError(null);
+              }} />
+              <TargetIntersectionFigure result={result} />
+              <div className="source-record-actions"><button className="btn btn-secondary" type="button" disabled={!intersectionState(result).comparable || visualizationSubmitting || Boolean(visualizationTask && ["queued", "running"].includes(visualizationTask.status))} onClick={() => void requestVisualization()}>生成 R 图表</button></div>
               {visualizationTask && <VisualizationResult task={visualizationTask} />}
               <div className="proteomics-metrics">
-                <Metric label="匹配中药靶点" value={result.summary.herbTargetCount} />
-                <Metric label="匹配疾病靶点" value={result.summary.diseaseTargetCount} />
-                <Metric label="严格交集" value={result.summary.strictIntersectionCount} />
+                <Metric label="已返回中药靶点" value={result.summary.herbTargetCount} />
+                <Metric label="已返回疾病靶点" value={result.summary.unmatchedDiseases.length ? "待匹配" : result.summary.diseaseTargetCount} />
+                <Metric label="原始实体交集" value={intersectionState(result).comparable ? result.summary.strictIntersectionCount : "待核验"} />
                 <Metric label="疾病—中药直接关联" value={result.summary.directAssociationTargetCount} />
                 <Metric label="候选靶点" value={result.summary.candidateTargetCount} />
                 <Metric label="关联成分" value={result.summary.componentCount} />
               </div>
               <NetworkResultDownloads result={result} />
-              <NetworkPharmacologyCharts key={result.taskId} result={result} reactome={reactomeResult} />
-              <KnowledgeNetworkGraph network={result.network} knownTruncated={result.limits.linksTruncated || result.limits.targetsTruncated} />
-              {(result.summary.unmatchedHerbs.length > 0 || result.summary.unmatchedDiseases.length > 0 || Boolean(result.summary.unresolvedFormulas?.length)) && <div className="notice-error" role="status">{result.summary.unmatchedHerbs.length > 0 ? `未匹配中药或方剂：${result.summary.unmatchedHerbs.join("、")}。` : ""}{result.summary.unmatchedDiseases.length > 0 ? `未匹配疾病：${result.summary.unmatchedDiseases.join("、")}。` : ""}{result.summary.unresolvedFormulas?.length ? `已匹配方剂但本地没有带来源版本的组成关系：${result.summary.unresolvedFormulas.join("、")}。` : ""}当前按知识目录中的精确名称匹配，请检查数据源导入结果和实体名称。</div>}
+              <RAnalysisGallery key={result.taskId} taskId={result.taskId} />
+              <details className="raw-details"><summary>查看备用证据链图（节点与来源详情）</summary>
+                <KnowledgeNetworkGraph network={result.network} knownTruncated={result.limits.linksTruncated || result.limits.targetsTruncated} />
+              </details>
               {result.summary.matchedFormulas?.length ? <p className="section-help">方剂 {result.summary.matchedFormulas.join("、")} 已按本地组成关系展开为中药：{result.summary.matchedHerbs.join("、") || "暂无可追溯组成"}。</p> : null}
               {result.targets.length ? <div className="case-list-items">{result.targets.map((target, index) => <article className="panel source-record" key={`${target.normalizedTarget}-${index}`}>
                 <div className="case-record-top"><div><h3>{target.target} <span className="status-badge status-warning">{target.matchType}</span></h3><p className="section-help">成分：{target.components.join("、") || "无中药成分证据"} · 通路：{target.pathways.join("、") || "无通路注释"}</p></div></div>
                 <p className="section-help">中药证据 {target.herbEvidenceCount} 条 · 疾病证据 {target.diseaseEvidenceCount} 条 · 直接关联 {target.directEvidenceCount} 条</p>
                 <ul className="proteomics-pathways">{target.sources.slice(0, 8).map((source, index) => <li key={`${source.sourceRecordId}-${index}`}><strong>{source.source} · {source.sourceVersion}</strong><span>{source.relationType} / {source.evidenceType} / {source.sourceRecordId}</span></li>)}</ul>
-              </article>)}</div> : <div className="panel empty-state"><strong>没有可报告的交集</strong><p>当前已导入来源没有提供足够的关系证据；系统不会用示例规则生成候选靶点。</p></div>}
+              </article>)}</div> : <div className="panel empty-state"><strong>{intersectionState(result).badge}</strong><p>{intersectionState(result).message}</p></div>}
               {(result.limits.targetsTruncated || result.limits.linksTruncated) && <p className="section-help">结果过大，页面仅展示了部分网络节点或靶点。</p>}
               {result.targets.length >= 2 && <section className="case-form-fields external-analysis-options" aria-label="可选外部分析">
                 <label className="proteomics-consent"><input type="checkbox" checked={shareWithReactome} onChange={(event) => setShareWithReactome(event.target.checked)} /><span><strong>同意提交基因标识到 MyGene.info 与 Reactome</strong><small>仅提交当前页面列出的候选靶点，最多 500 个；不提交医案或完整数据文件。</small></span></label>
@@ -253,7 +259,6 @@ export function NetworkPharmacologyPage() {
                 {stringTask && <StringTaskResult task={stringTask} sourceTaskId={result.taskId} />}
                 {stringTask?.status === "succeeded" && <RAnalysisGallery key={stringTask.id} taskId={stringTask.id} />}
               </section>}
-              <RAnalysisGallery key={result.taskId} taskId={result.taskId} />
               {pathwayTask?.status === "succeeded" && <RAnalysisGallery key={pathwayTask.id} taskId={pathwayTask.id} />}
             </div>
           </>}
@@ -263,8 +268,8 @@ export function NetworkPharmacologyPage() {
   </>;
 }
 
-function Metric({ label, value }: { label: string; value: number }) {
-  return <div className="proteomics-metric"><span>{label}</span><strong>{value.toLocaleString("zh-CN")}</strong></div>;
+function Metric({ label, value }: { label: string; value: number | string }) {
+  return <div className="proteomics-metric"><span>{label}</span><strong>{typeof value === "number" ? value.toLocaleString("zh-CN") : value}</strong></div>;
 }
 
 function VisualizationResult({ task }: { task: AnalysisTask }) {
@@ -274,8 +279,10 @@ function VisualizationResult({ task }: { task: AnalysisTask }) {
   const value = task.result as { rendererVersion?: string; artifacts?: Array<{ id: number; format: string; filename: string; downloadUrl: string; rendererVersion: string }> };
   const artifacts = value.artifacts ?? [];
   const svg = artifacts.find((artifact) => artifact.format === "svg");
+  const html = artifacts.find((artifact) => artifact.format === "html");
   return <div className="panel source-record"><h3>R 图表 · {String(value.rendererVersion ?? "")}</h3>
-    {svg && <img className="visualization-preview" src={`${svg.downloadUrl}?inline=1`} alt="中药—疾病靶点交集柱状图" />}
+    <RChartViewer title="中药—疾病靶点比对统计" interactive={hasInteractiveRenderer(value.rendererVersion)}
+      svgUrl={svg && `${svg.downloadUrl}?inline=1`} htmlUrl={html && `${html.downloadUrl}?inline=1`} />
     <div className="source-record-actions">{artifacts.map((artifact) => <a className="btn btn-secondary" key={artifact.id} href={artifact.downloadUrl}>下载 {artifact.format.toUpperCase()}</a>)}</div>
   </div>;
 }

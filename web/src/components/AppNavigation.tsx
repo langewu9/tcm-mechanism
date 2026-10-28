@@ -1,17 +1,18 @@
 // Navigation markup and labels ported from origin/main@078d374 AppNavigation.
 import { Link, useLocation } from "react-router-dom";
-import { Activity, BarChart3, Bot, Database, FileSearch, FileText, FlaskConical, LayoutDashboard, PlugZap, ShieldCheck } from "lucide-react";
+import { Activity, BarChart3, Bot, Database, FileSearch, FileText, FlaskConical, Home, LayoutDashboard, PlugZap, ShieldCheck } from "lucide-react";
 
 const primary = [
+  { href: "/", label: "平台首页", shortLabel: "首页", icon: Home },
   { href: "/dashboard", label: "研究总览", shortLabel: "总览", icon: LayoutDashboard },
   { href: "/research", label: "药理检索", shortLabel: "检索", icon: FileSearch },
-  { href: "/datasets", label: "数据资产", shortLabel: "数据", icon: Database },
+  { href: "/datasets", label: "数据库", shortLabel: "数据库", icon: Database },
   { href: "/proteomics", label: "蛋白组学", shortLabel: "蛋白", icon: Activity },
   { href: "/cases", label: "医案库", shortLabel: "医案", icon: FileText },
   { href: "/analysis", label: "智能分析", shortLabel: "分析", icon: FlaskConical },
   { href: "/visualization", label: "网络图谱", shortLabel: "图谱", icon: BarChart3 },
   { href: "/assistant", label: "远志助手", shortLabel: "助手", icon: Bot },
-  { href: "/demo", label: "交付演示", shortLabel: "演示", icon: FlaskConical },
+  { href: "/demo", label: "演示图库", shortLabel: "图库", icon: FlaskConical },
 ];
 const admin = [
   { href: "/api-integration", label: "接入监测", shortLabel: "接入", icon: PlugZap },
@@ -44,6 +45,6 @@ export function DesktopNavigation({ isAdmin }: { isAdmin: boolean }) {
 }
 
 export function MobileNavigation() {
-  const items = [primary[0], primary[1], primary[3], primary[5], primary[6]];
+  const items = [primary[0], primary[2], primary[4], primary[6], primary[7]];
   return <nav className="mobile-nav" aria-label="移动端导航">{items.map((item) => <NavLink key={item.href} item={item} compact />)}</nav>;
 }

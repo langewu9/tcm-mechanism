@@ -188,6 +188,7 @@ def _local_model_response(case_payload: dict[str, str], knowledge_context: dict 
         "quote 必须逐字复制提供材料中的一段连续原文。最多返回 8 个证候及 8 个方剂候选，每项最多 5 条证据。"
         "knowledgeEvidenceIds 只能引用 retrievedKnowledge 中实际给出的 refId；没有关联则返回空数组。知识库来源只作科研检索参考，"
         "不得把不同来源合并成确定结论，也不得将知识库引文伪装成医案原文证据。"
+        "retrievedKnowledge.cases 是其他患者的参考医案，结构化字段可能未经人工核校；不得把参考案的症状、证型或处方补到当前患者原文中。"
         "候选排序仅表示模型的初步假设，不代表临床结论。没有充分依据时返回空数组。"
     )
     user_content = json.dumps({
@@ -374,6 +375,10 @@ def _fit_knowledge_context(case_payload: dict[str, str], context: dict, referenc
         reference_index.pop(removed.get("refId"), None)
         context["truncated"] = True
         refresh_sources()
+    while input_size() > settings.CASE_ANALYSIS_MAX_INPUT_CHARS and context.get("cases"):
+        removed = context["cases"].pop()
+        reference_index.pop(removed.get("refId"), None)
+        context["truncated"] = True
     refresh_sources()
     used_release_ids = {
         source["id"] for source in context.get("sources", [])
@@ -536,6 +541,14 @@ def run_case_analysis(task: AnalysisTask) -> dict:
 
     payload = case_input_payload(case)
     knowledge_context, reference_index, _ = retrieve_case_knowledge_context(payload)
+    corpus = task.input_parameters.get("caseCorpusSnapshot")
+    if isinstance(corpus, dict):
+        knowledge_context["caseCorpus"] = {key: value for key, value in corpus.items() if key != "documents"}
+        knowledge_context["cases"] = corpus.get("documents", [])
+        for record in knowledge_context["cases"]:
+            reference_index[record["refId"]] = {**record, "kind": "case", "label": record["title"],
+                "sourceName": record["source"] or corpus.get("sourceName", "参考医案"),
+                "sourceRecordId": record["caseId"]}
     knowledge_context, reference_index, rag_source_release_ids = _fit_knowledge_context(
         payload, knowledge_context, reference_index
     )

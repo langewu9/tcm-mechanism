@@ -6,6 +6,8 @@ export type ResearchAssistantRequest = {
   entityIds: number[];
   useModel: boolean;
   confirmModelSharing: boolean;
+  caseIds?: number[];
+  caseCategory?: string;
 };
 
 export const createResearchAssistantTask = (data: ResearchAssistantRequest) =>

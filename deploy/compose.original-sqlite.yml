@@ -1,0 +1,129 @@
+# Local Docker runtime for the ORIGINAL database, not the empty PostgreSQL volume.
+# No migration, import, seed, password reset, or scheduled synchronization of the original database.
+x-original-environment: &original-environment
+  DJANGO_DEBUG: "true"
+  DJANGO_SECRET_KEY: local-only-unsafe-key-do-not-use-in-production
+  DJANGO_ALLOWED_HOSTS: 127.0.0.1,localhost,api
+  CSRF_TRUSTED_ORIGINS: http://127.0.0.1:5173,http://localhost:5173
+  PUBLIC_BASE_URL: http://127.0.0.1:5173
+  DATABASE_URL: sqlite:////app/var/qa.sqlite3
+  DATABASE_CONN_MAX_AGE: "0"
+  SQLITE_WAL_ENABLED: "false"
+  SQLITE_BUSY_TIMEOUT_SECONDS: "60"
+  MEDIA_ROOT: /app/var/media
+  SQLITE_SOURCE_ROOT: /app/var/source-databases
+  CELERY_BROKER_URL: redis://redis:6379/0
+  CACHE_URL: redis://redis:6379/1
+  SOURCE_SCHEDULED_PREVIEWS_ENABLED: "false"
+  R_VIZ_BASE_URL: http://r-viz:8001
+  R_VIZ_API_TOKEN: local-only-unsafe-render-token
+
+x-original-volumes: &original-volumes
+  # Mount the whole directory so SQLite's WAL/SHM files stay beside the database.
+  - type: bind
+    source: ../python_app/var
+    target: /app/var
+    bind:
+      create_host_path: false
+  - type: bind
+    source: ../var/source-databases
+    target: /app/var/source-databases
+    read_only: true
+    bind:
+      create_host_path: false
+  - type: bind
+    source: ./original_sqlite_guard.py
+    target: /opt/original_sqlite_guard.py
+    read_only: true
+    bind:
+      create_host_path: false
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports: ["127.0.0.1:6379:6379"]
+    volumes: ["tcm_platform_redisdata:/data"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  r-viz:
+    image: deploy-r-viz:latest
+    build:
+      context: ../r_viz
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      R_VIZ_API_TOKEN: local-only-unsafe-render-token
+      PORT: "8001"
+    expose: ["8001"]
+    networks: [visualization]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  api:
+    image: deploy-api:latest
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: ["sh", "-c", "python /opt/original_sqlite_guard.py && python manage.py migrate --check --settings=config.settings_original_sqlite && python manage.py migrate case_rag --database=case_rag --noinput && exec python manage.py runserver 0.0.0.0:8020 --noreload"]
+    environment: *original-environment
+    ports: ["127.0.0.1:8020:8020"]
+    volumes: *original-volumes
+    networks: [default, visualization]
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8020/api/v1/health/', timeout=5)"]
+      interval: 10s
+      timeout: 6s
+      retries: 6
+      start_period: 20s
+
+  worker:
+    image: deploy-worker:latest
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: ["sh", "-c", "python /opt/original_sqlite_guard.py && exec celery -A config worker --pool=solo --concurrency=1 --loglevel=INFO --queues=celery --hostname=original-worker@%h"]
+    environment: *original-environment
+    volumes: *original-volumes
+    networks: [default]
+    depends_on:
+      api:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  r-worker:
+    image: deploy-worker:latest
+    restart: unless-stopped
+    command: ["sh", "-c", "python /opt/original_sqlite_guard.py && exec celery -A config worker --pool=solo --concurrency=1 --loglevel=INFO --queues=r_visualization --hostname=original-r-worker@%h"]
+    environment: *original-environment
+    volumes: *original-volumes
+    networks: [default, visualization]
+    depends_on:
+      api:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      r-viz:
+        condition: service_healthy
+
+volumes:
+  tcm_platform_redisdata:
+
+networks:
+  visualization:
+    internal: true

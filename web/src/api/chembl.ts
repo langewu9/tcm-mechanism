@@ -102,6 +102,7 @@ export type ComponentCompareRow = {
 };
 
 export type ComponentComparison = {
+  evidenceSha256?: string;
   aliasSource: string;
   aliasSourceCommit: string;
   detected: ComponentCompareRow[];

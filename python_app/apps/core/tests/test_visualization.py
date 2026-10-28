@@ -51,6 +51,25 @@ class VisualizationWorkflowTests(APITestCase):
         )
         self.assertEqual(payload["inputSha256"], hashlib.sha256(canonical.encode()).hexdigest())
 
+    def test_overlap_does_not_treat_unmatched_or_missing_evidence_as_zero_intersection(self):
+        for summary in [
+            {"unmatchedDiseases": ["未知疾病"]}, {"matchedDiseases": []},
+            {"matchedHerbs": []}, {"herbTargetCount": 0}, {"diseaseTargetCount": 0},
+        ]:
+            self.parent.result["summary"] = summary
+            with self.assertRaises(VisualizationInputError):
+                build_chart_payload(self.parent, "overlap")
+
+    def test_overlap_marks_partial_source_counts_and_preserves_real_zero_intersection(self):
+        self.parent.result["summary"] = {
+            "matchedDiseases": ["Pulmonary fibrosis"], "matchedHerbs": ["黄芩"],
+            "herbTargetCount": 4, "diseaseTargetCount": 3, "strictIntersectionCount": 0,
+        }
+        self.parent.result["rawLimits"] = {"inputRelationsTruncated": {"diseaseTargets": True}}
+        payload = build_chart_payload(self.parent, "overlap")
+        self.assertIn("当前返回子集", payload["title"])
+        self.assertEqual(payload["data"][0]["value"], 4)
+
     def test_proteomics_volcano_payload_uses_persisted_rows_and_records_thresholds(self):
         task = AnalysisTask.objects.create(
             owner=self.owner,
@@ -377,3 +396,17 @@ class VisualizationWorkflowTests(APITestCase):
             download = self.client.get(reverse("analysis-artifact-download", args=[artifact.pk]))
             self.assertEqual(download.status_code, 200)
             self.assertEqual(download["Content-Disposition"].split(".")[-1].strip('"'), "svg")
+            self.assertEqual(download["Content-Security-Policy"], "sandbox")
+            widget = VisualizationArtifact.objects.get(render_task=job, file_format="html")
+            inline_widget = self.client.get(reverse("analysis-artifact-download", args=[widget.pk]), {"inline": "1"})
+            self.assertEqual(inline_widget.status_code, 200)
+            self.assertTrue(inline_widget["Content-Disposition"].startswith("inline"))
+            self.assertIn("sandbox allow-scripts allow-downloads", inline_widget["Content-Security-Policy"])
+            self.assertIn("connect-src 'none'", inline_widget["Content-Security-Policy"])
+            self.assertNotIn("allow-same-origin", inline_widget["Content-Security-Policy"])
+            self.assertEqual(inline_widget["X-Frame-Options"], "SAMEORIGIN")
+            self.assertIn("frame-ancestors 'self'", inline_widget["Content-Security-Policy"])
+            downloaded_widget = self.client.get(reverse("analysis-artifact-download", args=[widget.pk]))
+            self.assertEqual(downloaded_widget["X-Frame-Options"], "DENY")
+            self.client.force_authenticate(self.other)
+            self.assertEqual(self.client.get(reverse("analysis-artifact-download", args=[widget.pk]), {"inline": "1"}).status_code, 404)

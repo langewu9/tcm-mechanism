@@ -101,10 +101,10 @@ def _get_snapshot() -> ReactomeCatalogSnapshot:
     return fetch_reactome_human_pathway_catalog()
 
 
-def preview_reactome_sync(run: SyncRun) -> None:
+def preview_reactome_sync(run: SyncRun, *, snapshot=None) -> None:
     if run.source.slug != REACTOME_SOURCE_SLUG:
         raise ValidationError("当前仅实现 Reactome 通路目录同步。")
-    snapshot = _get_snapshot()
+    snapshot = snapshot if snapshot is not None else _get_snapshot()
     version = snapshot.release_version
     release, _ = SourceRelease.objects.get_or_create(
         source=run.source,
@@ -130,13 +130,13 @@ def preview_reactome_sync(run: SyncRun) -> None:
     )
 
 
-def apply_reactome_sync(run: SyncRun) -> None:
+def apply_reactome_sync(run: SyncRun, *, snapshot=None) -> None:
     if run.source.slug != REACTOME_SOURCE_SLUG:
         raise ValidationError("当前仅实现 Reactome 通路目录同步。")
     if run.release_id is None or not run.cursor:
         raise ValidationError("缺少预览版本信息，请先重新运行预览。")
 
-    snapshot = _get_snapshot()
+    snapshot = snapshot if snapshot is not None else _get_snapshot()
     if snapshot.checksum_sha256 != run.cursor or snapshot.checksum_sha256 != run.release.checksum_sha256:
         raise ValidationError("Reactome 源文件在预览后已变化，请重新预览再应用。")
 
@@ -157,6 +157,7 @@ def apply_reactome_sync(run: SyncRun) -> None:
             stable_id=item.stable_id,
             label=item.name,
             organism=item.species,
+            taxon_key="9606",
             is_active=True,
             source_release=run.release,
             metadata={"source": REACTOME_SOURCE_SLUG, "species": item.species},
@@ -170,7 +171,7 @@ def apply_reactome_sync(run: SyncRun) -> None:
             batch_size=1000,
             update_conflicts=True,
             unique_fields=["entity_type", "stable_id"],
-            update_fields=["label", "organism", "is_active", "source_release", "metadata", "updated_at"],
+            update_fields=["label", "organism", "taxon_key", "is_active", "source_release", "metadata", "updated_at"],
         )
         retired_count = KnowledgeEntity.objects.filter(
             entity_type=KnowledgeEntity.EntityType.PATHWAY,
@@ -264,10 +265,10 @@ def _get_uniprot_snapshot() -> UniProtCatalogSnapshot:
     return fetch_uniprot_human_catalog()
 
 
-def preview_uniprot_sync(run: SyncRun) -> None:
+def preview_uniprot_sync(run: SyncRun, *, snapshot=None) -> None:
     if run.source.slug != UNIPROT_SOURCE_SLUG:
         raise ValidationError("该同步连接器只用于 UniProt 人类审核蛋白目录。")
-    snapshot = _get_uniprot_snapshot()
+    snapshot = snapshot if snapshot is not None else _get_uniprot_snapshot()
     release, _ = SourceRelease.objects.get_or_create(
         source=run.source,
         version=snapshot.release_version,
@@ -320,6 +321,7 @@ def _uniprot_fallback_entity(protein: UniProtProtein, now, release: SourceReleas
         stable_id=stable_id,
         label=label[:300],
         organism="Homo sapiens",
+        taxon_key="9606",
         is_active=True,
         source_release=release,
         synonyms=list(dict.fromkeys([*protein.gene_names, protein.protein_name]))[:50],
@@ -340,13 +342,13 @@ def _identifier_values(protein: UniProtProtein) -> tuple[tuple[str, str, dict], 
     return tuple(values)
 
 
-def apply_uniprot_sync(run: SyncRun) -> None:
+def apply_uniprot_sync(run: SyncRun, *, snapshot=None) -> None:
     if run.source.slug != UNIPROT_SOURCE_SLUG:
         raise ValidationError("该同步连接器只用于 UniProt 人类审核蛋白目录。")
     if run.release_id is None or not run.cursor:
         raise ValidationError("缺少 UniProt 预览版本信息，请先重新运行预览。")
 
-    snapshot = _get_uniprot_snapshot()
+    snapshot = snapshot if snapshot is not None else _get_uniprot_snapshot()
     if snapshot.checksum_sha256 != run.cursor or snapshot.checksum_sha256 != run.release.checksum_sha256:
         raise ValidationError("UniProt 目录在预览后已变化，请重新预览再应用。")
 
@@ -404,7 +406,7 @@ def apply_uniprot_sync(run: SyncRun) -> None:
                 batch_size=1000,
                 update_conflicts=True,
                 unique_fields=["entity_type", "stable_id"],
-                update_fields=["label", "organism", "is_active", "source_release", "synonyms", "metadata", "updated_at"],
+                update_fields=["label", "organism", "taxon_key", "is_active", "source_release", "synonyms", "metadata", "updated_at"],
             )
             fallback_rows = KnowledgeEntity.objects.filter(
                 entity_type__in={key[0] for key in fallback_by_key},

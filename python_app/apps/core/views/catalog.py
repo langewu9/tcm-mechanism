@@ -1,6 +1,8 @@
 """Read-only public knowledge catalogue and source provenance endpoints."""
 
-from django.db.models import Count, Q
+from django.db.models import Count, Q, Subquery, Value
+from django.db.models.functions import Upper
+from django_filters.rest_framework import DjangoFilterBackend
 from django.shortcuts import get_object_or_404
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
@@ -9,12 +11,15 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
+from rest_framework.filters import SearchFilter
 from rest_framework.views import APIView
 
-from ..models import DataSource, EvidenceRelation, KnowledgeEntity
+from ..models import DataSource, EvidenceRelation, KnowledgeEntity, SourceEntityMapping
 from ..serializers import DataSourceSerializer, EvidenceRelationSerializer, KnowledgeEntitySerializer
 from ..services.disease_names import ALIAS_DATA, disease_entity_queryset, expand_disease_queries, matched_disease_queries
 from ..services.herb_evidence import batch_herb_component_evidence
+from ..services.catalog_identity import exact_entity_queryset
+from ..services.catalog_visualization import entity_neighborhood, fingerprint_result
 
 
 class DataSourceViewSet(viewsets.ReadOnlyModelViewSet):
@@ -23,9 +28,32 @@ class DataSourceViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = DataSource.objects.filter(enabled=True)
 
 
+class CatalogNameSearchFilter(SearchFilter):
+    """Keep substring search and include exact versioned source aliases."""
+
+    def filter_queryset(self, request, queryset, view):
+        filtered = super().filter_queryset(request, queryset, view)
+        query = request.query_params.get(self.search_param, "").strip()
+        if not query:
+            return filtered
+        observed = SourceEntityMapping.objects.alias(exact_name=Upper('source_label')).filter(
+            exact_name=Upper(Value(query)),
+            status='mapped', source_release__source__enabled=True,
+            source_release__published_at__isnull=False).exclude(entity=None).values('entity_id')
+        aliases = exact_entity_queryset(KnowledgeEntity.EntityType.COMPOUND, query)
+        # Both branches stay inside the source/type-filtered base queryset.
+        # An IN subquery preserves pagination counts without duplicate rows.
+        return queryset.filter(
+            Q(pk__in=Subquery(filtered.order_by().values("pk")))
+            | Q(pk__in=Subquery(aliases.order_by().values("pk")))
+            | Q(pk__in=Subquery(observed))
+        )
+
+
 class KnowledgeEntityViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = KnowledgeEntitySerializer
     permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, CatalogNameSearchFilter]
     queryset = KnowledgeEntity.objects.filter(is_active=True).filter(
         Q(source_release__isnull=True) | Q(source_release__source__enabled=True)
     ).select_related(
@@ -53,9 +81,11 @@ class EvidenceRelationViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class EntityNeighborhoodSerializer(serializers.Serializer):
+    compoundProperties = serializers.JSONField(required=False, allow_null=True)
     entity = KnowledgeEntitySerializer()
     relations = EvidenceRelationSerializer(many=True)
     truncated = serializers.BooleanField()
+    evidenceSha256 = serializers.CharField()
 
 
 class EntityNeighborhoodView(APIView):
@@ -64,31 +94,7 @@ class EntityNeighborhoodView(APIView):
 
     @extend_schema(responses=EntityNeighborhoodSerializer)
     def get(self, request, entity_id):
-        entity = get_object_or_404(
-            KnowledgeEntity.objects.filter(is_active=True).filter(
-                Q(source_release__isnull=True) | Q(source_release__source__enabled=True)
-            ),
-            pk=entity_id,
-        )
-        relations = EvidenceRelation.objects.filter(
-            Q(subject=entity) | Q(object=entity),
-            is_active=True,
-            subject__is_active=True,
-            object__is_active=True,
-            source_release__source__enabled=True,
-        ).filter(
-            (Q(subject__source_release__isnull=True) | Q(subject__source_release__source__enabled=True))
-            & (Q(object__source_release__isnull=True) | Q(object__source_release__source__enabled=True))
-        ).select_related(
-            "subject", "object", "source_release", "source_release__source"
-        ).order_by("relation_type", "subject__label", "object__label", "source_release__version")
-        records = list(relations[: self.max_relations + 1])
-        truncated = len(records) > self.max_relations
-        return Response({
-            "entity": KnowledgeEntitySerializer(entity).data,
-            "relations": EvidenceRelationSerializer(records[: self.max_relations], many=True).data,
-            "truncated": truncated,
-        })
+        return Response(entity_neighborhood(entity_id))
 
 
 class DiseaseAliasQuerySerializer(serializers.Serializer):
@@ -175,6 +181,10 @@ class BatchHerbEvidenceEntitySerializer(serializers.Serializer):
 
 
 class BatchHerbEvidenceRelationSerializer(serializers.Serializer):
+    relationId = serializers.IntegerField()
+    subjectId = serializers.IntegerField()
+    objectId = serializers.IntegerField()
+    sourceReleaseId = serializers.IntegerField()
     subject = serializers.CharField()
     object = serializers.CharField()
     subjectType = serializers.CharField()
@@ -189,6 +199,7 @@ class BatchHerbEvidenceRelationSerializer(serializers.Serializer):
 
 class BatchHerbEvidenceItemSerializer(serializers.Serializer):
     query = serializers.CharField()
+    searchedNames = serializers.ListField(child=serializers.CharField(), required=False)
     matches = BatchHerbEvidenceEntitySerializer(many=True)
     ambiguous = serializers.BooleanField()
     herbs = BatchHerbEvidenceEntitySerializer(many=True)
@@ -199,8 +210,10 @@ class BatchHerbEvidenceItemSerializer(serializers.Serializer):
 
 
 class BatchHerbEvidenceResponseSerializer(serializers.Serializer):
+    dataQuality = serializers.JSONField(required=False)
     queryType = serializers.ChoiceField(choices=["herb", "compound"])
     results = BatchHerbEvidenceItemSerializer(many=True)
+    evidenceSha256 = serializers.CharField()
 
 
 class BatchHerbEvidenceView(APIView):
@@ -211,10 +224,10 @@ class BatchHerbEvidenceView(APIView):
         parameters = BatchHerbEvidenceRequestSerializer(data=request.data)
         parameters.is_valid(raise_exception=True)
         values = parameters.validated_data
-        return Response(batch_herb_component_evidence(
+        return Response(fingerprint_result(batch_herb_component_evidence(
             query_type=values["queryType"],
             queries=values["queries"],
-        ))
+        )))
 
 
 class HomeStatsCountsSerializer(serializers.Serializer):

@@ -83,6 +83,7 @@ class LocalCaseModelBoundaryTests(SimpleTestCase):
 
 
 class MedicalCaseAnalysisWorkflowTests(APITestCase):
+    databases = {"default", "case_rag"}
     def setUp(self):
         user_model = get_user_model()
         self.owner = user_model.objects.create_user(username="case-analysis-owner", password="test-password-123")

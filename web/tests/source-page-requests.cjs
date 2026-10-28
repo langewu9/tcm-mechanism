@@ -13,9 +13,10 @@ const calls=[];
 const deferred=name=>(...args)=>new Promise((resolve,reject)=>calls.push({name,args,resolve,reject}));
 const api=Object.fromEntries(['getAdminDataSources','getSyncRuns','previewDataSourceSync','applySyncPreview','createSQLiteDataSource','testSQLiteDataSource','deleteDataSource'].map(name=>[name,deferred(name)]));
 const SourceSettingsForm=()=>null;
+const MasterTableStatus=()=>null;
 const filename=path.join(root,'src/pages/SourcesPage.tsx'), module_=new Module(filename);
 module_.paths=Module._nodeModulePaths(path.dirname(filename));
-module_.require=name=>name==='react'?hooks:name==='react-router-dom'?{Link:'a',Navigate:'navigate',useOutletContext:()=>({isSuperuser:true})}:name==='../api/sources'?api:name==='../api/client'?{ApiError:class ApiError extends Error{}}:name==='../components/SourceSettingsForm'?{SourceSettingsForm}:load(name);
+module_.require=name=>name==='react'?hooks:name==='react-router-dom'?{Link:'a',Navigate:'navigate',useOutletContext:()=>({isSuperuser:true})}:name==='../api/sources'?api:name==='../api/client'?{ApiError:class ApiError extends Error{}}:name==='../components/SourceSettingsForm'?{SourceSettingsForm}:name==='../components/MasterTableStatus'?{MasterTableStatus}:load(name);
 module_._compile(ts.transpileModule(fs.readFileSync(filename,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText,filename);
 global.window={setInterval(callback){timer=callback; return 1;},clearInterval(){timer=null;}};
 function render(){cursor=0; tree=module_.exports.SourcesPage(); const queue=effects; effects=[]; queue.forEach(callback=>callback()); return tree;}

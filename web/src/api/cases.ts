@@ -32,7 +32,7 @@ export type CaseAuditEvent = {
 export type CaseEvidence = { field: string; quote: string };
 export type CaseKnowledgeEvidence = {
   refId: string;
-  kind: "entity" | "relation";
+  kind: "entity" | "relation" | "case";
   label?: string;
   entityType?: string;
   stableId?: string;

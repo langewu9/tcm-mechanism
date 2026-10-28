@@ -1,0 +1,28 @@
+const fs=require('node:fs'),path=require('node:path'),{createRequire}=require('node:module'),assert=require('node:assert/strict');
+const root=path.resolve(__dirname,'..'),load=createRequire(path.join(root,'package.json')),ts=load('typescript');
+for(const ext of ['.ts','.tsx'])require.extensions[ext]=(module,file)=>module._compile(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText,file);
+const React=load('react'),{renderToStaticMarkup}=load('react-dom/server');
+const {TargetIdentityResults}=load('./src/components/TargetIdentityResults.tsx');
+const side={records:10,verifiedRecords:4,pendingRecords:6,genes:3,proteins:2,statuses:{verified:4,candidate:6}};
+const record={entityId:3,label:'Interleukin-6',source:'source-a',originalTaxon:'unknown',status:'candidate',method:'exact_name_candidate',masterKey:null,geneKey:null};
+const row={key:'entrez:9606:3569',label:'IL6',taxon:'9606',herbRecords:[record],diseaseRecords:[{...record,entityId:4,source:'source-b'}],recordCounts:{herb:1,disease:1}};
+const identity={available:true,version:'target-identity-v1',referenceVersion:'test-v1',referenceSha256:'abc',herb:side,disease:side,
+ verifiedGeneIntersectionCount:0,verifiedProteinIntersectionCount:0,pendingGeneOverlapCount:1,geneIntersections:[],proteinIntersections:[],pendingCandidates:[row]};
+const render=value=>renderToStaticMarkup(React.createElement(TargetIdentityResults,{result:{targetIdentity:value,rawLimits:{inputRelationsTruncated:{diseaseTargets:true}}}}));
+let html=render(identity);
+assert.ok(html.includes('已核验基因交集')&&html.includes('已核验蛋白交集'));
+assert.ok(html.includes('待核验共同候选（1，不计入交集）'));
+assert.ok(html.includes('原物种 未提供'));
+assert.ok(html.includes('当前返回子集')&&html.includes('不代表没有生物学关联'));
+assert.ok(/<button[^>]*disabled[^>]*>导出已核验基因交集/.test(html));
+const verified={...identity,verifiedGeneIntersectionCount:1,geneIntersections:[{...row,herbRecords:[{...record,status:'verified',masterKey:'entrez:9606:3569'}]}]};
+html=render(verified);
+assert.ok(!/<button[^>]*disabled[^>]*>导出已核验基因交集/.test(html));
+assert.ok(html.includes('已核验基因交集（1）')&&html.includes('已核验蛋白交集（0）'));
+html=render({...verified,coverage:{scope:'all_active_relations_for_matched_entities',rawRowLimitsApplied:false}});
+assert.ok(html.includes('全部已启用靶点关系')&&!html.includes('上述统计仅覆盖当前返回子集'));
+html=render({...identity,pendingCandidates:[{...row,label:'<script>bad()</script>'}]});
+assert.ok(!html.includes('<script>')&&html.includes('&lt;script&gt;'));
+assert.ok(render({available:false,version:'v1',reason:'尚未发布映射'}).includes('尚未发布映射'));
+assert.ok(render(undefined).includes('历史任务'));
+console.log('PASS: verified gene/protein units are separate; pending candidates never presented as confirmed; zero/unknown species, export guards, source limits and HTML safety.');

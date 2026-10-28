@@ -86,3 +86,16 @@ class SyncRun(models.Model):
 
     def __str__(self) -> str:
         return f"{self.source.slug} · {self.status} · {self.created_at:%Y-%m-%d %H:%M}"
+
+
+class SourceRecord(models.Model):
+    """Immutable raw-row identity within an explicitly versioned source."""
+    source_release = models.ForeignKey(SourceRelease, on_delete=models.PROTECT, related_name="raw_records")
+    source_record_id = models.CharField(max_length=240)
+    payload_sha256 = models.CharField(max_length=64)
+    payload = models.JSONField(default=dict)
+    status = models.CharField(max_length=24, choices=[("accepted", "已接收"), ("quarantined", "待核查")])
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["source_release", "source_record_id"], name="uniq_master_raw_record")]

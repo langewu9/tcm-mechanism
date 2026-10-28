@@ -51,10 +51,10 @@ export function VerifyEmailPage() {
 
   return <main className="site-home auth-page"><section className="auth-card panel">
     <Link className="auth-back" to="/">← 返回首页</Link>
-    <p className="page-kicker">Researcher account</p>
+
     <h1 className="page-title">验证研究者邮箱</h1>
     {verification ? <div className="notice-success" role="status"><strong>{verification.status === "verified" ? "邮箱已验证" : "邮箱已完成验证"}</strong><br />{verification.message}</div> : token ? <>
-      <p className="page-description">点击下方确认按钮完成邮箱验证。为避免邮件安全扫描器提前使用链接，打开此页面不会自动验证。</p>
+      <p className="page-description">点击确认按钮完成邮箱验证。</p>
       {error && <div className="notice-error" role="alert">{error}</div>}
       <form className="auth-form" onSubmit={(event) => void confirm(event)}>
         <button className="btn btn-primary" type="submit" disabled={busy}>{busy ? "正在验证…" : "确认邮箱地址"}</button>

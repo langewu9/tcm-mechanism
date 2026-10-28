@@ -4,6 +4,7 @@ from pathlib import Path
 
 import environ
 from django.core.exceptions import ImproperlyConfigured
+from .local_security import trusted_csrf_origins
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -22,7 +23,7 @@ if not SECRET_KEY:
     SECRET_KEY = "local-only-unsafe-key-do-not-use-in-production"
 
 ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS")
-CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS")
+CSRF_TRUSTED_ORIGINS = trusted_csrf_origins(env.list("CSRF_TRUSTED_ORIGINS"), debug=DEBUG)
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -35,6 +36,7 @@ INSTALLED_APPS = [
     "django_filters",
     "drf_spectacular",
     "apps.core.apps.CoreConfig",
+    "apps.case_rag.apps.CaseRagConfig",
     "apps.proteomics.apps.ProteomicsConfig",
     "apps.sources.apps.SourcesConfig",
 ]
@@ -72,6 +74,36 @@ ASGI_APPLICATION = "config.asgi.application"
 
 DATABASES = {"default": env.db("DATABASE_URL")}
 DATABASES["default"]["CONN_MAX_AGE"] = env.int("DATABASE_CONN_MAX_AGE", default=60)
+case_rag_database_url = env("CASE_RAG_DATABASE_URL", default="").strip()
+if case_rag_database_url:
+    DATABASES["case_rag"] = env.db("CASE_RAG_DATABASE_URL")
+else:
+    case_rag_path = BASE_DIR / "var" / "case-rag" / "corpus.sqlite3"
+    case_rag_path.parent.mkdir(parents=True, exist_ok=True)
+    DATABASES["case_rag"] = {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": case_rag_path,
+        "CONN_MAX_AGE": 0,
+        "OPTIONS": {"timeout": env.int("CASE_RAG_SQLITE_BUSY_TIMEOUT_SECONDS", default=30)},
+    }
+DATABASE_ROUTERS = ["config.case_rag_router.CaseRagRouter"]
+if DATABASES["default"]["ENGINE"] == "django.db.backends.sqlite3":
+    sqlite_options = DATABASES["default"].setdefault("OPTIONS", {})
+    sqlite_options.setdefault("timeout", env.int("SQLITE_BUSY_TIMEOUT_SECONDS", default=30))
+    # Keep the graph's hot entity/index pages in memory. SQLite's default
+    # 2MiB cache causes repeated disk reads over Windows Docker bind mounts.
+    sqlite_cache_kib = env.int("SQLITE_CACHE_SIZE_KIB", default=65536)
+    if not 512 <= sqlite_cache_kib <= 262144:
+        raise ImproperlyConfigured("SQLITE_CACHE_SIZE_KIB must be between 512 and 262144.")
+    sqlite_init = [f"PRAGMA cache_size=-{sqlite_cache_kib};"]
+    # Local preview: long catalog reads must not block R-job publication.
+    # Production PostgreSQL is unaffected; retain SQLite's durability default.
+    if str(DATABASES["default"]["NAME"]) != ":memory:":
+        # Journal mode persists in the file. Disabling WAL must also remove a
+        # previous host-created WAL mode before a Windows Docker bind is used.
+        mode = "WAL" if env.bool("SQLITE_WAL_ENABLED", default=DEBUG) else "DELETE"
+        sqlite_init.append(f"PRAGMA journal_mode={mode};")
+    sqlite_options.setdefault("init_command", "".join(sqlite_init))
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
@@ -202,6 +234,10 @@ SPECTACULAR_SETTINGS = {
     "DESCRIPTION": "React/Vite 研究者平台 API；包含用户隔离的数据集、医案和异步蛋白组学分析。",
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
+    "ENUM_NAME_OVERRIDES": {
+        "QueryTypeEnum": ["herb", "compound"],
+        "CatalogSnapshotQueryTypeEnum": ["herb", "compound", "disease", "pathway", "entity", "comparison"],
+    },
 }
 
 CELERY_BROKER_URL = env("CELERY_BROKER_URL", default="redis://127.0.0.1:6379/0")
@@ -223,6 +259,7 @@ CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 CELERY_TASK_TIME_LIMIT = 1200
 CELERY_TASK_SOFT_TIME_LIMIT = 1080
 CELERY_TASK_IGNORE_RESULT = True
+CELERY_TASK_ROUTES = {"core.render_visualization": {"queue": "r_visualization"}}
 SOURCE_SCHEDULED_PREVIEWS_ENABLED = env.bool("SOURCE_SCHEDULED_PREVIEWS_ENABLED", default=False)
 CELERY_BEAT_SCHEDULE = (
     {"source-preview-scan": {"task": "sources.schedule_previews", "schedule": 60.0}}

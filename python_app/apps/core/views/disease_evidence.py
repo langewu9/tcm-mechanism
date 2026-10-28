@@ -7,6 +7,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.core.services.disease_evidence import search_disease_evidence
+from apps.core.services.catalog_visualization import fingerprint_result
 
 
 class DiseaseEvidenceQuerySerializer(serializers.Serializer):
@@ -22,6 +23,10 @@ class DiseaseEvidenceEntitySerializer(serializers.Serializer):
 
 
 class DiseaseEvidenceRelationSerializer(serializers.Serializer):
+    relationId = serializers.IntegerField()
+    subjectId = serializers.IntegerField()
+    objectId = serializers.IntegerField()
+    sourceReleaseId = serializers.IntegerField()
     subject = serializers.CharField()
     object = serializers.CharField()
     subjectType = serializers.CharField()
@@ -58,6 +63,8 @@ class DiseaseEvidenceLimitsSerializer(serializers.Serializer):
 
 
 class DiseaseEvidenceResponseSerializer(serializers.Serializer):
+    dataQuality = serializers.JSONField(required=False)
+    evidenceSha256 = serializers.CharField()
     query = serializers.CharField()
     expandedQueries = serializers.ListField(child=serializers.CharField())
     aliasSource = serializers.CharField()
@@ -87,4 +94,4 @@ class DiseaseEvidenceSearchView(APIView):
             result = search_disease_evidence(parameters.validated_data["query"])
         except ValueError as exc:
             raise ValidationError({"query": str(exc)}) from exc
-        return Response(DiseaseEvidenceResponseSerializer(result).data)
+        return Response(DiseaseEvidenceResponseSerializer(fingerprint_result(result)).data)

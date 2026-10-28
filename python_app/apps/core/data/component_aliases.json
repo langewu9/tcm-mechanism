@@ -218,7 +218,13 @@
       "aliases": [
         "甘草酸",
         "Glycyrrhizic acid",
+        "Glycyrrhizin",
+        "Glycyrrhizinic acid",
         "Acidum glycyrrhizicum"
+      ],
+      "synonymSources": [
+        "https://www.ebi.ac.uk/chebi/CHEBI:15939",
+        "https://pubchem.ncbi.nlm.nih.gov/compound/14982"
       ]
     },
     {

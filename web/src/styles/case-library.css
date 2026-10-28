@@ -1,0 +1,53 @@
+.case-library, .case-corpus-evidence { min-width: 0; }
+.case-library-page { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.case-library-page > .page-heading { flex-direction: row; align-items: center; gap: 12px; margin: 0; padding: 0 0 12px; }
+.case-library-page .page-heading-copy { flex: 1 1 auto; }
+.case-library-page > .subview-workspace { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+.case-library-page > .subview-workspace > .subview-tabs { flex-shrink: 0; margin: 0; padding: 0 0 12px; }
+.case-library-page > .subview-workspace > .subview-panel:not([hidden]) { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+.case-library-page .case-library { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+.case-library-page .case-library-categories { flex-shrink: 0; gap: 8px; margin: 0; }
+.case-library-page .case-library-workspace { gap: 20px; }
+.case-library-categories { display: flex; flex-wrap: wrap; gap: 12px; margin: 8px 0 20px; }
+.case-library-categories [aria-pressed="true"] { background: var(--color-cinnabar); border-color: var(--color-cinnabar); color: #fff; }
+.case-library-search { display: flex; align-items: end; gap: 12px; padding: 20px 24px; }
+.case-library-search label { flex: 1; min-width: 0; }
+.case-library-search .field { margin-top: 8px; }
+.case-library-table { table-layout: fixed; width: 100%; }
+.case-library-table th:first-child { width: 66%; }
+.case-library-table td { vertical-align: top; white-space: normal; overflow-wrap: anywhere; }
+.case-library-table p { margin-top: 8px; font-size: var(--text-small); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.case-library-table tr[data-selected="true"] { background: #a23d3410; }
+.case-library-detail-body { display: grid; gap: 24px; padding: 24px; }
+.case-library-detail-body > .btn { justify-self: start; }
+.case-reference-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin: 20px 0; }
+.case-reference-fields > div { min-width: 0; padding-bottom: 12px; border-bottom: 1px solid var(--color-border); }
+.case-reference-fields > .case-reference-wide { grid-column: 1 / -1; }
+.case-reference-fields dt { color: var(--color-ink-soft); font-size: var(--text-small); }
+.case-reference-fields dd { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; }
+.case-reference-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.9; margin-top: 16px; }
+.case-reference-original summary, .case-reference-evidence summary { cursor: pointer; font-weight: 600; line-height: 1.75; }
+.case-reference-evidence { border: 1px solid var(--color-border); padding: 16px 18px; margin-top: 16px; }
+.case-reference-evidence .status-badge { margin-right: 10px; }
+.case-reference-evidence > .section-help { margin-top: 12px; }
+.assistant-reference-selection { padding: 16px 24px; border-bottom: 1px solid var(--color-border); }
+.assistant-reference-selection .btn { margin-top: 10px; }
+@media (min-width: 1280px) {
+  /* Header (88px) plus the main area's top/bottom padding (32px/48px). */
+  .case-library-page { height: calc(100dvh - 168px); min-height: 0; }
+  .case-library-page > .page-heading { flex-shrink: 0; }
+  .case-library-page > .subview-workspace,
+  .case-library-page > .subview-workspace > .subview-panel:not([hidden]),
+  .case-library-page .case-library { flex: 1; }
+  .app-frame .case-library-page .workspace-split { flex: 1; height: auto; min-height: 0; }
+}
+@media (max-width: 1279px) {
+  .case-library-page .case-library-workspace { gap: 16px; }
+  .case-library-page .case-library-workspace > .panel { max-height: 72dvh; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; scroll-padding-block: 16px; }
+}
+@media (max-width: 700px) {
+  .case-reference-fields { grid-template-columns: minmax(0, 1fr); }
+  .case-library-search, .case-library-detail-body { padding: 20px; }
+  .case-library-search { align-items: stretch; flex-direction: column; }
+  .case-library-table th:first-child { width: 58%; }
+}

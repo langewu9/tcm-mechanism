@@ -1,0 +1,64 @@
+"""Resolve intersection queries without merging broad disease search terms.
+
+Exact catalogue/observed names and whole-term translations may select multiple
+source-scoped entities. They remain distinct; their targets still join by PK.
+The old regex/subtype expansion is useful for suggestions, not automatic union.
+"""
+import json
+from pathlib import Path
+
+from .catalog_identity import exact_entity_queryset
+from .disease_names import MAX_QUERY_LENGTH, expand_disease_queries
+
+
+EXACT_ALIASES = json.loads(
+    (Path(__file__).resolve().parents[1] / "data" / "disease_exact_aliases.json").read_text(encoding="utf-8")
+)
+ENTITY_LIMIT = 50
+
+
+def resolve_intersection_disease(query):
+    original = query.strip()
+    translations = EXACT_ALIASES["aliases"].get(original, [])
+    requested_terms = list(dict.fromkeys([original, *translations]))
+    entities = {}
+    resolved_terms = []
+    truncated = False
+    exact_found = False
+    for term in requested_terms:
+        rows = list(exact_entity_queryset("disease", term).select_related(
+            "source_release", "source_release__source"
+        ).order_by("stable_id")[:ENTITY_LIMIT + 1])
+        if rows:
+            resolved_terms.append(term)
+            exact_found |= term == original
+        truncated |= len(rows) > ENTITY_LIMIT
+        for entity in rows[:ENTITY_LIMIT]:
+            entities[entity.pk] = entity
+    truncated |= len(entities) > ENTITY_LIMIT
+    selected = sorted(entities.values(), key=lambda entity: entity.stable_id)[:ENTITY_LIMIT]
+
+    # A missing translation must not fall back to a broader term or subtype.
+    candidates = {}
+    if not selected and len(original) <= MAX_QUERY_LENGTH:
+        for term in expand_disease_queries(original):
+            for entity in exact_entity_queryset("disease", term).select_related(
+                "source_release", "source_release__source"
+            ).order_by("stable_id")[:ENTITY_LIMIT]:
+                candidate = candidates.setdefault(entity.label, {"label": entity.label, "sourceSlugs": set()})
+                if entity.source_release:
+                    candidate["sourceSlugs"].add(entity.source_release.source.slug)
+    resolution = {
+        "status": ("exact" if exact_found else "alias") if selected else (
+            "needs_selection" if candidates else "unmatched"
+        ),
+        "input": original,
+        "resolvedTerms": resolved_terms,
+        "aliasVersion": EXACT_ALIASES["version"],
+        "entitiesTruncated": truncated,
+        "candidates": [
+            {"label": label, "sourceSlugs": sorted(item["sourceSlugs"])}
+            for label, item in sorted(candidates.items())
+        ][:ENTITY_LIMIT],
+    }
+    return selected, resolution

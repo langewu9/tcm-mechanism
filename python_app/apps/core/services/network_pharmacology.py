@@ -6,10 +6,14 @@ import re
 from collections import defaultdict
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Case, IntegerField, Q, Value, When, Subquery
 from django.utils import timezone
 
 from apps.core.models import AnalysisTask, EvidenceRelation, KnowledgeEntity, MedicalCase, MedicalCaseCandidate
+from .catalog_identity import exact_entity_queryset, structural_representatives
+from .disease_resolution import resolve_intersection_disease
+from .target_identity import compare_target_identities
+from .data_quality import data_quality_notices
 
 
 INPUT_SPLIT = re.compile(r"[,，、;；|/\n\r]+")
@@ -39,11 +43,7 @@ def _entity_matches(entity_type: str, labels: list[str]) -> tuple[list[Knowledge
     matches = []
     matched_labels = set()
     for label in labels:
-        exact = list(KnowledgeEntity.objects.filter(
-            entity_type=entity_type, is_active=True, label__iexact=label,
-        ).filter(
-            Q(source_release__isnull=True) | Q(source_release__source__enabled=True)
-        ).order_by("stable_id")[:10])
+        exact = list(exact_entity_queryset(entity_type, label).order_by("stable_id")[:10])
         if exact:
             matches.extend(exact)
             matched_labels.add(label)
@@ -66,7 +66,38 @@ def _evidence_record(relation: EvidenceRelation) -> dict:
     }
 
 
-def _relation_query(*, subject_ids=None, object_ids=None, relation_types, limit):
+def _complete_identity_inputs(herb_ids, disease_ids, formula_ids):
+    """Project distinct target identities before raw-row/graph display limits.
+
+    Repeated older workbook rows must not hide a newer source's targets.
+    This projection does not claim that every target identifier is verified.
+    """
+    visible = EvidenceRelation.objects.filter(is_active=True, subject__is_active=True,
+        object__is_active=True, source_release__source__enabled=True).filter(
+        Q(subject__source_release__isnull=True) | Q(subject__source_release__source__enabled=True)).filter(
+        Q(object__source_release__isnull=True) | Q(object__source_release__source__enabled=True))
+    formula_rows = visible.filter(subject_id__in=formula_ids, relation_type__in=FORMULA_HERB_TYPES,
+        object__entity_type='herb')
+    all_herbs = set(herb_ids) | set(formula_rows.order_by().values_list('object_id', flat=True).distinct())
+    herb_rows = visible.filter(subject_id__in=all_herbs, relation_type__in=HERB_COMPOUND_TYPES,
+        object__entity_type='compound')
+    compound_ids = herb_rows.order_by().values('object_id').distinct()
+    target_rows = visible.filter(subject_id__in=Subquery(compound_ids), relation_type__in=COMPOUND_TARGET_TYPES,
+        object__entity_type__in=['gene', 'protein'])
+    disease_rows = visible.filter(subject_id__in=disease_ids, relation_type__in=DISEASE_TARGET_TYPES,
+        object__entity_type__in=['gene', 'protein'])
+    herb_targets = set(target_rows.order_by().values_list('object_id', flat=True).distinct())
+    disease_targets = set(disease_rows.order_by().values_list('object_id', flat=True).distinct())
+    releases = set()
+    for rows in [formula_rows, herb_rows, target_rows, disease_rows]:
+        releases.update(rows.order_by().values_list('source_release_id', flat=True).distinct())
+    identity = compare_target_identities(herb_targets, disease_targets)
+    identity['comparisonVersion'] = 'target-identity-comparison-v3'
+    identity['coverage'] = {'scope': 'all_active_relations_for_matched_entities', 'rawRowLimitsApplied': False}
+    return identity, releases
+
+
+def _relation_query(*, subject_ids=None, object_ids=None, relation_types, limit, preferred_herb_ids=None):
     queryset = EvidenceRelation.objects.filter(
         is_active=True,
         subject__is_active=True,
@@ -81,6 +112,15 @@ def _relation_query(*, subject_ids=None, object_ids=None, relation_types, limit)
         queryset = queryset.filter(subject_id__in=subject_ids)
     if object_ids is not None:
         queryset = queryset.filter(object_id__in=object_ids)
+    queryset = structural_representatives(queryset, relation_types=relation_types)
+    if preferred_herb_ids:
+        # Read selected-herb triples before a large disease's other-herb rows
+        # exhaust the bounded query. Other evidence remains bounded/reported.
+        queryset = queryset.annotate(selected_context_order=Case(When(
+            relation_type="disease_herb_target", metadata__herbStableId__in=preferred_herb_ids,
+            source_release__source__configuration__connector="local-workbooks-master",
+            then=Value(0)), default=Value(1), output_field=IntegerField()))
+        return list(queryset.order_by("selected_context_order", "id")[:limit])
     return list(queryset.order_by("id")[:limit])
 
 
@@ -213,7 +253,7 @@ def build_network_pharmacology(
     herbs_by_id = {item.pk: item for item in [*requested_herbs, *formula_herbs]}
     herbs = list(herbs_by_id.values())
     herb_names = [item.label for item in herbs]
-    diseases, matched_disease_names = _entity_matches(KnowledgeEntity.EntityType.DISEASE, [disease_query.strip()])
+    diseases, disease_resolution = resolve_intersection_disease(disease_query)
     herb_ids = {item.pk for item in herbs}
     disease_ids = {item.pk for item in diseases}
     selected_herbs_by_stable_id = {item.stable_id: item.label for item in herbs}
@@ -227,6 +267,7 @@ def build_network_pharmacology(
     ) if compound_ids else []
     disease_target_relations = read_relations(
         "diseaseTargets", subject_ids=disease_ids, relation_types=DISEASE_TARGET_TYPES,
+        preferred_herb_ids=list(selected_herbs_by_stable_id),
     ) if diseases else []
     compound_by_id = {relation.object_id: relation.object for relation in herb_compound_relations}
     compound_target_counts: dict[int, set[int]] = defaultdict(set)
@@ -358,7 +399,8 @@ def build_network_pharmacology(
         ],
         "disease": disease_query.strip(),
         "matchedDiseases": [item.label for item in diseases],
-        "unmatchedDiseases": [] if disease_query.strip() in matched_disease_names else [disease_query.strip()],
+        "unmatchedDiseases": [] if diseases else [disease_query.strip()],
+        "diseaseResolution": disease_resolution,
         "diseaseTargetCount": len(disease_evidence),
         "herbTargetCount": len(herb_evidence),
         "strictIntersectionCount": len(strict_ids),
@@ -395,8 +437,12 @@ def build_network_pharmacology(
         herb_compound_relations, compound_target_relations, disease_target_relations,
         herbs_by_stable_id=selected_herbs_by_stable_id, limit=raw_limit,
     )
+    complete_identity, identity_sources = _complete_identity_inputs(herb_ids, disease_ids, {item.pk for item in formulas})
+    source_releases.update(identity_sources)
     result = {
+        "dataQuality": data_quality_notices(),
         "summary": summary,
+        "targetIdentity": complete_identity,
         "targets": targets[:1000],
         "raw": raw,
         "rawLimits": {
@@ -404,6 +450,12 @@ def build_network_pharmacology(
             "rowLimit": raw_limit,
             "tablesTruncated": raw_truncated,
             "inputRelationsTruncated": relation_limits,
+            "structuralEvidencePolicy": "workbook_structure_one_representative_per_source; all_target_rows_retained; full_original_rows_in_source_records",
+            "structuralRowsCollapsed": any(
+                relation.relation_type in {"contains", "disease_herb"}
+                and relation.source_release.source.configuration.get("connector") == "local-workbooks-master"
+                for relation in herb_compound_relations + disease_target_relations
+            ),
         },
         "network": {"nodes": list(nodes.values())[:2000], "links": links[:4000]},
         "charts": {
@@ -438,9 +490,12 @@ def build_network_pharmacology(
             "requestedNames": requested_names,
             "formulas": [item.stable_id for item in formulas],
             "disease": disease_query.strip(),
+            "diseaseResolution": disease_resolution,
             "rowLimit": row_limit,
             "statisticsVersion": STATISTICS_VERSION,
             "rawEvidenceVersion": RAW_EVIDENCE_VERSION,
+            "targetIdentityReleaseId": result["targetIdentity"].get("releaseId"),
+            "targetIdentityComparisonVersion": result["targetIdentity"].get("comparisonVersion"),
         }
         if source_case_candidate:
             medical_case = MedicalCase.objects.select_for_update().get(pk=source_case_candidate.medical_case_id)
@@ -482,4 +537,6 @@ def build_network_pharmacology(
             finished_at=timezone.now(),
         )
         task.source_releases.set(source_releases)
+        if result["targetIdentity"].get("releaseId"):
+            task.source_releases.add(result["targetIdentity"]["releaseId"])
     return {"taskId": task.pk, **result}

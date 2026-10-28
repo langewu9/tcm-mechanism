@@ -9,15 +9,15 @@ import json
 import os
 from pathlib import Path
 import urllib.request
-from demo_fixtures import DISCLAIMER, fixtures
+from demo_fixtures import DISCLAIMER, DATASET_VERSION, fixtures
 
 
 def main():
-    output = Path(__file__).resolve().parents[1] / 'public' / 'r-demo'
+    output = Path(os.environ.get('R_DEMO_OUTPUT_DIR', str(Path(__file__).resolve().parents[1] / 'public' / 'r-demo')))
     output.mkdir(parents=True, exist_ok=True)
     url = os.environ.get('R_VIZ_BASE_URL', 'http://127.0.0.1:8001').rstrip('/') + '/render'
     token = os.environ['R_VIZ_API_TOKEN']
-    manifest = {'synthetic': True, 'disclaimer': DISCLAIMER, 'charts': []}
+    manifest = {'synthetic': True, 'datasetVersion': DATASET_VERSION, 'disclaimer': DISCLAIMER, 'charts': []}
     for chart in fixtures():
         artifact_hashes = {}
         payload = chart['payload']
@@ -39,9 +39,10 @@ def main():
             (output / f"{chart['key']}.{extension}").write_bytes(content)
             artifact_hashes[extension] = hashlib.sha256(content).hexdigest()
         (output / f"{chart['key']}.json").write_text(json.dumps(chart, ensure_ascii=False, indent=2), encoding='utf-8')
-        manifest['charts'].append({'key': chart['key'], 'label': chart['label'], 'inputSha256': payload['inputSha256'], 'rendererVersion': result['rendererVersion'], 'artifacts': artifact_hashes})
+        manifest['charts'].append({'key': chart['key'], 'label': chart['label'], 'inputSha256': payload['inputSha256'], 'rendererVersion': result['rendererVersion'], 'artifacts': artifact_hashes,
+                                  'rowCount': len(payload['data']), 'nodeCount': len(payload['data']) if payload['chartType'] == 'network' else 0, 'edgeCount': len(payload.get('edges', []))})
         print('PASS synthetic demo:', chart['key'], flush=True)
-    # Publish the catalog only after all 14 renders succeed.
+    # Publish the catalog only after every render succeeds.
     (output / 'manifest.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding='utf-8')
     print(f"Ready: {len(manifest['charts'])} charts / {output}")
 

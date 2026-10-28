@@ -5,6 +5,7 @@ from __future__ import annotations
 from django.db.models import Q
 
 from apps.core.models import EvidenceRelation, KnowledgeEntity
+from .catalog_identity import structural_representatives
 from .disease_names import (
     ALIAS_DATA,
     disease_entity_queryset,
@@ -35,6 +36,8 @@ def _entity_record(entity: KnowledgeEntity) -> dict:
 def _relation_record(relation: EvidenceRelation) -> dict:
     source_release = relation.source_release
     return {
+        "relationId": relation.pk, "subjectId": relation.subject_id, "objectId": relation.object_id,
+        "sourceReleaseId": relation.source_release_id,
         "subject": relation.subject.label,
         "object": relation.object.label,
         "subjectType": relation.subject.entity_type,
@@ -70,7 +73,7 @@ def _visible_relations(disease_ids: set[int]) -> tuple[list[EvidenceRelation], b
         "source_release", "source_release__source",
     )
 
-    records = list(queryset.order_by(
+    records = list(structural_representatives(queryset).order_by(
         "relation_type", "subject__label", "subject__stable_id", "object__label",
         "object__stable_id", "source_release__source__slug", "source_release__version",
         "source_record_id", "id",
@@ -157,7 +160,9 @@ def search_disease_evidence(query: str) -> dict:
 
     entity_sort_key = lambda entity: (entity.label.casefold(), entity.stable_id.casefold(), entity.pk)
     truncated = matches_truncated or relations_truncated
+    from .data_quality import data_quality_notices
     return {
+        "dataQuality": data_quality_notices(),
         "query": query,
         "expandedQueries": expanded_queries,
         "aliasSource": ALIAS_DATA["source"],

@@ -35,6 +35,7 @@ class KnowledgeEntitySerializer(serializers.ModelSerializer):
             "organism",
             "is_active",
             "source_release",
+            "canonical_id", "taxon_key", "identity_status",
             "source_slug",
             "source_version",
             "synonyms",
@@ -66,5 +67,8 @@ class EvidenceRelationSerializer(serializers.ModelSerializer):
             "source_slug",
             "source_version",
             "observed_at",
+            "source_release",
+            "source_record_id",
+            "source_record_ref",
         ]
         read_only_fields = fields

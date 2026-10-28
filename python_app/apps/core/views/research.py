@@ -293,6 +293,9 @@ class MedicalCaseViewSet(viewsets.ModelViewSet):
             ).first()
             if active_task:
                 return Response(AnalysisTaskSerializer(active_task).data, status=status.HTTP_202_ACCEPTED)
+            from apps.case_rag.services import build_case_snapshot
+            from ..services.case_analysis import case_input_payload
+            corpus_snapshot = build_case_snapshot(" ".join(case_input_payload(case).values()))
             task = AnalysisTask.objects.create(
                 owner=case.owner,
                 created_by=request.user,
@@ -302,6 +305,7 @@ class MedicalCaseViewSet(viewsets.ModelViewSet):
                 input_parameters={
                     "analysisKind": "case_analysis",
                     "caseContentSha256": case_input_sha256(case),
+                    "caseCorpusSnapshot": corpus_snapshot,
                     "localModelConsent": True,
                     "modelName": settings.CASE_MODEL_NAME,
                     "modelVersion": settings.CASE_MODEL_VERSION,
@@ -525,10 +529,18 @@ class ResearchAssistantView(APIView):
         serializer = ResearchAssistantRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        from ..services.research_assistant import ResearchAssistantError, build_evidence_snapshot
+        from ..services.research_assistant import (
+            ASSISTANT_ALGORITHM_VERSION,
+            ResearchAssistantError,
+            build_evidence_snapshot,
+        )
+        if data["useModel"]:
+            from ..services.case_analysis import case_model_configuration
+            if not case_model_configuration()["configured"]:
+                raise ValidationError({"model": "本机/内网模型尚未配置，取消模型选项后仍可检索参考医案。"})
 
         try:
-            evidence, source_release_ids = build_evidence_snapshot(data["entityIds"])
+            evidence, source_release_ids = build_evidence_snapshot(data["entityIds"], data["question"], data["caseIds"], data["caseCategory"])
         except ResearchAssistantError as exc:
             raise ValidationError({"entityIds": str(exc)}) from exc
 
@@ -539,9 +551,11 @@ class ResearchAssistantView(APIView):
             status=AnalysisTask.Status.QUEUED,
             input_parameters={
                 "analysisKind": "research_assistant",
-                "algorithmVersion": "research-assistant-0.1",
+                "algorithmVersion": ASSISTANT_ALGORITHM_VERSION,
                 "question": data["question"],
                 "entityIds": data["entityIds"],
+                "caseIds": data["caseIds"],
+                "caseCategory": data["caseCategory"],
                 "evidenceSnapshot": evidence,
                 "useModel": data["useModel"],
                 "modelConsentRecorded": data["useModel"] and data["confirmModelSharing"],
@@ -579,16 +593,28 @@ class VisualizationArtifactDownloadView(APIView):
             raise NotFound("图表文件不存在或无权访问。") from exc
         if not default_storage.exists(artifact.storage_key):
             raise NotFound("图表文件暂不可用。")
+        inline = (
+            request.query_params.get("inline") == "1"
+            and artifact.file_format in {"svg", "png", "html"}
+        )
         response = FileResponse(
             default_storage.open(artifact.storage_key, "rb"),
-            as_attachment=not (
-                request.query_params.get("inline") == "1"
-                and artifact.file_format in {"svg", "png"}
-            ),
+            as_attachment=not inline,
             filename=artifact.filename,
             content_type=artifact.mime_type,
         )
         response["X-Content-Type-Options"] = "nosniff"
         response["Cache-Control"] = "private, no-store"
-        response["Content-Security-Policy"] = "sandbox"
+        # HTML widgets execute only inside an opaque sandbox. Never grant same-origin,
+        # network access, parent navigation, forms, or popups to an uploaded label.
+        response["Content-Security-Policy"] = (
+            "sandbox allow-scripts allow-downloads; default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; "
+            "style-src 'unsafe-inline'; img-src data: blob:; connect-src 'none'; base-uri 'none'; form-action 'none'"
+            if artifact.file_format == "html" else "sandbox"
+        )
+        if inline and artifact.file_format == "html":
+            # Permit only our own authenticated page to embed the opaque widget.
+            # Otherwise Django's default DENY also blocks the intended iframe.
+            response["X-Frame-Options"] = "SAMEORIGIN"
+            response["Content-Security-Policy"] += "; frame-ancestors 'self'"
         return response

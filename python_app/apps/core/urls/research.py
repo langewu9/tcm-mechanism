@@ -11,6 +11,7 @@ router.register("cases", MedicalCaseViewSet, basename="case")
 router.register("analysis-tasks", AnalysisTaskViewSet, basename="analysis-task")
 
 urlpatterns = [
+    path("case-corpus/", include("apps.case_rag.urls")),
     path("dashboard/", ResearchDashboardView.as_view(), name="research-dashboard"),
     path("assistant/", ResearchAssistantView.as_view(), name="research-assistant"),
     path("text-analysis/", TextAnalysisView.as_view(), name="text-analysis"),

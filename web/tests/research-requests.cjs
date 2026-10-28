@@ -34,7 +34,12 @@ subject.require = name => {
   if (name === '../api/network') return {runNetworkPharmacology:api('runNetworkPharmacology')};
   if (name === '../utils/downloads') return {...helpers.exports,downloadText:(...args)=>downloads.push(args)};
   if (name === './ReactomePathwayLookup') return {reactomeCatalogueCsv:()=>''};
-  const child = {'./ComponentComparisonResults':'ComponentComparisonResults','./DiseaseEvidenceResults':'DiseaseEvidenceResults','./NetworkPharmacologyCharts':'NetworkPharmacologyCharts','./NetworkResultDownloads':'NetworkResultDownloads','./PaginatedTable':'PaginatedTable'}[name];
+  if (name === './TargetIntersectionFigure') {
+    const file = path.join(webRoot,'src/components/TargetIntersectionFigure.tsx'), child = new Module(file);
+    child.require = value => value === 'react/jsx-runtime' ? {jsx,jsxs:jsx,Fragment:'Fragment'} : value === './TargetIdentityResults' ? {TargetIdentityResults:'TargetIdentityResults'} : load(value);
+    child._compile(compile(file),file); return child.exports;
+  }
+  const child = {'./ComponentComparisonResults':'ComponentComparisonResults','./DiseaseEvidenceResults':'DiseaseEvidenceResults','./NetworkPharmacologyCharts':'NetworkPharmacologyCharts','./NetworkResultDownloads':'NetworkResultDownloads','./PaginatedTable':'PaginatedTable','./CatalogRVisualization':'CatalogRVisualization','./RAnalysisGallery':'RAnalysisGallery','./EvidenceEntityTables':'EvidenceEntityTables'}[name];
   if (child) return {[child]:child};
   throw new Error('Unexpected import '+name);
 };
@@ -136,8 +141,47 @@ evidence.results.push({query:'未导入中药',matches:[],herbs:[],compounds:[],
   assert.equal(downloads[1][1].trim().split('\r\n').length,3,'Same label with distinct IDs remains separate');
   assert.ok(downloads[1][1].includes('fixture:21') && downloads[1][1].includes('fixture:22'));
   assert.deepEqual(JSON.parse(downloads[2][1]),evidence,'JSON retains per-query evidence and truncation');
+  tab('intersection');input('intersection-disease','间质性肺');submit();
+  const missingDisease={taskId:30,summary:{herb:'黄芩',disease:'间质性肺',matchedHerbs:['黄芩'],matchedDiseases:[],unmatchedHerbs:[],unmatchedDiseases:['间质性肺'],herbTargetCount:10,diseaseTargetCount:0,strictIntersectionCount:0,componentCount:2,diseaseResolution:{status:'needs_selection',entitiesTruncated:false,candidates:[{label:'Pulmonary fibrosis',sourceSlugs:['fixture']}]}},targets:[],network:{nodes:[],links:[]},charts:{overlap:[],components:[],pathways:[]},limits:{targetsTruncated:false,linksTruncated:false}};
+  named('runNetworkPharmacology')[1].resolve(missingDisease);await flush();
+  assert.ok(text(tree).includes('名称待确认') && text(tree).includes('未匹配疾病'));
+  assert.ok(!nodes(tree).some(node=>node.type==='svg'),'Unmatched disease never renders overlapping circles');
+  const oldCandidate=button('使用名称：Pulmonary fibrosis').props.onClick;
+  oldCandidate();render();assert.equal(find(node=>node.props?.id==='intersection-disease').props.value,'Pulmonary fibrosis');
+  assert.equal(named('runNetworkPharmacology').length,2,'Candidate selection only fills the form; no implicit analysis or external call');
+  submit();assert.equal(named('runNetworkPharmacology')[2].args[0].disease,'Pulmonary fibrosis');
+  tab('herb');tab('intersection');input('intersection-disease','新查询疾病');oldCandidate();render();
+  assert.equal(find(node=>node.props?.id==='intersection-disease').props.value,'新查询疾病','Stale candidate callback cannot change a new tool');
+  named('runNetworkPharmacology')[2].resolve({...missingDisease,taskId:31});await flush();
+  assert.ok(!text(tree).includes('靶点交集结果'),'Stale intersection response cannot replace a new tab');
+  tab('component');submit();
+  const componentResult={queryType:'compound',results:[{query:'甘草酸',searchedNames:['甘草酸','Glycyrrhizic acid'],
+    matches:[compound,evidenceEntity(12,'Glycyrrhizin')],compounds:[compound,evidenceEntity(12,'Glycyrrhizin')],
+    herbs:[evidenceEntity(31,'中药一'),evidenceEntity(32,'中药二'),evidenceEntity(33,'中药三')],
+    targets:[targetA],relations:[],ambiguous:true,truncated:false}]};
+  named('searchHerbComponentEvidence').at(-1).resolve(componentResult);await flush();
+  const compoundMetrics=find(node=>node.props?.className==='np-metrics');
+  assert.equal(text(compoundMetrics.props.children[0]),'匹配成分记录2');
+  assert.equal(text(compoundMetrics.props.children[1]),'来源中药3','Compound search counts source herbs instead of repeating compounds');
+  assert.ok(text(tree).includes('同义名检索：甘草酸 / Glycyrrhizic acid'));
+  assert.ok(text(tree).includes('记录数不等于化合物种类数'));
+  input('research-query','不存在的成分');submit();
+  named('searchHerbComponentEvidence').at(-1).resolve({queryType:'compound',results:[{query:'不存在的成分',
+    matches:[],herbs:[],compounds:[],targets:[],relations:[],ambiguous:false,truncated:false}]});await flush();
+  assert.ok(text(tree).includes('未找到匹配') && text(tree).includes('这不表示该成分不存在'));
+  assert.ok(!nodes(tree).some(node=>node.type==='CatalogRVisualization'),'No R chart preparation for an unmatched name');
+  tab('catalogue');
+  assert.equal(find(node=>node.props?.id==='research-query').props.required,false,'Directory can browse without a search term');
+  input('catalog-type','disease');
+  assert.equal(find(node=>node.props?.id==='research-query').props.required,true,'Disease alias lookup still requires a name');
+  tab('pathway');input('research-query','NO_PATHWAY');submit();
+  named('searchReactomeCatalog').at(-1).resolve({query:'NO_PATHWAY',catalogTotal:2883,matchedTotal:0,maxItems:100,
+    truncated:false,sourceCode:'fixture',sources:[],warnings:[],items:[]});await flush();
+  assert.ok(!nodes(tree).some(node=>node.type==='CatalogRVisualization'),'Empty pathway result cannot prepare a chart');
+  assert.ok(text(tree).includes('未找到匹配通路'));
+  tab('herb');
   submit();for(const hook of hooks) hook?.cleanup?.();const previousWrites=writes;
-  named('searchHerbComponentEvidence')[2].resolve(evidence);for(let i=0;i<8;i++) await Promise.resolve();
+  named('searchHerbComponentEvidence').at(-1).resolve(evidence);for(let i=0;i<8;i++) await Promise.resolve();
   assert.equal(writes,previousWrites,'Unmounted workbench receives no state writes');
   console.log('PASS: duplicate search/task/pagination guards; stale tab and detail responses; invalid evidence identity; per-call consent; cleanup; main herb summary; entity-ID export deduplication.');
 })().catch(error=>{console.error(error.stack);process.exitCode=1;});

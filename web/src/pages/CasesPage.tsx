@@ -5,6 +5,8 @@ import { approveMedicalCase, createMedicalCase, deleteMedicalCase, getMedicalCas
 import { getAnalysisTask, type AnalysisTask } from "../api/datasets";
 import { type Session } from "../api/auth";
 import { ApiError } from "../api/client";
+import { CaseCorpusEvidence } from "../components/CaseCorpusEvidence";
+import type { ReferenceCase, CaseCorpusSummary } from "../api/caseCorpus";
 
 function valueOf(data: Record<string, unknown>, key: string) {
   const value = data[key];
@@ -24,6 +26,8 @@ type CaseAnalysisResult = {
     relations: CaseKnowledgeEvidence[];
     sources: Array<{ id: number; source: string; sourceSlug: string; version: string }>;
     truncated?: boolean;
+    cases?: ReferenceCase[];
+    caseCorpus?: CaseCorpusSummary;
   };
   evidenceChain?: {
     nodes: Array<{ id: number; label: string; entityType: string; stableId: string }>;
@@ -63,7 +67,7 @@ function taskStatusLabel(task: AnalysisTask | null) {
   return "任务已取消";
 }
 
-export function CasesPage() {
+export function CasesPage({ embedded = false }: { embedded?: boolean }) {
   const user = useOutletContext<NonNullable<Session["user"]>>();
   const mounted = useRef(false);
   const mutationInFlight = useRef(false);
@@ -349,19 +353,19 @@ export function CasesPage() {
   const mutating = saving || deletingId !== null || reviewingId !== null;
 
   return <>
-      <div className="page-heading">
+      {!embedded && <div className="page-heading">
         <div className="page-heading-copy">
-          <p className="page-kicker">Medical cases</p>
+
           <div className="flex items-center gap-3"><span className="page-heading-icon"><FileHeart size={20} /></span><h1 className="page-title">结构化医案库</h1></div>
-          <p className="page-description">沉淀症状、舌脉、诊断与来源，为证候和网络药理分析提供上下文。</p>
+          <p className="page-description">记录症状、舌脉、诊断、用药及资料来源。</p>
         </div>
         <div className="page-heading-action"><span className="status-badge status-success">{loading ? "…" : listError ? "—" : page?.count ?? "—"} 条医案</span></div>
-      </div>
+      </div>}
 
       {error && <div className="notice-error workspace-notice" role="alert">{error}</div>}
       {notice && <div className="notice-success workspace-notice" role="status">{notice}</div>}
 
-      <div className="grid gap-5 xl:grid-cols-[420px_minmax(0,1fr)]">
+      <div className="workspace-split">
         <form className="panel space-y-3 p-5" onSubmit={submit} aria-label="新增医案">
           <div><h2 className="section-title-sm">新增医案</h2><p className="section-help">录入结构化医案，后续可直接用于智能分析。</p></div>
           <label className="form-label" htmlFor="case-title">医案标题<input className="field mt-2" id="case-title" name="title" maxLength={200} placeholder="例如：麦门冬汤干预肺纤维化研究医案" required /></label>
@@ -378,7 +382,7 @@ export function CasesPage() {
           <button className="btn btn-primary" type="submit" disabled={mutating}><Save size={17} />{saving ? "正在保存…" : "保存医案"}</button>
         </form>
 
-        <section className="space-y-4" aria-label="已保存医案">
+        <section className="workspace-split-stack" aria-label="已保存医案">
           {loading ? <div className="panel empty-state" role="status">正在读取医案…</div>
             : listError ? <div className="panel empty-state" role="alert"><FileHeart size={26} /><strong>医案读取失败</strong><p>{listError}</p><button className="btn btn-secondary" type="button" onClick={() => setRefresh((value) => value + 1)} disabled={mutating}>重新读取</button></div>
             : page?.results.length ? page.results.map((item) => <article key={item.id} className="case-record panel p-5">
@@ -423,7 +427,7 @@ export function CasesPage() {
                 </div>
               </details>
             </article>)
-            : page?.count === 0 ? <div className="panel empty-state"><Stethoscope size={26} /><strong>暂无医案</strong><p>录入第一条脱敏医案后，可在智能分析中选择。证据关联依赖真实目录记录，模型候选需可用服务并由研究者逐条确认。</p></div>
+            : page?.count === 0 ? <div className="panel empty-state"><Stethoscope size={26} /><strong>暂无医案</strong><p>录入医案后，可在智能分析中选择。</p></div>
             : <div className="panel empty-state"><Stethoscope size={26} /><strong>本页暂无医案</strong><p>请返回上一页或重新读取医案。</p><button className="btn btn-secondary" type="button" onClick={() => { setPageNumber(1); setRefresh((value) => value + 1); }} disabled={mutating}>返回第一页</button></div>}
           {page && page.count > 0 && !listError && <div className="case-pagination"><button className="btn btn-secondary" type="button" disabled={!page.previous || loading || mutating} onClick={() => setPageNumber((value) => Math.max(1, value - 1))}>上一页</button>
             <span>第 {pageNumber} 页</span><button className="btn btn-secondary" type="button" disabled={!page.next || loading || mutating} onClick={() => setPageNumber((value) => value + 1)}>下一页</button></div>}
@@ -471,7 +475,7 @@ function CaseAnalysisPanel({
     {loading && !task ? <p className="section-help">正在读取分析记录…</p> : <>
       <label className="proteomics-consent case-analysis-consent">
         <input type="checkbox" checked={consent} onChange={(event) => onConsentChange(event.target.checked)} disabled={pending || loading} />
-        <span><strong>我确认医案已脱敏，并同意发送至平台配置的本地/内网模型</strong><small>{modelConfiguration.configured ? `本次模型：${modelConfiguration.name} · ${modelConfiguration.version}。` : "尚未配置可用的本地/内网模型。"}仅提交症状正文、舌脉和现有诊断；医案标题、患者信息栏、来源和研究备注不会发送。模型候选仅供科研整理，不能作为临床诊断。</small></span>
+        <span><strong>我确认医案已脱敏，并同意发送至平台配置的本地/内网模型</strong><small>{modelConfiguration.configured ? `本次模型：${modelConfiguration.name} · ${modelConfiguration.version}。` : "尚未配置可用的本地/内网模型。"}发送症状正文、舌脉、现有诊断，以及检索到的知识记录和参考医案片段。当前医案标题、患者信息栏、来源和研究备注不会发送。</small></span>
       </label>
       <div className="source-record-actions"><button className="btn btn-primary" type="button" onClick={onAnalyze} disabled={!consent || !modelConfiguration.configured || pending || loading}><Sparkles size={15} />{loading ? "正在提交…" : pending ? "后台分析中…" : task ? "重新分析" : "开始分析"}</button></div>
       {task?.status === "failed" && <div className="notice-error" role="alert">{task.error_summary || "医案分析失败。"}</div>}
@@ -480,12 +484,13 @@ function CaseAnalysisPanel({
       {task?.status === "succeeded" && result.observations && <div className="case-analysis-section"><h5>原文观察</h5>
         {result.observations.length ? <ul className="proteomics-pathways">{result.observations.map((observation, index) => <li key={`${observation.type}-${index}`}><strong>{observationLabels[observation.type] ?? observation.type}：{observation.value}</strong>{observation.evidence.map((evidence, evidenceIndex) => <span key={`${evidence.field}-${evidenceIndex}`}>{evidenceFieldLabels[evidence.field] ?? evidence.field}：“{evidence.quote}”</span>)}</li>)}</ul> : <p className="section-help">未找到可由原文核验的结构化观察。</p>}
       </div>}
+      {task?.status === "succeeded" && result.retrievalContext?.caseCorpus && <div className="case-analysis-section"><h5>参考医案检索</h5><p className="section-help">{result.retrievalContext.caseCorpus.available ? `语料版本 ${result.retrievalContext.caseCorpus.version}；参考案与当前医案原文分别展示。` : "本次未连接参考医案库。"}</p><CaseCorpusEvidence records={result.retrievalContext.cases ?? []} /></div>}
       {task?.status === "succeeded" && <div className="case-analysis-section"><h5>证候 / 方剂候选 · 请逐条确认</h5>
         {candidates.length ? <div className="case-candidate-list">{candidates.map((candidate) => <article className="case-candidate" key={candidate.id}>
           <div className="case-analysis-heading"><div><strong>{candidate.candidate_type === "syndrome" ? "证候" : "方剂"}：{candidate.label}</strong><p className="section-help">{candidateMatchLabels[candidate.match_status]}{candidate.entity_label ? ` · ${candidate.entity_label}` : ""}</p></div><span className={`status-badge ${candidate.review_status === "accepted" ? "status-success" : candidate.review_status === "pending" ? "status-warning" : ""}`}>{candidateReviewLabels[candidate.review_status]}</span></div>
           <p className="section-help">模型自评置信度 {Math.round(Number(candidate.confidence) * 100)}%（未经校准，不代表真实概率） · 排序 {candidate.rank}</p>
           <ul className="proteomics-pathways">{candidate.evidence.map((evidence, index) => <li key={`${evidence.field}-${index}`}><strong>{evidenceFieldLabels[evidence.field] ?? evidence.field}</strong><span>“{evidence.quote}”</span></li>)}</ul>
-          {candidate.knowledge_evidence.length > 0 && <div className="case-candidate-knowledge"><strong>已核验的本地知识库引用</strong><ul className="proteomics-pathways">{candidate.knowledge_evidence.map((reference) => <li key={reference.refId}><strong>{reference.kind === "entity" ? `${reference.label} · ${reference.stableId}` : `${reference.subject} → ${reference.object} · ${reference.predicate}`}</strong><span>{reference.sourceName} {reference.sourceVersion}{reference.sourceRecordId ? ` / ${reference.sourceRecordId}` : ""}{reference.evidenceType ? ` · ${reference.evidenceType}` : ""}{reference.evidenceText ? ` · ${reference.evidenceText}` : ""}</span></li>)}</ul></div>}
+          {candidate.knowledge_evidence.length > 0 && <div className="case-candidate-knowledge"><strong>已核验的本地记录引用</strong><ul className="proteomics-pathways">{candidate.knowledge_evidence.map((reference) => <li key={reference.refId}><strong>{reference.kind === "case" ? `参考医案：${reference.label}` : reference.kind === "entity" ? `${reference.label} · ${reference.stableId}` : `${reference.subject} → ${reference.object} · ${reference.predicate}`}</strong><span>{reference.sourceName} {reference.sourceVersion}{reference.sourceRecordId ? ` / ${reference.sourceRecordId}` : ""}{reference.evidenceType ? ` · ${reference.evidenceType}` : ""}{reference.evidenceText ? ` · ${reference.evidenceText}` : ""}</span></li>)}</ul></div>}
           <div className="source-record-actions"><button className="btn btn-primary" type="button" disabled={stale || !candidate.entity_id || reviewingCandidateId === candidate.id} onClick={() => onDecision(candidate, "accept")}>{reviewingCandidateId === candidate.id ? "正在记录…" : candidate.review_status === "accepted" ? "再次确认" : "确认候选"}</button><button className="btn btn-secondary" type="button" disabled={reviewingCandidateId === candidate.id} onClick={() => onDecision(candidate, "reject")}>{candidate.review_status === "rejected" ? "再次驳回" : "驳回候选"}</button>
             {candidate.review_status === "accepted" && !stale && candidate.candidate_type === "formula" && candidate.entity_id && <Link className="btn btn-secondary" to="/network-pharmacology" state={{ herb: candidate.entity_label ?? candidate.label, disease, sourceCaseId: caseId, sourceCandidateId: candidate.id }}>用已确认方剂开展网络药理分析</Link>}
           </div>

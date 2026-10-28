@@ -86,6 +86,7 @@ class ComponentCompareRequestSerializer(serializers.Serializer):
 
 
 class ComponentCompareResponseSerializer(serializers.Serializer):
+    evidenceSha256 = serializers.CharField()
     aliasSource = serializers.CharField()
     aliasSourceCommit = serializers.CharField()
     detected = serializers.ListField(child=serializers.DictField())

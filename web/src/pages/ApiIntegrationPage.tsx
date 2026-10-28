@@ -20,7 +20,6 @@ const checks: Array<{
   { id: "chembl", title: "ChEMBL 官方接口", description: "查询 quercetin；只发送测试词，不发送用户研究数据。", icon: FlaskConical, consent: "chembl" },
   { id: "intersection", title: "靶点交集", description: "计算本地目录中的中药与疾病候选交集，不保存分析任务。", icon: Network },
   { id: "compare", title: "成分比对", description: "比较页面内置的合成测试名称，不读取用户上传数据。", icon: CheckCircle2 },
-  { id: "scientist", title: "AI Scientist", description: "旧版依赖未随仓库提供的 Excel/SQLite 数据，目前没有可复刻接口。", icon: Bot, unavailable: true },
 ];
 
 function errorMessage(error: unknown) {
@@ -97,10 +96,10 @@ export function ApiIntegrationPage() {
 
   return <>
 
-      <div className="page-heading"><div className="page-heading-copy"><p className="page-kicker">Integration health</p><h1 className="page-title">API 接入监测</h1><p className="page-description">检查从旧版主分支迁入的服务调用链路。状态摘要只读取当前配置；外部服务和模型测试需要逐次同意。</p></div><span className="status-badge status-success">管理员功能</span></div>
+      <div className="page-heading"><div className="page-heading-copy"><h1 className="page-title">API 接入监测</h1><p className="page-description">查看数据库与服务连接状态，检查本地检索及已配置的外部接口。</p></div><span className="status-badge status-success">管理员功能</span></div>
       {error && <div className="notice-error workspace-notice" role="alert">{error}</div>}
       <section className="panel integration-overview">
-        <div><h2 className="section-title-sm">服务总览</h2><p className="section-help">对应 main 原有的健康检查、数据源和 Qwen 状态；敏感密钥不会返回到浏览器。</p></div>
+        <div><h2 className="section-title-sm">服务总览</h2><p className="section-help">数据库、数据源目录及模型服务的配置状态。</p></div>
         <div className="source-record-actions"><button className="btn btn-secondary" onClick={() => void refreshStatus()} disabled={Boolean(loading)}><RefreshCw size={15} />{loading === "status" ? "正在刷新…" : "刷新状态"}</button><button className="btn btn-primary" onClick={() => void runLocalChecks()} disabled={Boolean(loading)}><Play size={15} />一键测试本地接口</button></div>
         {status ? <><div className="integration-status-grid">{Object.entries(status.services).map(([key, service]) => <article className="integration-status-card" key={key}><span className={`status-badge ${service.ok ? "status-success" : "status-warning"}`}>{key.startsWith("qwen") ? service.ok ? "已配置" : "未配置" : service.ok ? "正常" : "不可用"}</span><strong>{key === "health" ? "Django 与数据库" : key === "sources" ? "本地数据源目录" : key === "qwenStatus" ? "本机模型配置" : "已配置的模型名称"}</strong><small>{service.url}</small></article>)}</div><details><summary>查看状态明细 · {new Date(status.checkedAt).toLocaleString("zh-CN")}</summary><JsonBlock value={status} /></details></> : <p className="section-help">正在读取服务状态…</p>}
       </section>
@@ -113,7 +112,7 @@ export function ApiIntegrationPage() {
             <div className="integration-card-title"><span className="integration-icon"><Icon size={17} /></span><div><h3>{check.title}</h3><p>{check.description}</p></div></div>
             {check.consent === "model" && <label className="integration-consent"><input type="checkbox" checked={modelConsent} onChange={(event) => setModelConsent(event.target.checked)} />同意向配置的本机/内网模型发送一条合成测试文本。</label>}
             {check.consent === "chembl" && <label className="integration-consent"><input type="checkbox" checked={chemblConsent} onChange={(event) => setChemblConsent(event.target.checked)} />同意将测试词 quercetin 发送到 ChEMBL 官方服务。</label>}
-            {check.unavailable ? <span className="integration-pending">main 旧依赖缺失，暂不可测试</span> : <button className="btn btn-secondary" type="button" disabled={Boolean(loading) || (check.consent === "model" && !modelConsent) || (check.consent === "chembl" && !chemblConsent)} onClick={() => void runTest(check.id)}>{loading === check.id ? <RefreshCw size={15} className="spin" /> : <Play size={15} />}{loading === check.id ? "测试中…" : "运行测试"}</button>}
+            {check.unavailable ? <span className="integration-pending">此接口暂不可用</span> : <button className="btn btn-secondary" type="button" disabled={Boolean(loading) || (check.consent === "model" && !modelConsent) || (check.consent === "chembl" && !chemblConsent)} onClick={() => void runTest(check.id)}>{loading === check.id ? <RefreshCw size={15} className="spin" /> : <Play size={15} />}{loading === check.id ? "测试中…" : "运行测试"}</button>}
             {result && <div className="integration-result"><strong className={result.ok ? "integration-pass" : "integration-fail"}>{result.ok ? <CheckCircle2 size={14} /> : <XCircle size={14} />}{result.ok ? "通过" : `失败 · ${result.status}`} · {result.elapsedMs} ms</strong><span>{result.error || (result.data ? summarize(result.data) : "检查完成")}</span><small>{result.url}</small><details><summary>查看返回数据</summary><JsonBlock value={result} /></details></div>}
           </article>;
         })}</div>

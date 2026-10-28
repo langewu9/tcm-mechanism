@@ -55,13 +55,13 @@ export function AnalysisPage() {
   return <>
     <div className="page-heading">
       <div className="page-heading-copy">
-        <p className="page-kicker">AI analysis</p>
+
         <div className="flex items-center gap-3"><span className="page-heading-icon"><FlaskConical size={20} /></span><h2 className="page-title">证候与网络药理智能分析</h2></div>
-        <p className="page-description">从医案或研究问题生成证候、方药、成分、靶点与通路的结构化证据链。</p>
+        <p className="page-description">根据医案或研究问题，整理证候、方药及相关靶点与通路。</p>
       </div>
       <div className="page-heading-action"><span className="status-badge status-success">结果自动保存</span></div>
     </div>
-    <div className="grid gap-5 xl:grid-cols-[420px_minmax(0,1fr)]">
+    <div className="workspace-split">
       <form className="panel space-y-4 p-5" onSubmit={submit} aria-label="证候方药关联分析">
         <div>
           <h2 className="text-lg font-black">证候-方药-靶点分析</h2>
@@ -108,11 +108,11 @@ export function AnalysisPage() {
             </div>
           </details>
           {result.network.nodes.length > 0 && <details><summary className="section-help">查看证据网络</summary><div className="mt-3"><KnowledgeNetworkGraph network={result.network} knownTruncated={result.limits.relationsTruncated} /></div></details>}
-        </div> : <div className="empty-state min-h-64"><FlaskConical size={26} /><strong>等待分析任务</strong><p>提交研究问题后，系统会在这里展示摘要、证据条目和导出入口。</p></div>}
+        </div> : <div className="empty-state min-h-64"><FlaskConical size={26} /><strong>等待分析任务</strong><p>提交问题后查看分析结果。</p></div>}
       </section>
     </div>
     <section className="panel mt-6 overflow-hidden" aria-labelledby="analysis-history-title">
-      <div className="panel-header"><div><h2 id="analysis-history-title" className="section-title-sm">已保存结果</h2><p className="section-help">最近八项分析任务，可用于回顾研究假设和证据摘要。</p></div><History size={18} className="text-cinnabar" /></div>
+      <div className="panel-header"><div><h2 id="analysis-history-title" className="section-title-sm">已保存结果</h2><p className="section-help">最近八项分析任务。</p></div><History size={18} className="text-cinnabar" /></div>
       <div className="divide-y divide-pine/10">
         {loading ? <p className="empty-state min-h-48" role="status">正在读取分析记录…</p> : workspace?.tasks.length ? workspace.tasks.map((saved) => <article className="saved-analysis" key={saved.id}>
           <div><p><button type="button" className="text-left hover:underline focus-visible:underline" onClick={() => setTask(saved)} aria-label={`查看结果：${String(saved.input_parameters.name ?? "规则分析任务")}`}>{String(saved.input_parameters.name ?? "规则分析任务")}</button></p><time dateTime={saved.created_at}>{new Date(saved.created_at).toLocaleDateString("zh-CN")}</time></div>

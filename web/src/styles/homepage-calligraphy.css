@@ -1,0 +1,25 @@
+/* Only the inscription ON the scroll uses brush script.
+   All homepage headings, branding, controls and research charts keep UI type.
+   Roller materials, paper and reveal motion come from the previous homepage. */
+@font-face {
+  font-family:"YuanzhiScrollScript";
+  src:url("/fonts/yuanzhi-scroll-script/scroll-script.woff") format("woff");
+  font-weight:400;
+  font-style:normal;
+  font-display:swap;
+}
+.yz-home .hero-scroll-art { --yz-brush:"YuanzhiScrollScript","STXingkai","KaiTi",serif; }
+.yz-home .hero-scroll-title { font-family:var(--yz-brush); font-weight:400; font-size:104px; line-height:1.1; letter-spacing:.04em; color:#40271d; }
+.yz-home .hero-scroll-caption { font-family:var(--yz-brush); font-weight:400; font-size:23px; line-height:1.7; letter-spacing:.07em; }
+@media (max-width:1050px) {
+  .yz-home .hero-scroll-title { font-size:94px; }
+  .yz-home .hero-scroll-caption { font-size:21px; }
+}
+@media (max-width:520px) {
+  .yz-home .hero-scroll-title { font-size:86px; }
+  .yz-home .hero-scroll-caption { font-size:20px; }
+}
+@media (max-width:350px) {
+  .yz-home .hero-scroll-title { font-size:79px; }
+  .yz-home .hero-scroll-caption { font-size:18px; }
+}

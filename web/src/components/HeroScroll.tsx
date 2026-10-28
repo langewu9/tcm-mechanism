@@ -1,20 +1,43 @@
-import { useEffect, useState } from "react";
+import { useId, useRef, useState } from "react";
 
 export function HeroScroll() {
-  const [isOpen, setIsOpen] = useState(false);
+  const [isCycling, setIsCycling] = useState(false);
+  const cycleRunning = useRef(false);
+  const [assetsReady, setAssetsReady] = useState({ roller: false, paper: false });
+  const paperId = useId();
+  const isReady = assetsReady.roller && assetsReady.paper;
 
-  useEffect(() => {
-    const frame = window.requestAnimationFrame(() => setIsOpen(true));
-    return () => window.cancelAnimationFrame(frame);
-  }, []);
+  const replayScroll = () => {
+    // Complete one continuous gesture; crossing the edge again must not restart it.
+    if (!isReady || cycleRunning.current) return;
+    cycleRunning.current = true;
+    setIsCycling(true);
+  };
 
   return (
     <div
-      className={`hero-scroll-art${isOpen ? " is-open" : ""}`}
-      aria-label="远志中医药理研究档案卷轴"
-      aria-expanded={isOpen}
+      className={`hero-scroll-art${isCycling ? " is-cycling" : ""}`}
+      aria-label="远志卷轴，悬停、轻触或按回车，收起后重新展开"
+      role="button"
+      tabIndex={0}
+      aria-disabled={!isReady || isCycling}
+      aria-controls={paperId}
+      onPointerEnter={event => { if (event.pointerType !== "touch") replayScroll(); }}
+      onPointerUp={event => { if (event.pointerType === "touch") replayScroll(); }}
+      onClick={replayScroll}
+      onKeyDown={event => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          replayScroll();
+        }
+      }}
     >
-      <div className="hero-scroll-stage">
+      <div className="hero-scroll-stage" onAnimationEnd={event => {
+        if (event.target === event.currentTarget && event.animationName === "yz-scroll-recoil") {
+          cycleRunning.current = false;
+          setIsCycling(false);
+        }
+      }}>
         <img
           src="/images/yuanzhi-scroll/top-roller.png"
           alt=""
@@ -23,9 +46,11 @@ export function HeroScroll() {
           fetchPriority="high"
           decoding="async"
           className="hero-scroll-roller hero-scroll-roller-top"
+          onLoad={() => setAssetsReady(value => ({ ...value, roller: true }))}
+          onError={() => setAssetsReady(value => ({ ...value, roller: true }))}
         />
 
-        <div className="hero-scroll-paper-window" aria-hidden={!isOpen}>
+        <div id={paperId} className="hero-scroll-paper-window">
           <div className="hero-scroll-paper">
             <img
               src="/images/yuanzhi-scroll/paper.png"
@@ -34,6 +59,8 @@ export function HeroScroll() {
               decoding="async"
               style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}
               className="hero-scroll-paper-texture"
+              onLoad={() => setAssetsReady(value => ({ ...value, paper: true }))}
+              onError={() => setAssetsReady(value => ({ ...value, paper: true }))}
             />
             <img
               src="/images/yuanzhi-scroll/herb-lineart.png"

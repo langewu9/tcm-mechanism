@@ -1,5 +1,6 @@
 import { Download, FileJson, Table2 } from "lucide-react";
 import type { DiseaseEvidenceSearch } from "../api/catalog";
+import { CatalogRVisualization } from "./CatalogRVisualization";
 import { downloadText, encodeCsv } from "../utils/downloads";
 import { PaginatedTable } from "./PaginatedTable";
 
@@ -30,6 +31,9 @@ export function DiseaseEvidenceResults({ data }: { data: DiseaseEvidenceSearch }
       </div>
     </div>
     <div className="case-form-fields">
+      {data.dataQuality?.map((item) => <div className="notice-info" key={item.version}><p>{item.source.toUpperCase()}：已核验 {item.verifiedTargetIds.toLocaleString()} 个靶点编号，{item.quarantinedRows.toLocaleString()} 条来源记录待复核。</p><details><summary>数据范围与版本</summary><p>{item.message}</p><span style={{ overflowWrap: "anywhere" }}>{item.source} · {item.version}</span></details></div>)}
+
+      {data.matches.length > 0 && <CatalogRVisualization query={{ queryType: "disease", queries: [data.query], expectedSha256: data.evidenceSha256 }} />}
       <div className="np-metrics">
         <div><span>匹配疾病</span><strong>{data.counts.diseases}</strong></div>
         <div><span>关联中药</span><strong>{data.counts.herbs}</strong></div>

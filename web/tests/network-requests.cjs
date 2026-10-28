@@ -31,11 +31,18 @@ moduleUnderTest.require = name => {
   if (name === '../api/network') return {runNetworkPharmacology:enqueue(localCalls), runReactomeEnrichment:enqueue(externalCalls), runStringNetwork:enqueue(externalCalls), createVisualization:enqueue(externalCalls)};
   if (name === '../components/KnowledgeNetworkGraph') return {KnowledgeNetworkGraph:'Graph'};
   if (name === '../components/NetworkPharmacologyCharts') return {NetworkPharmacologyCharts:'Charts'};
+  if (name === '../components/RChartViewer') return {RChartViewer:'RChartViewer',hasInteractiveRenderer:()=>true};
   if (name === '../components/NetworkResultDownloads') return {NetworkResultDownloads:'Downloads'};
   if (name === '../components/ReactomeEnrichmentResult') return {ReactomeEnrichmentResult:'ReactomeResult',readReactomeEnrichment:task=>task?.status==='succeeded'?task.result:null};
   if (name === '../components/StringNetworkResult') return {StringTaskResult:'StringResult'};
   if (name === '../components/RAnalysisGallery') return {RAnalysisGallery:'RGallery'};
   if (name === '../components/RDemoGallery') return {RDemoGallery:'DemoGallery'};
+  if (name === '../components/TargetIntersectionFigure') {
+    const file = path.join(webRoot,'src/components/TargetIntersectionFigure.tsx'), child = new Module(file);
+    child.require = value => value === 'react/jsx-runtime' ? {jsx,jsxs:jsx,Fragment:'Fragment'} : value === './TargetIdentityResults' ? {TargetIdentityResults:'TargetIdentityResults'} : load(value);
+    child._compile(ts.transpileModule(fs.readFileSync(file,'utf8'), {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText,file);
+    return child.exports;
+  }
   throw new Error('Unexpected import: '+name);
 };
 moduleUnderTest._compile(ts.transpileModule(fs.readFileSync(filename,'utf8'), {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText, filename);
@@ -67,8 +74,8 @@ const tick = () => {const callbacks=[...timers.values()]; timers.clear(); for(co
   assert.equal(externalCalls.length,2);
   externalCalls[0].resolve(task(101,'succeeded',1)); await flush(); secondClick();
   assert.equal(externalCalls.length,2,'Old request completion did not release new query lock');
-  assert.equal(find(node=>node.type==='Charts').props.result.taskId,2);
-  assert.equal(find(node=>node.type==='Charts').props.reactome,null);
+  assert.equal(find(node=>node.type==='RGallery').props.taskId,2);
+  assert.ok(!nodes(tree).some(node=>node.type==='RGallery'&&node.props.taskId===101));
   assert.ok(!nodes(tree).some(node=>node.type==='ReactomeResult'));
   externalCalls[1].resolve(task(102)); await flush(); tick();
   assert.equal(pollCalls[0].args[0],102);
@@ -80,8 +87,8 @@ const tick = () => {const callbacks=[...timers.values()]; timers.clear(); for(co
   assert.ok(!nodes(tree).some(node=>node.props?.role==='status' && text(node).includes('正在重试读取已有任务')),'Recovered read clears transient error');
   tick(); assert.equal(pollCalls[2].args[0],102);
   submit(); localCalls[2].resolve(source(3)); await flush(); pollCalls[2].resolve(task(102,'succeeded')); await flush();
-  assert.equal(find(node=>node.type==='Charts').props.result.taskId,3);
-  assert.equal(find(node=>node.type==='Charts').props.reactome,null);
+  assert.equal(find(node=>node.type==='RGallery').props.taskId,3);
+  assert.ok(!nodes(tree).some(node=>node.type==='RGallery'&&node.props.taskId===102));
   assert.ok(!nodes(tree).some(node=>node.type==='ReactomeResult'));
   submit(); localCalls[3].reject(new Error('synthetic local query failure')); await flush();
   submit(); assert.equal(localCalls.length,5,'Local query lock released after failure');

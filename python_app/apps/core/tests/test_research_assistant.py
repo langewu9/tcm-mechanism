@@ -18,6 +18,7 @@ from apps.core.tasks import run_research_assistant_task
 
 
 class ResearchAssistantTests(APITestCase):
+    databases = {"default", "case_rag"}
     def setUp(self):
         self.user = get_user_model().objects.create_user(
             username="assistant-researcher", password="test-password-123"
@@ -96,8 +97,8 @@ class ResearchAssistantTests(APITestCase):
         self.assertEqual([row["refId"] for row in context["relations"]], [f"relation:{self.edge.pk}"])
         self.assertEqual(release_ids, [self.release.pk])
 
-    def test_snapshot_refuses_inactive_or_disabled_entities_and_empty_selection(self):
-        for selected in ([self.inactive.pk], [self.disabled_entity.pk], []):
+    def test_snapshot_refuses_inactive_or_disabled_entities(self):
+        for selected in ([self.inactive.pk], [self.disabled_entity.pk]):
             with self.subTest(selected=selected), self.assertRaises(ResearchAssistantError):
                 build_evidence_snapshot(selected)
 
@@ -173,7 +174,7 @@ class ResearchAssistantTests(APITestCase):
 
         self.assertEqual(outcome["status"], AnalysisTask.Status.SUCCEEDED)
         task.refresh_from_db()
-        self.assertEqual(task.result["source"], "local_catalog")
+        self.assertEqual(task.result["source"], "local_catalog_and_case_corpus")
         self.assertEqual(task.result["evidence"]["relations"][0]["sourceVersion"], "fixture-v1")
         self.assertIn("没有调用生成式模型", task.result["uncertainties"][0])
 

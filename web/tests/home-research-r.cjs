@@ -1,0 +1,17 @@
+const fs = require('node:fs'), path = require('node:path'), assert = require('node:assert/strict');
+const root = path.resolve(__dirname,'..');
+const read = name => fs.readFileSync(path.join(root,'src',name),'utf8');
+assert.ok(read('app/App.tsx').includes('<Route path="/" element={<HomePage />} />'));
+assert.ok(read('pages/LoginPage.tsx').includes('navigate("/", { replace: true })'));
+assert.ok(!read('pages/HomePage.tsx').includes('R 交互图仍待接入'));
+assert.ok(read('components/AppNavigation.tsx').includes('href: "/", label: "平台首页"'));
+assert.ok(read('components/AppShell.tsx').includes('to="/" className="brand-lockup"'));
+for(const file of ['components/ResearchToolTabs.tsx','components/DiseaseEvidenceResults.tsx','components/ComponentComparisonResults.tsx']) assert.ok(read(file).includes('CatalogRVisualization'));
+const network = read('pages/NetworkPharmacologyPage.tsx');
+assert.ok(network.includes('<RAnalysisGallery key={result.taskId} taskId={result.taskId} />'));
+assert.ok(!network.includes('<NetworkPharmacologyCharts'));
+const view = read('components/CatalogRVisualization.tsx');
+assert.ok(view.includes('expectedSha256') && view.includes('generation.current === current') && view.includes('lock.current'));
+assert.ok(!view.includes('network:') && !view.includes('nodes:'));
+assert.ok(read('api/catalog.ts').includes('/api/v1/catalog/visualization-snapshots/'));
+console.log('PASS: home entry and login destination, homepage navigation, R catalogue/name-comparison integration, immutable-source submission and stale-response guard.');

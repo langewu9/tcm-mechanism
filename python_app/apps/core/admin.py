@@ -8,6 +8,7 @@ from .domain.accounts import ResearcherProfile
 from .forms import ResearcherUserChangeForm, ResearcherUserCreationForm
 from .models import (
     AnalysisTask,
+    CanonicalIdentifier,
     DataSource,
     EntityIdentifier,
     EvidenceRelation,
@@ -17,8 +18,12 @@ from .models import (
     MedicalCaseCandidate,
     ResearchDataset,
     SourceRelease,
+    SourceRecord,
+    SourceEntityMapping,
     SyncRun,
     VisualizationArtifact,
+    TargetMaster,
+    TargetIdentityMapping,
 )
 
 
@@ -108,6 +113,7 @@ class KnowledgeEntityAdmin(admin.ModelAdmin):
     list_display = ("label", "entity_type", "stable_id", "organism", "is_active", "updated_at")
     list_filter = ("entity_type", "organism", "is_active")
     search_fields = ("label", "stable_id")
+    readonly_fields = ("canonical_id",)
 
 
 @admin.register(EntityIdentifier)
@@ -129,6 +135,34 @@ class EvidenceRelationAdmin(admin.ModelAdmin):
     list_display = ("subject", "relation_type", "object", "evidence_type", "score", "is_active", "source_release")
     list_filter = ("relation_type", "evidence_type", "organism", "is_active", "source_release__source")
     search_fields = ("subject__label", "object__label", "source_record_id")
+
+
+class MasterReadOnlyAdmin(admin.ModelAdmin):
+    def get_readonly_fields(self, request, obj=None):
+        return tuple(field.name for field in self.model._meta.fields)
+    def has_add_permission(self, request): return False
+    def has_delete_permission(self, request, obj=None): return False
+
+
+@admin.register(CanonicalIdentifier)
+class CanonicalIdentifierAdmin(MasterReadOnlyAdmin):
+    list_display = ("namespace", "identifier", "entity_type", "taxon_key", "scope", "entity", "match_method")
+    list_filter = ("entity_type", "namespace", "taxon_key")
+    search_fields = ("identifier", "entity__label")
+
+
+@admin.register(SourceEntityMapping)
+class SourceEntityMappingAdmin(MasterReadOnlyAdmin):
+    list_display = ("source_entity_id", "entity_type", "namespace", "taxon_key", "status", "entity", "source_release")
+    list_filter = ("status", "entity_type", "source_release__source")
+    search_fields = ("source_entity_id", "source_label", "entity__label")
+
+
+@admin.register(SourceRecord)
+class SourceRecordAdmin(MasterReadOnlyAdmin):
+    list_display = ("source_record_id", "source_release", "status", "created_at")
+    list_filter = ("status", "source_release__source")
+    search_fields = ("source_record_id", "payload_sha256")
 
 
 @admin.register(ResearchDataset)
@@ -209,3 +243,26 @@ class AnalysisTaskAdmin(admin.ModelAdmin):
     list_filter = ("task_type", "status")
     search_fields = ("owner__username", "owner__email")
     readonly_fields = ("created_at", "started_at", "finished_at")
+
+
+@admin.register(TargetIdentityMapping)
+class TargetIdentityMappingAdmin(admin.ModelAdmin):
+    list_display = ('entity', 'status', 'master', 'gene', 'match_method', 'reference_release')
+    list_filter = ('status', 'reference_release')
+    search_fields = ('entity__label', 'master__identifier', 'gene__identifier')
+    list_select_related = ('entity', 'master', 'gene', 'reference_release__source')
+    readonly_fields = tuple(field.name for field in TargetIdentityMapping._meta.fields)
+    def has_add_permission(self, request): return False
+    def has_change_permission(self, request, obj=None): return False
+    def has_delete_permission(self, request, obj=None): return False
+
+
+@admin.register(TargetMaster)
+class TargetMasterAdmin(admin.ModelAdmin):
+    list_display = ('key', 'label', 'namespace', 'taxon_key', 'symbol')
+    list_filter = ('namespace', 'taxon_key')
+    search_fields = ('key', 'identifier', 'label', 'symbol')
+    readonly_fields = tuple(field.name for field in TargetMaster._meta.fields)
+    def has_add_permission(self, request): return False
+    def has_change_permission(self, request, obj=None): return False
+    def has_delete_permission(self, request, obj=None): return False

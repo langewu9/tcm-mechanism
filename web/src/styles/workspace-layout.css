@@ -1,0 +1,100 @@
+/* Shared two-pane workspaces. Scroll content, never scale scientific figures. */
+.app-frame .workspace-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  gap: 24px;
+  min-width: 0;
+}
+.app-frame .workspace-split > * { min-width: 0; }
+
+@media (min-width: 1280px) {
+  .app-frame .workspace-split {
+    --workspace-split-height: clamp(480px, calc(100dvh - 320px), 840px);
+    grid-template-columns: clamp(340px, 25vw, 420px) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    height: var(--workspace-split-height);
+  }
+  .app-frame .workspace-split--search {
+    --workspace-split-height: clamp(380px, calc(100dvh - 580px), 760px);
+  }
+  .app-frame .workspace-split--balanced { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .app-frame .workspace-split--summary {
+    grid-template-columns: minmax(0, 1fr) 340px;
+    grid-template-rows: auto;
+    height: auto;
+  }
+  .app-frame .workspace-split > * {
+    min-height: 0;
+    max-height: 100%;
+    overflow: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    scroll-padding-block: 24px;
+  }
+  .app-frame .workspace-split--summary > * { max-height: none; overflow: visible; }
+  /* Paint the frame on the scrollport so it cannot drift across form fields. */
+  .app-frame .workspace-split > .panel {
+    background-image:
+      linear-gradient(#b28b5359, #b28b5359), linear-gradient(#b28b5359, #b28b5359),
+      linear-gradient(#b28b5359, #b28b5359), linear-gradient(#b28b5359, #b28b5359),
+      linear-gradient(#b28b5359, #b28b5359), linear-gradient(#b28b5359, #b28b5359),
+      linear-gradient(#b28b5359, #b28b5359), linear-gradient(#b28b5359, #b28b5359);
+    background-size: 12px 1px, 1px 12px, 12px 1px, 1px 12px, 12px 1px, 1px 12px, 12px 1px, 1px 12px;
+    background-position:
+      left 6px top 6px, left 6px top 6px, right 6px top 6px, right 6px top 6px,
+      left 6px bottom 6px, left 6px bottom 6px, right 6px bottom 6px, right 6px bottom 6px;
+    background-repeat: no-repeat;
+    background-attachment: scroll;
+  }
+  .app-frame .workspace-split > .panel::after { content: none; }
+  .app-frame .workspace-split > form.panel {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .app-frame .workspace-split > form.panel > * { flex-shrink: 0; margin-block: 0; }
+  .app-frame .workspace-split > form.panel > :is(button:last-child, .case-form-footer) { margin-top: auto; }
+  .app-frame .workspace-split > form.panel > button:last-child { align-self: flex-start; }
+  .app-frame .workspace-split > .research-query-form > .case-form-fields {
+    display: flex;
+    flex-direction: column;
+    flex: 1 0 auto;
+    gap: 20px;
+  }
+  .app-frame .workspace-split > .research-query-form > .case-form-fields > * { flex-shrink: 0; }
+  .app-frame .workspace-split > .research-query-form > .case-form-fields > button:last-child { margin-top: auto; }
+  .app-frame .workspace-split > :is(.case-list, .workspace-split-stack) {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .app-frame .workspace-split > :is(.case-list, .workspace-split-stack) > * {
+    flex-shrink: 0;
+    margin-block: 0;
+  }
+  .app-frame .workspace-split > :is(.case-list, .workspace-split-stack) > .empty-state {
+    flex: 1 0 220px;
+    min-height: 180px;
+  }
+  .app-frame .workspace-split > .research-workbench-results {
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .app-frame .workspace-split > .research-workbench-results > * { flex-shrink: 0; }
+  .app-frame .workspace-split > .research-workbench-results > :is(.empty-state, .workspace-loading) {
+    flex: 1 0 240px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+  }
+}
+
+/* Stacked panes use normal page scrolling, including all form actions. */
+@media (max-width: 1279px) {
+  .app-frame .workspace-split { height: auto; grid-template-rows: auto; }
+  .app-frame .workspace-split > * { max-height: none; }
+  .app-frame .workspace-split > .research-workbench-results { min-height: 320px; }
+}

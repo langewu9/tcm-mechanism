@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from django.db.models import Q
+from django.db.models import Q, Subquery
 
 from apps.core.models import EvidenceRelation, KnowledgeEntity
+from .catalog_identity import exact_entity_names, exact_entity_queryset, structural_representatives
 
 
 HERB_COMPOUND_TYPES = {"contains", "herb_compound", "has_compound"}
@@ -21,25 +22,33 @@ def _visible_relations(
     *, relation_types, subject_ids=None, object_ids=None,
     subject_types=None, object_types=None, limit=MAX_RELATIONS,
 ):
-    queryset = EvidenceRelation.objects.filter(
-        is_active=True,
-        subject__is_active=True,
-        object__is_active=True,
-        source_release__source__enabled=True,
-        relation_type__in=relation_types,
+    candidates = EvidenceRelation.objects.filter(
+        is_active=True, subject__is_active=True, object__is_active=True,
+        source_release__source__enabled=True, relation_type__in=relation_types,
     ).filter(
         (Q(subject__source_release__isnull=True) | Q(subject__source_release__source__enabled=True))
         & (Q(object__source_release__isnull=True) | Q(object__source_release__source__enabled=True))
-    ).select_related("subject", "object", "source_release", "source_release__source")
+    )
     if subject_ids is not None:
-        queryset = queryset.filter(subject_id__in=subject_ids)
+        candidates = candidates.filter(subject_id__in=subject_ids)
     if object_ids is not None:
-        queryset = queryset.filter(object_id__in=object_ids)
+        candidates = candidates.filter(object_id__in=object_ids)
     if subject_types is not None:
-        queryset = queryset.filter(subject__entity_type__in=subject_types)
+        candidates = candidates.filter(subject__entity_type__in=subject_types)
     if object_types is not None:
-        queryset = queryset.filter(object__entity_type__in=object_types)
-    records = list(queryset.order_by("id")[: limit + 1])
+        candidates = candidates.filter(object__entity_type__in=object_types)
+    # Sort/filter just the primary keys, then hydrate at most limit+1 rows.
+    # Wide entity metadata and source details do not enter the candidate sort.
+    ids = structural_representatives(candidates, relation_types=relation_types).order_by("id").values("pk")[:limit + 1]
+    queryset = EvidenceRelation.objects.filter(pk__in=Subquery(ids)).select_related(
+        "subject", "object", "source_release", "source_release__source",
+    ).order_by("id")
+    # Entity provenance is used when assembling each unique compound/target.
+    # Load it in bounded batches instead of issuing two queries per entity.
+    queryset = queryset.prefetch_related(
+        "subject__source_release__source", "object__source_release__source",
+    )
+    records = list(queryset)
     return records[:limit], len(records) > limit
 
 
@@ -56,6 +65,8 @@ def _entity_record(entity: KnowledgeEntity) -> dict:
 
 def _relation_record(relation: EvidenceRelation) -> dict:
     return {
+        "relationId": relation.pk, "subjectId": relation.subject_id, "objectId": relation.object_id,
+        "sourceReleaseId": relation.source_release_id,
         "subject": relation.subject.label,
         "object": relation.object.label,
         "subjectType": relation.subject.entity_type,
@@ -75,11 +86,7 @@ def batch_herb_component_evidence(*, query_type: str, queries: list[str]) -> dic
         query = raw_query.strip()
         entity_type = KnowledgeEntity.EntityType.HERB if query_type == "herb" else KnowledgeEntity.EntityType.COMPOUND
         matches = list(
-            _visible_entity_filter(KnowledgeEntity.objects.filter(
-                entity_type=entity_type,
-                is_active=True,
-                label__iexact=query,
-            )).select_related("source_release", "source_release__source").order_by("stable_id")[:MAX_MATCHES + 1]
+            exact_entity_queryset(entity_type, query).select_related("source_release", "source_release__source").order_by("stable_id")[:MAX_MATCHES + 1]
         )
         matches_truncated = len(matches) > MAX_MATCHES
         matches = matches[:MAX_MATCHES]
@@ -118,6 +125,7 @@ def batch_herb_component_evidence(*, query_type: str, queries: list[str]) -> dic
         relations = [*herb_edges, *target_edges]
         result_items.append({
             "query": query,
+            **({"searchedNames": exact_entity_names(entity_type, query)} if query_type == "compound" else {}),
             "matches": [_entity_record(item) for item in matches],
             "ambiguous": len(matches) > 1,
             "herbs": [_entity_record(item) for item in sorted(herbs, key=lambda item: item.label.casefold())],
@@ -127,4 +135,5 @@ def batch_herb_component_evidence(*, query_type: str, queries: list[str]) -> dic
             "truncated": matches_truncated or herb_edges_truncated or target_edges_truncated,
         })
 
-    return {"queryType": query_type, "results": result_items}
+    from .data_quality import data_quality_notices
+    return {"queryType": query_type, "results": result_items, "dataQuality": data_quality_notices()}

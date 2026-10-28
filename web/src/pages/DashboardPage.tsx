@@ -36,6 +36,16 @@ function taskStatusClass(status: DashboardTask["status"]) {
   return "status-pending";
 }
 
+function taskSummary(task: DashboardTask) {
+  const summary = task.summary.trim();
+  const structured = summary.search(/[\[{]\s*['"]/);
+  const readable = (structured >= 0 ? summary.slice(0, structured).replace(/[·：:,，\s]+$/, "") : summary).trim();
+  if (task.task_type === "visualization" || !readable || /^任务已保存，等待查看结果[。.]?$/.test(readable) || /^\d+(\s*·\s*\d+)+$/.test(readable)) {
+    return `${statusLabels[task.status]} · 任务 #${task.id}`;
+  }
+  return structured >= 0 ? `${readable} · ${statusLabels[task.status]}` : readable;
+}
+
 export function DashboardPage() {
   const user = useOutletContext<NonNullable<Session["user"]>>();
   const [dashboard, setDashboard] = useState<ResearchDashboard | null>(null);
@@ -57,7 +67,7 @@ export function DashboardPage() {
   const stats = dashboard?.stats;
   const metricCards = [
     { label: "研究数据集", value: stats?.datasets, icon: Database },
-    { label: "医案记录", value: stats?.cases, icon: FileText },
+    { label: "我的医案", value: stats?.cases, icon: FileText },
     { label: "分析任务", value: stats?.tasks, icon: FlaskConical },
     { label: "知识节点", value: stats ? stats.herbs + stats.compounds + stats.targets + stats.pathways : undefined, icon: Network },
   ];
@@ -76,9 +86,9 @@ export function DashboardPage() {
   return <div className="space-y-6">
     <div className="page-heading">
       <div className="page-heading-copy">
-        <p className="page-kicker">Workspace overview</p>
+
         <h1 className="page-title">{user.name || user.username}，欢迎回来</h1>
-        <p className="page-description">查看研究资产、知识库规模与近期任务，然后继续上一次研究工作。</p>
+        <p className="page-description">查看数据库、知识库规模与近期任务，继续上一次研究工作。</p>
       </div>
       <div className="page-heading-action"><span className="status-badge status-success">本地知识库</span></div>
     </div>
@@ -103,7 +113,7 @@ export function DashboardPage() {
       </div>
     </section>
 
-    <div className="grid gap-5 xl:grid-cols-[1fr_340px]">
+    <div className="workspace-split workspace-split--summary">
       <section className="panel overflow-hidden" aria-labelledby="dashboard-latest-title">
         <div className="panel-header"><div><h2 id="dashboard-latest-title" className="section-title-sm">最近分析</h2><p className="section-help">最近保存的五项任务</p></div><Link to="/analysis" className="text-xs font-bold text-cinnabar">文本分析</Link></div>
         {loading ? <div className="empty-state min-h-56" role="status">正在读取研究数据…</div>
@@ -116,7 +126,7 @@ export function DashboardPage() {
               </div>
               <time className="shrink-0 text-xs text-ink/45" dateTime={task.created_at}>{new Date(task.created_at).toLocaleDateString("zh-CN")}</time>
             </div>
-            <p className="mt-1 line-clamp-2 text-xs leading-5 text-ink/55">{task.summary}</p>
+            <p className="mt-1 line-clamp-2 text-xs leading-5 text-ink/55">{taskSummary(task)}</p>
           </Link>)}</div>
           : <div className="empty-state min-h-56"><FlaskConical size={25} /><strong>暂无分析任务</strong><p>创建第一个任务后，分析摘要会出现在这里。</p></div>}
       </section>

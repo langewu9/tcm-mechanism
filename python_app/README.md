@@ -18,6 +18,21 @@ pnpm dev --host 127.0.0.1
 
 React/Vite 使用同源代理把 `/api/` 请求转发到 Django `127.0.0.1:8020`。
 
+## 肺系与卒中医案 RAG 语料
+
+研究助手使用独立数据库 `python_app/var/case-rag/corpus.sqlite3`，不写入平台业务库。开发 Compose 会在启动时迁移该数据库；生产 Compose 将其保存在 `case_rag_data` 卷。原数据库 Compose 把同一个 sidecar 文件放在 `python_app/var/case-rag/`，仅对该独立库执行迁移；原业务 SQLite 仍只做迁移状态检查。主机直接运行 Django 时省略 `CASE_RAG_DATABASE_URL`，默认路径即为上述文件。
+
+把整理后的工作簿导入当前环境：
+
+```bash
+# 在仓库根目录，开发 Compose 启动后执行
+docker compose -f deploy/compose.python.yml exec api python manage.py import_case_rag "/path/to/四类医案2500例_肺系中风结构化.xlsx"
+```
+
+命令读取“肺系疾病”“中风”“胃病”“咽炎”四张工作表，默认要求合计 2,500 条，保留肺系/中风原文、经过字段白名单筛选的临床结构信息、来源、工作表、原表抽取状态和工作簿 SHA-256。胃病与咽炎工作表没有完整原文列，因此以结构化临床字段检索；姓名缩写、病例号、样本号、用户和时间等身份/管理字段不进入 RAG。重复导入同一版本是幂等的，新文件会作为新版本保留，旧版不会被覆盖。导入完成后，研究助手按问题从独立语料库检索，并展示医案编号、来源、结构字段和可用的原文摘录。肺系/中风的规则抽取状态原样保留；其他记录未标注抽取状态时不会推定为人工校核。
+
+在主机直接运行的开发环境，先执行 `python manage.py migrate case_rag --database=case_rag`，再运行同一 `import_case_rag` 命令。生产环境可在 API 容器中对 `/app/var/case-rag` 挂载的数据卷执行导入。问答生成仅在用户明确同意后把检索到的语料片段和知识目录证据发送给所配置的本机或内网模型。
+
 首次启动后，可在仓库根目录新开终端创建 Django 超级管理员：
 
 ```bash

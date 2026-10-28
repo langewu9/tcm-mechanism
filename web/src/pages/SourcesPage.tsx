@@ -15,6 +15,7 @@ import {
 } from "../api/sources";
 import { ApiError } from "../api/client";
 import { SourceSettingsForm } from "../components/SourceSettingsForm";
+import { MasterTableStatus } from "../components/MasterTableStatus";
 
 function errorMessage(error: unknown) {
   return error instanceof ApiError ? error.message : "请求未完成，请稍后重试。";
@@ -174,17 +175,18 @@ export function SourcesPage() {
 
   return <>
 
-      <div className="page-heading"><div className="page-heading-copy"><p className="page-kicker">Source catalogue</p><h1 className="page-title">数据源同步</h1>
-        <p className="page-description">先试运行并检查差异，确认后再应用到本地知识目录。每次操作都会记录管理员、来源版本和文件校验值。</p></div>
+      <div className="page-heading"><div className="page-heading-copy"><h1 className="page-title">数据源同步</h1>
+        <p className="page-description">检查数据变更，审核后更新本地数据库。</p></div>
         <Link to="/proteomics" className="btn btn-secondary"><ArrowLeft size={16} />返回研究工作区</Link>
       </div>
 
       {error && <div className="notice-error workspace-notice" role="alert">{error}</div>}
       {notice && <div className="notice-success workspace-notice" role="status">{notice}</div>}
+      <MasterTableStatus />
 
-      <section className="source-sync-layout" aria-labelledby="source-list-heading">
+      <section className="source-sync-layout workspace-split workspace-split--balanced" aria-labelledby="source-list-heading">
         <div className="case-list">
-          <div className="case-list-heading"><div><p className="page-kicker">Connected providers</p><h2 id="source-list-heading" className="section-title-sm">已登记的数据源</h2></div></div>
+          <div className="case-list-heading"><div><h2 id="source-list-heading" className="section-title-sm">已登记的数据源</h2></div></div>
           {loading ? <div className="panel empty-state" role="status">正在读取数据源…</div> : sources.length ? <div className="case-list-items">
             {sources.map((source) => <article className="panel source-record" key={source.id}>
               <div className="case-record-top"><div><h3>{source.name}</h3><time>{source.slug} · {source.access_mode === "download" ? "版本文件" : source.access_mode}</time></div>
@@ -201,10 +203,10 @@ export function SourcesPage() {
               }} />
               {activeSourceIds.has(source.id) && <p className="section-help" role="status">此数据源已有同步任务，请等待完成后再提交。</p>}
               <p className="section-help">
-                定时预览：{!source.enabled ? "数据源已停用" : !source.scheduled_previews_enabled ? "部署开关未开启" :
+                定时预览：{!source.enabled ? "数据源已停用" : !source.scheduled_previews_enabled ? "未启用" :
                   source.refresh_interval_hours && source.refresh_interval_hours > 0 ? `每 ${source.refresh_interval_hours} 小时检查` : "未设置刷新间隔"}
                 {source.last_preview_requested_at ? ` · 最近调度：${dateTime(source.last_preview_requested_at)}` : ""}
-                。预览不会自动入库，仍需管理员审核确认。
+                。
               </p>
               {source.connector_type === "reactome-catalog" || source.slug === "reactome" || source.connector_type === "uniprot-human-catalog" || source.connector_type === "pubchem-compound-catalog" || source.connector_type === "string-human-identifier-crosswalk" ? <>
                 <p className="source-last-success">最近一次成功应用：{dateTime(source.last_success_at)}</p>
@@ -237,12 +239,15 @@ export function SourcesPage() {
                   </button>
                 </div>
                 {testResults[source.id] && <><p className="source-release-line">最近测试 {testResults[source.id].rowCount.toLocaleString()} 行 · SHA-256 {testResults[source.id].checksum.slice(0, 16)}…</p><ul className="proteomics-pathways source-table-counts">{Object.entries(testResults[source.id].tableRowCounts).map(([table, count]) => <li key={table}><strong>{table}</strong><span>{count.toLocaleString()} 行</span></li>)}</ul></>}
-              </> : <p className="section-help">此来源连接器将在后续计划阶段接入。</p>}
+              </> : source.connector_type === "local-workbooks-master" ? <>
+                <p className="source-last-success">最近一次成功导入：{dateTime(source.last_success_at)}</p>
+                <p className="section-help">已导入工作簿，来源版本与原始记录见统一主表。</p>
+              </> : <p className="section-help">此来源暂不支持目录同步，可在分析任务中按需调用。</p>}
             </article>)}
           </div> : <div className="panel empty-state">没有已登记的数据源。</div>}
 
           <form className="panel source-create-form" onSubmit={(event) => void addSQLiteSource(event)}>
-            <div className="panel-header"><div><h2 className="section-title-sm">登记旧版 SQLite 数据库</h2>
+            <div className="panel-header"><div><h2 className="section-title-sm">登记本地 SQLite 数据库</h2>
               <p className="section-help">将数据库文件放在服务器的 <code>SQLITE_SOURCE_ROOT</code> 目录内，再填写相对文件名。</p></div></div>
             <div className="source-create-grid">
               <label className="form-label">数据源名称<input className="field" required maxLength={160} value={sqliteForm.name} onChange={(event) => setSQLiteForm((form) => ({ ...form, name: event.target.value }))} placeholder="中药-成分-靶点数据库" /></label>
@@ -269,7 +274,7 @@ export function SourcesPage() {
         </div>
 
         <div className="case-list">
-          <div className="case-list-heading"><div><p className="page-kicker">Auditable operations</p><h2 className="section-title-sm">同步历史</h2></div>
+          <div className="case-list-heading"><div><h2 className="section-title-sm">同步历史</h2></div>
             {hasActiveRuns && <span className="status-badge status-warning">自动刷新中</span>}
           </div>
           {runs.length ? <div className="case-list-items">
@@ -283,7 +288,7 @@ export function SourcesPage() {
               const canApply = summary.mode === "preview" && run.status === "succeeded" && !activeApplyBases.has(run.id);
               return <article className="panel source-run-record" key={run.id}>
                 <div className="case-record-top"><div><h3>{run.source_name} · {summary.mode === "apply" ? "应用数据" : "预览数据"} #{run.id}</h3>
-                  <time>{dateTime(run.created_at)} · {run.trigger === "scheduled" ? "定时预览" : "人工触发"} · 操作者：{run.requested_by_username ?? (run.trigger === "scheduled" ? "系统调度" : "未知")}</time></div>
+                  <time>{dateTime(run.created_at)} · {run.trigger === "scheduled" ? "定时预览" : "人工触发"} · 操作者：{run.requested_by_username ?? (summary.actorCommand === "import_local_workbooks" ? "本地管理命令（内部授权）" : run.trigger === "scheduled" ? "系统调度" : "未知")}</time></div>
                   <span className={`status-badge ${run.status === "succeeded" ? "status-success" : run.status === "failed" ? "status-error" : "status-warning"}`}>{runStatus(run.status)}</span></div>
                 {run.status === "failed" && <div className="notice-error source-run-error" role="alert">{run.error_summary}</div>}
                 {summary.mode === "preview" && run.status === "succeeded" && <>
@@ -337,7 +342,7 @@ export function SourcesPage() {
                     onClick={() => void applyPreview(run)}><CheckCircle2 size={15} />应用此预览</button>}
                   {!canApply && activeApplyBases.has(run.id) && <p className="section-help">此预览已有待处理或成功的应用记录。</p>}
                 </>}
-                {summary.mode === "apply" && run.status === "succeeded" && <p className="source-release-line">本次导入 {run.records_seen} 项，新增 {run.records_created} 项，更新 {run.records_updated} 项，停用 {run.records_retired} 项。</p>}
+                {summary.mode === "apply" && run.status === "succeeded" && <p className="source-release-line">{summary.connector === "local-workbooks-master" ? `原始行 ${(summary.rows ?? run.records_seen).toLocaleString()}，证据关系 ${(summary.relations ?? 0).toLocaleString()}，待核查 ${summary.quarantined ?? 0} 行；完整对账后发布。` : `本次导入 ${run.records_seen} 项，新增 ${run.records_created} 项，更新 ${run.records_updated} 项，停用 ${run.records_retired} 项。`}</p>}
                 {(run.status === "pending" || run.status === "running") && <p className="source-release-line">任务正在后台执行；页面会自动刷新状态。</p>}
               </article>;
             })}

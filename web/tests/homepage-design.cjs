@@ -1,0 +1,52 @@
+const fs = require('node:fs');
+const path = require('node:path');
+const assert = require('node:assert/strict');
+const postcss = require('postcss');
+const root = path.resolve(__dirname, '..');
+const home = fs.readFileSync(path.join(root, 'src/pages/HomePage.tsx'), 'utf8');
+const css = fs.readFileSync(path.join(root, 'src/styles/homepage.css'), 'utf8');
+const ast = postcss.parse(css);
+ast.walkRules(rule => {
+  if (rule.parent.type === 'atrule' && rule.parent.name === 'keyframes') return;
+  for (const selector of rule.selectors) assert.ok(selector.startsWith('.yz-home') || selector.startsWith('.site-home.yz-home') || selector === 'body:has(.yz-home)', `Unscoped homepage selector: ${selector}`);
+});
+assert.ok(home.includes('getHomeStats()'));
+for (const count of ['herbs', 'compounds', 'targets', 'pathways']) assert.ok(home.includes(`counts.${count}`));
+assert.ok(home.includes('setStatsState("unavailable")'));
+assert.ok(home.includes('value: null'));
+assert.ok(home.includes('<HeroScroll />'));
+assert.ok(!home.includes('heroView') && !home.includes('R 图表示例'));
+assert.ok(css.includes('var(--xuan-paper-background)'));
+assert.ok(css.includes('.yz-home * { scroll-behavior:auto; transition:none !important; }'));
+const scroll = fs.readFileSync(path.join(root, 'src/components/HeroScroll.tsx'), 'utf8');
+assert.ok(scroll.includes('assetsReady.roller') && scroll.includes('assetsReady.paper'));
+assert.ok(!scroll.includes('yz-roller-cap-left') && !scroll.includes('yz-scroll-seal'));
+assert.ok(scroll.includes('top-roller.png'));
+for (const file of ['top-roller.png', 'paper.png', 'herb-lineart.png']) assert.ok(fs.existsSync(path.join(root, '../public/images/yuanzhi-scroll', file)));
+const brush = fs.readFileSync(path.join(root, 'src/styles/homepage-calligraphy.css'), 'utf8');
+postcss.parse(brush).walkRules(rule => {
+  for (const selector of rule.selectors) assert.ok(/^\.yz-home \.hero-scroll-(art|title|caption)$/.test(selector), `Brush style must stay ON the scroll: ${selector}`);
+});
+assert.ok(brush.includes('@font-face') && brush.includes('font-display:swap'));
+assert.ok(!brush.includes('.yz-hero h1') && !brush.includes('.yz-brand') && !brush.includes('.yz-tool'));
+assert.ok(brush.includes('.yz-home .hero-scroll-title { font-family:var(--yz-brush)'));
+assert.ok(!brush.includes('--font-ui:'));
+for (const file of ['scroll-script.woff', 'OFL.txt', 'README.md']) assert.ok(fs.existsSync(path.join(root, '../public/fonts/yuanzhi-scroll-script', file)));
+const fontBytes = fs.readFileSync(path.join(root, '../public/fonts/yuanzhi-scroll-script/scroll-script.woff'));
+assert.equal(fontBytes.subarray(0, 4).toString(), 'wOFF');
+assert.ok(fontBytes.length < 65536, 'Homepage font subset should stay under 64 KiB');
+assert.ok(home.includes('aria-expanded={menuOpen}') && home.includes('aria-controls="home-navigation"'));
+assert.ok(!home.includes('yz-preview') && !home.includes('/r-public-demo/'));
+assert.ok(!home.includes('面向科研探索'));
+for (const route of ['/research', '/proteomics', '/cases', '/demo', '/datasets', '/network-pharmacology', '/assistant', '/dashboard', '/register', '/login']) assert.ok(home.includes(`"${route}"`), route);
+for (const key of ['ppi_network', 'proteomics_go_kegg_enrichment', 'reactome_enrichment']) {
+  for (const ext of ['svg', 'html']) assert.ok(fs.existsSync(path.join(root, '../public/r-public-demo', `${key}.${ext}`)));
+}
+const manifest = JSON.parse(fs.readFileSync(path.join(root, '../public/r-public-demo/manifest.json'), 'utf8'));
+assert.equal(manifest.publicExample, true);
+assert.equal(manifest.provenance.sourceVersion, '12.5');
+assert.equal(manifest.provenance.license, 'CC BY 4.0');
+assert.ok(css.includes('max-width:780px') && css.includes('max-width:520px'));
+assert.ok(css.includes('prefers-reduced-motion'));
+assert.ok(!/https?:|@import/.test(css));
+console.log('PASS: scoped homepage CSS, real metric API and unavailable state, responsive navigation, labelled R previews with existing assets/provenance, research routes, and reduced motion.');
