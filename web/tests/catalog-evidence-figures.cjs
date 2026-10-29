@@ -22,6 +22,7 @@ subject.require=name=>{
   if(name==='../api/datasets')return {getAnalysisTask:deferred('restore')};
   if(name==='./KnowledgeNetworkGraph')return {KnowledgeNetworkGraph:'KnowledgeNetworkGraph'};
   if(name==='./RAnalysisGallery')return {RAnalysisGallery:'RAnalysisGallery'};
+  if(name==='./SnapshotEvidence')return {SnapshotEvidence:'SnapshotEvidence'};
   throw new Error('Unexpected import '+name);
 };
 subject._compile(ts.transpileModule(fs.readFileSync(filename,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText,filename);

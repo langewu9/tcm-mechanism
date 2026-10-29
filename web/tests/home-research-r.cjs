@@ -8,8 +8,24 @@ assert.ok(read('components/AppNavigation.tsx').includes('href: "/", label: "å¹³å
 assert.ok(read('components/AppShell.tsx').includes('to="/" className="brand-lockup"'));
 for(const file of ['components/ResearchToolTabs.tsx','components/DiseaseEvidenceResults.tsx','components/ComponentComparisonResults.tsx']) assert.ok(read(file).includes('CatalogRVisualization'));
 const network = read('pages/NetworkPharmacologyPage.tsx');
-assert.ok(network.includes('<RAnalysisGallery key={result.taskId} taskId={result.taskId} />'));
-assert.ok(!network.includes('<NetworkPharmacologyCharts'));
+const ts = require('typescript');
+const networkTree = ts.createSourceFile('NetworkPharmacologyPage.tsx',network,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
+const galleries = [], statistics = [];
+function visitNetwork(node) {
+  if (ts.isJsxSelfClosingElement(node)) {
+    if (node.tagName.getText(networkTree) === 'RAnalysisGallery') galleries.push(node);
+    if (node.tagName.getText(networkTree) === 'NetworkPharmacologyCharts') statistics.push(node);
+  }
+  ts.forEachChild(node, visitNetwork);
+}
+visitNetwork(networkTree);
+const expression = (node,name) => node.attributes.properties.find(attribute=>ts.isJsxAttribute(attribute) && attribute.name.text===name)?.initializer?.expression;
+const currentGalleries = galleries.filter(node=>expression(node,'taskId')?.getText(networkTree)==='result.taskId');
+assert.equal(currentGalleries.length,1,'The current network analysis has one R gallery');
+assert.ok(expression(currentGalleries[0],'key'),'The gallery remounts when its saved task changes');
+assert.equal(statistics.length,1,'Saved evidence statistics have one implementation in the page');
+assert.ok(expression(currentGalleries[0],'additionalCharts')?.getText(networkTree).includes('<NetworkPharmacologyCharts'),
+  'Saved evidence statistics render as a gallery subpage alongside the new R interface');
 const view = read('components/CatalogRVisualization.tsx');
 assert.ok(view.includes('expectedSha256') && view.includes('generation.current === current') && view.includes('lock.current'));
 assert.ok(!view.includes('network:') && !view.includes('nodes:'));

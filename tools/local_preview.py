@@ -45,7 +45,7 @@ def main():
         server = shutil.which("redis-server") or str(RUNTIME / "root/usr/bin/redis-server")
         execute([server, "--bind", "127.0.0.1", "--port", "6389", "--protected-mode", "yes", "--appendonly", "yes", "--dir", directory, "--save", ""], APP)
     elif role == "worker":
-        execute([APP / ".venv/bin/celery", "-A", "config", "worker", "--loglevel=INFO", "--pool=solo", "--concurrency=1", "--hostname=local-preview@%h"], APP)
+        execute([APP / ".venv/bin/celery", "-A", "config", "worker", "--loglevel=INFO", "--pool=solo", "--concurrency=1", "--queues=celery,r_visualization", "--hostname=local-preview@%h"], APP)
     else:
         if not os.environ.get("R_VIZ_API_TOKEN"):
             raise SystemExit("Configure R_VIZ_API_TOKEN in python_app/.env first.")

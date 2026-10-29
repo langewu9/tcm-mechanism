@@ -66,6 +66,8 @@ def api_exception_handler(exc, context):
         code, message = "EMAIL_NOT_VERIFIED", "请先通过注册邮箱中的链接完成邮箱验证。"
     elif exception_code == "catalog_results_changed":
         code, message = "CATALOG_RESULTS_CHANGED", "目录数据已更新，请重新检索后再保存关系图。"
+    elif exception_code == "artifact_unavailable":
+        code, message = "ARTIFACT_UNAVAILABLE", str(exc.detail)
     elif exception_code == "upload_quota_exceeded":
         code, message = "UPLOAD_QUOTA_EXCEEDED", str(exc.detail)
         response.data = {"quota": exc.usage}

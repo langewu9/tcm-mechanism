@@ -8,7 +8,9 @@ from django.db.models import Q, Subquery
 
 from apps.core.models import EvidenceRelation, KnowledgeEntity
 from .catalog_identity import exact_entity_names, exact_entity_queryset, structural_representatives
+from .herb_row_query import supported_target_queryset
 from .herb_row_support import HerbRowSupport
+from .compound_lookup import resolve_compounds
 
 
 HERB_COMPOUND_TYPES = {"contains", "herb_compound", "has_compound"}
@@ -23,7 +25,7 @@ def _visible_entity_filter(queryset):
 
 def _visible_relations(
     *, relation_types, subject_ids=None, object_ids=None,
-    subject_types=None, object_types=None, limit=MAX_RELATIONS,
+    subject_types=None, object_types=None, herb_relations=None, limit=MAX_RELATIONS, complete=False,
 ):
     candidates = EvidenceRelation.objects.filter(
         is_active=True, subject__is_active=True, object__is_active=True,
@@ -40,15 +42,15 @@ def _visible_relations(
         candidates = candidates.filter(subject__entity_type__in=subject_types)
     if object_types is not None:
         candidates = candidates.filter(object__entity_type__in=object_types)
-    # Sort/filter just the primary keys, then hydrate at most limit+1 rows.
-    # Wide entity metadata and source details do not enter the candidate sort.
-    ids = structural_representatives(candidates, relation_types=relation_types).order_by("id").values("pk")[:limit + 1]
+    if herb_relations is not None:
+        candidates = supported_target_queryset(candidates, herb_relations)
+    if not complete:
+        candidates = structural_representatives(candidates, relation_types=relation_types)
+    # Filter row support before the cap; hydrate only the bounded primary keys.
+    ids = candidates.order_by("id").values("pk")[:limit + 1]
     queryset = EvidenceRelation.objects.filter(pk__in=Subquery(ids)).select_related(
         "subject", "object", "source_release", "source_release__source",
-    ).order_by("id")
-    # Entity provenance is used when assembling each unique compound/target.
-    # Load it in bounded batches instead of issuing two queries per entity.
-    queryset = queryset.prefetch_related(
+    ).order_by("id").prefetch_related(
         "subject__source_release__source", "object__source_release__source",
     )
     records = list(queryset)
@@ -61,10 +63,12 @@ def _entity_record(entity: KnowledgeEntity) -> dict:
     return {
         "id": entity.pk,
         "stableId": entity.stable_id,
+        "entityType": entity.entity_type,
         "label": entity.label,
         "sourceReleaseId": entity.source_release_id,
         "sourceSlug": release.source.slug if release else None,
         "sourceVersion": release.version if release else None,
+        "sourceChecksumSha256": release.checksum_sha256 if release else None,
         "sourceEntityId": metadata.get("sourceEntityId"),
         "sourceReferences": metadata.get("sourceReferences", []),
         "identifierStatus": metadata.get("identifierStatus"),
@@ -74,7 +78,7 @@ def _entity_record(entity: KnowledgeEntity) -> dict:
 
 def _relation_record(relation: EvidenceRelation) -> dict:
     metadata = relation.metadata if isinstance(relation.metadata, dict) else {}
-    return {
+    record = {
         "id": relation.pk,
         "relationId": relation.pk, "subjectId": relation.subject_id, "objectId": relation.object_id,
         "sourceReleaseId": relation.source_release_id,
@@ -87,22 +91,33 @@ def _relation_record(relation: EvidenceRelation) -> dict:
         "sourceSlug": relation.source_release.source.slug,
         "sourceVersion": relation.source_release.version,
         "sourceRecordId": relation.source_record_id,
+        "sourceRowId": metadata.get("sourceRowId"),
+        "sourceChecksumSha256": relation.source_release.checksum_sha256,
         "sourceOrigin": metadata.get("sourceOrigin"),
         "sourceIdentity": metadata.get("sourceIdentity"),
         "score": float(relation.score) if relation.score is not None else None,
     }
+    # Disease assertions also pass through this shared serializer in complete
+    # network snapshots; do not drop their original names or provenance there.
+    for key in ("sourceFile", "sourceDiseaseLabel", "sourceHerbLabel", "sourceTargetLabel"):
+        if isinstance(metadata.get(key), str):
+            record[key] = metadata[key]
+    return record
 
 
-def batch_herb_component_evidence(*, query_type: str, queries: list[str]) -> dict:
+def batch_herb_component_evidence(*, query_type: str, queries: list[str], relation_limit=MAX_RELATIONS, match_limit=MAX_MATCHES, complete=False) -> dict:
     result_items = []
     for raw_query in queries:
         query = raw_query.strip()
+        resolution = None
         entity_type = KnowledgeEntity.EntityType.HERB if query_type == "herb" else KnowledgeEntity.EntityType.COMPOUND
-        matches = list(
-            exact_entity_queryset(entity_type, query).select_related("source_release", "source_release__source").order_by("stable_id")[:MAX_MATCHES + 1]
-        )
-        matches_truncated = len(matches) > MAX_MATCHES
-        matches = matches[:MAX_MATCHES]
+        if query_type == "compound":
+            matches, matches_truncated, resolution = resolve_compounds(query, limit=match_limit)
+        else:
+            matches = list(exact_entity_queryset(entity_type, query).select_related(
+                "source_release", "source_release__source").order_by("stable_id")[:match_limit + 1])
+            matches_truncated = len(matches) > match_limit
+            matches = matches[:match_limit]
         matched_ids = {item.pk for item in matches}
 
         if query_type == "herb":
@@ -110,12 +125,14 @@ def batch_herb_component_evidence(*, query_type: str, queries: list[str]) -> dic
                 subject_ids=matched_ids,
                 relation_types=HERB_COMPOUND_TYPES,
                 object_types=[KnowledgeEntity.EntityType.COMPOUND],
+                limit=relation_limit, complete=complete,
             ) if matched_ids else ([], False)
             compound_ids = {item.object_id for item in herb_edges}
             target_edges, target_edges_truncated = _visible_relations(
-                subject_ids=compound_ids,
                 relation_types=COMPOUND_TARGET_TYPES,
                 object_types=[KnowledgeEntity.EntityType.PROTEIN, KnowledgeEntity.EntityType.GENE],
+                herb_relations=herb_edges,
+                limit=relation_limit, complete=complete,
             ) if compound_ids else ([], False)
             support = HerbRowSupport(herb_edges)
             target_edges = [relation for relation in target_edges if support.for_target(relation)]
@@ -127,10 +144,12 @@ def batch_herb_component_evidence(*, query_type: str, queries: list[str]) -> dic
                 object_ids=matched_ids,
                 relation_types=HERB_COMPOUND_TYPES,
                 subject_types=[KnowledgeEntity.EntityType.HERB],
+                limit=relation_limit, complete=complete,
             ) if matched_ids else ([], False)
             target_edges, target_edges_truncated = _visible_relations(
                 subject_ids=matched_ids,
                 relation_types=COMPOUND_TARGET_TYPES,
+                limit=relation_limit, complete=complete,
                 object_types=[KnowledgeEntity.EntityType.PROTEIN, KnowledgeEntity.EntityType.GENE],
             ) if matched_ids else ([], False)
             herbs = list({item.subject_id: item.subject for item in herb_edges}.values())
@@ -140,7 +159,8 @@ def batch_herb_component_evidence(*, query_type: str, queries: list[str]) -> dic
         relations = [*herb_edges, *target_edges]
         result_items.append({
             "query": query,
-            **({"searchedNames": exact_entity_names(entity_type, query)} if query_type == "compound" else {}),
+            **({"searchedNames": resolution["expandedNames"]} if query_type == "compound" else {}),
+            **({'resolution': resolution} if resolution is not None else {}),
             "matches": [_entity_record(item) for item in matches],
             "ambiguous": len(matches) > 1,
             "herbs": [_entity_record(item) for item in sorted(herbs, key=lambda item: item.label.casefold())],

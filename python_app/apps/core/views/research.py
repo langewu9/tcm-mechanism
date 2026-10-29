@@ -4,9 +4,9 @@ from django.conf import settings
 from django.core.files.storage import default_storage
 from django.db import transaction
 from django.db.models import Count, Q
-from django.db.models.fields.json import KeyTextTransform
+from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import JSONObject, Substr
-from django.http import FileResponse, HttpResponse
+from django.http import FileResponse, HttpResponse, StreamingHttpResponse
 from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
@@ -14,6 +14,7 @@ from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -29,6 +30,7 @@ from apps.proteomics.services import ALGORITHM_VERSION
 from ..services.research_retention import dataset_audit, retention_scope, set_archived
 from ..serializers.research import AnalysisTaskSummarySerializer, ResearchDatasetAuditEventSerializer
 from ..services.access_audit import SensitiveReadAuditMixin, mark_sensitive_access
+from ..services.artifact_integrity import ArtifactReadError, ArtifactUnavailable, verified_artifact_bytes
 
 
 class ResearchDashboardView(APIView):
@@ -167,13 +169,12 @@ class ResearchDatasetViewSet(SensitiveReadAuditMixin, viewsets.ModelViewSet):
             run_proteomics_task.apply_async(args=[task.pk])
         except Exception as exc:
             record_runtime_event("task.queue_unavailable", request=request, task_id=task.pk, exception=exc)
-            task.status = AnalysisTask.Status.FAILED
-            task.progress = 100
-            task.error_summary = "任务队列暂不可用，请稍后重试。"
-            from django.utils import timezone
-
-            task.finished_at = timezone.now()
-            task.save(update_fields=["status", "progress", "error_summary", "finished_at"])
+            AnalysisTask.objects.filter(pk=task.pk, status=AnalysisTask.Status.QUEUED).update(
+                status=AnalysisTask.Status.FAILED,
+                progress=100,
+                error_summary="任务队列暂不可用，请稍后重试。",
+                finished_at=timezone.now(),
+            )
             raise TaskQueueUnavailable() from exc
         return Response(AnalysisTaskSerializer(task).data, status=status.HTTP_202_ACCEPTED)
 
@@ -281,14 +282,30 @@ class MedicalCaseViewSet(SensitiveReadAuditMixin, viewsets.ModelViewSet):
             )
         return Response(MedicalCaseSerializer(case).data)
 
+    @extend_schema(methods=["GET"], parameters=[OpenApiParameter(
+        "task_id", OpenApiTypes.INT, OpenApiParameter.QUERY,
+        description="可选历史医案关联任务编号；只读取当前医案的对应任务。",
+    )])
     @action(detail=True, methods=["get", "post"], url_path="analysis")
     def analysis(self, request, pk=None):
         case = self.get_object()
         if request.method == "GET":
-            task = AnalysisTask.objects.filter(
+            tasks = AnalysisTask.objects.filter(
                 medical_case=case,
                 task_type=AnalysisTask.TaskType.CASE_LINK,
-            ).first()
+            )
+            task_ids = request.query_params.getlist("task_id")
+            if task_ids:
+                raw_task_id = task_ids[0]
+                if (len(task_ids) != 1 or not raw_task_id.isascii()
+                        or not raw_task_id.isdecimal() or raw_task_id.startswith("0")
+                        or len(raw_task_id) > 16 or int(raw_task_id) > 9007199254740991):
+                    raise ValidationError({"task_id": "请选择有效的历史任务编号。"})
+                task = tasks.filter(pk=int(raw_task_id)).first()
+                if task is None:
+                    raise NotFound("该医案的历史分析任务不存在。")
+            else:
+                task = tasks.first()
             from ..services.case_analysis import case_input_sha256, case_model_configuration
 
             candidates = (
@@ -357,11 +374,12 @@ class MedicalCaseViewSet(SensitiveReadAuditMixin, viewsets.ModelViewSet):
             run_case_analysis_task.apply_async(args=[task.pk])
         except Exception as exc:
             record_runtime_event("task.queue_unavailable", request=request, task_id=task.pk, exception=exc)
-            task.status = AnalysisTask.Status.FAILED
-            task.progress = 100
-            task.error_summary = "医案分析任务队列暂不可用，请稍后重试。"
-            task.finished_at = timezone.now()
-            task.save(update_fields=["status", "progress", "error_summary", "finished_at"])
+            AnalysisTask.objects.filter(pk=task.pk, status=AnalysisTask.Status.QUEUED).update(
+                status=AnalysisTask.Status.FAILED,
+                progress=100,
+                error_summary="医案分析任务队列暂不可用，请稍后重试。",
+                finished_at=timezone.now(),
+            )
             raise TaskQueueUnavailable() from exc
         return Response(AnalysisTaskSerializer(task).data, status=status.HTTP_202_ACCEPTED)
 
@@ -387,13 +405,15 @@ class MedicalCaseViewSet(SensitiveReadAuditMixin, viewsets.ModelViewSet):
         if candidate.task.status != AnalysisTask.Status.SUCCEEDED:
             raise ValidationError({"candidate": "分析任务尚未完成，不能审核候选。"})
         decision = serializer.validated_data["decision"]
-        from ..services.case_analysis import case_input_sha256, refresh_case_analysis_result
+        from ..services.case_analysis import candidate_entity_available, case_input_sha256, refresh_case_analysis_result
         from ..services.case_audit import create_case_audit_event
 
         with transaction.atomic():
             # Serialize edits and confirmations against the case row so a concurrent edit
             # cannot slip between the stale-content check and accepting the candidate.
             case = MedicalCase.objects.select_for_update().get(pk=case.pk)
+            if case.archived_at:
+                raise ValidationError({"candidate": "医案已归档，请先恢复后再审核候选。"})
             candidate = MedicalCaseCandidate.objects.select_for_update().get(
                 pk=candidate.pk,
                 medical_case=case,
@@ -407,6 +427,8 @@ class MedicalCaseViewSet(SensitiveReadAuditMixin, viewsets.ModelViewSet):
                 raise ValidationError({"candidate": "分析后医案内容已修改；请重新分析后再确认候选。"})
             if decision == "accept" and not candidate.entity_id:
                 raise ValidationError({"candidate": "该名称无法唯一关联本地规范实体，不能加入下游证据链。"})
+            if decision == "accept" and not candidate_entity_available(candidate):
+                raise ValidationError({"candidate": "候选实体已停用、来源不可用或类型不匹配；请重新核对后再确认。"})
             before = {
                 f"candidate_{candidate.pk}_review_status": candidate.review_status,
                 f"candidate_{candidate.pk}_reviewed_by_id": candidate.reviewed_by_id,
@@ -442,6 +464,12 @@ class MedicalCaseViewSet(SensitiveReadAuditMixin, viewsets.ModelViewSet):
         return Response(MedicalCaseCandidateSerializer(candidate).data)
 
 
+class SnapshotPagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = "page_size"
+    max_page_size = 100
+
+
 class AnalysisTaskViewSet(SensitiveReadAuditMixin, viewsets.ReadOnlyModelViewSet):
     sensitive_resource_type = "task"
     queryset = AnalysisTask.objects.none()
@@ -462,6 +490,9 @@ class AnalysisTaskViewSet(SensitiveReadAuditMixin, viewsets.ReadOnlyModelViewSet
                     parentTaskId=Substr(KeyTextTransform("parentTaskId", "input_parameters"), 1, 20),
                 )
             )
+        elif self.action == "snapshot_rows":
+            queryset = queryset.defer("input_parameters", "result").annotate(
+                frozen_snapshot_manifest=KeyTransform("snapshot", "result"))
         else:
             queryset = queryset.prefetch_related("source_releases")
         if not self.request.user.is_superuser:
@@ -472,6 +503,45 @@ class AnalysisTaskViewSet(SensitiveReadAuditMixin, viewsets.ReadOnlyModelViewSet
     @action(detail=False, methods=["get"], serializer_class=AnalysisTaskSummarySerializer)
     def summaries(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
+
+    @extend_schema(parameters=[OpenApiParameter("table", OpenApiTypes.STR), OpenApiParameter("page", OpenApiTypes.INT),
+                               OpenApiParameter("page_size", OpenApiTypes.INT)], responses=OpenApiTypes.OBJECT)
+    @action(detail=True, methods=["get"], url_path="snapshot-rows")
+    def snapshot_rows(self, request, pk=None):
+        from ..services.snapshot_exports import snapshot_table
+        task = self.get_object()
+        name = request.query_params.get("table", "evidenceRecords")
+        manifest, rows = snapshot_table(task, name)
+        paginator = SnapshotPagination()
+        page = paginator.paginate_queryset(rows, request, view=self)
+        response = paginator.get_paginated_response([{"ordinal": row.ordinal, "payload": row.payload} for row in page])
+        response.data.update(taskId=task.pk, table=name, snapshotSha256=manifest["sha256"],
+                             tableSha256=manifest["tables"][name]["sha256"], complete=True)
+        return response
+
+    @extend_schema(parameters=[OpenApiParameter("table", OpenApiTypes.STR),
+                               OpenApiParameter("file_format", OpenApiTypes.STR, enum=["csv", "jsonl"])],
+                   responses={(200, "text/csv"): OpenApiTypes.BINARY, (200, "application/x-ndjson"): OpenApiTypes.BINARY})
+    @action(detail=True, methods=["get"], url_path="snapshot-export")
+    def snapshot_export(self, request, pk=None):
+        from ..services.snapshot_exports import csv_chunks, jsonl_chunks, snapshot_manifest, snapshot_table
+        task = self.get_object()
+        manifest = snapshot_manifest(task)
+        table = request.query_params.get("table")
+        export_format = request.query_params.get("file_format", "jsonl")
+        if export_format not in {"csv", "jsonl"}:
+            raise ValidationError({"file_format": "完整快照仅支持 csv 或 jsonl。"})
+        if table:
+            snapshot_table(task, table)
+        if export_format == "csv" and not table:
+            raise ValidationError({"table": "CSV 导出必须指定证据表。"})
+        response = StreamingHttpResponse(csv_chunks(task, table) if export_format == "csv" else jsonl_chunks(task, table),
+                    content_type="text/csv; charset=utf-8" if export_format == "csv" else "application/x-ndjson; charset=utf-8")
+        suffix = f"-{table}" if table else ""
+        response["Content-Disposition"] = f'attachment; filename="snapshot-task-{task.pk}{suffix}.{export_format}"'
+        response["X-Snapshot-Sha256"] = manifest["sha256"]
+        response["X-Content-Type-Options"] = "nosniff"
+        return response
 
     @action(detail=True, methods=["post"], url_path="visualizations")
     def visualizations(self, request, pk=None):
@@ -497,11 +567,12 @@ class AnalysisTaskViewSet(SensitiveReadAuditMixin, viewsets.ReadOnlyModelViewSet
                 run_visualization_task.apply_async(args=[task.pk])
             except Exception as exc:
                 record_runtime_event("task.queue_unavailable", request=request, task_id=task.pk, exception=exc)
-                task.status = AnalysisTask.Status.FAILED
-                task.progress = 100
-                task.error_summary = "R 图表任务队列暂不可用，请稍后重试。"
-                task.finished_at = timezone.now()
-                task.save(update_fields=["status", "progress", "error_summary", "finished_at"])
+                AnalysisTask.objects.filter(pk=task.pk, status=AnalysisTask.Status.QUEUED).update(
+                    status=AnalysisTask.Status.FAILED,
+                    progress=100,
+                    error_summary="R 图表任务队列暂不可用，请稍后重试。",
+                    finished_at=timezone.now(),
+                )
                 raise TaskQueueUnavailable() from exc
         return Response(
             AnalysisTaskSerializer(task).data,
@@ -577,11 +648,30 @@ class ResearchAssistantView(APIView):
         serializer = ResearchAssistantRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        from ..services.research_assistant import (
-            ASSISTANT_ALGORITHM_VERSION,
-            ResearchAssistantError,
-            build_evidence_snapshot,
-        )
+        if data["mode"] == "scientist_hypothesis":
+            from ..services.scientist_report import VERSION
+            task = AnalysisTask.objects.create(
+                owner=request.user, created_by=request.user,
+                task_type=AnalysisTask.TaskType.RESEARCH_ASSISTANT,
+                input_parameters={"analysisKind": "scientist_hypothesis", "algorithmVersion": VERSION,
+                    "name": "本地研究计划报告", "complete": True, "question": data["question"],
+                    "disease": data["disease"], "herb": "\n".join(data["formulaHerbs"]),
+                    "formulaHerbs": data["formulaHerbs"], "focus": data["focus"],
+                    "useModel": False, "modelConsentRecorded": False},
+            )
+            # Use the existing assistant worker; completion and evidence rows
+            # are published atomically by the shared snapshot implementation.
+            try:
+                from ..tasks import run_research_assistant_task
+                run_research_assistant_task.apply_async(args=[task.pk])
+            except Exception as exc:
+                record_runtime_event("task.queue_unavailable", request=request, task_id=task.pk, exception=exc)
+                AnalysisTask.objects.filter(pk=task.pk, status=AnalysisTask.Status.QUEUED).update(
+                    status=AnalysisTask.Status.FAILED, progress=100,
+                    error_summary="科研助手任务队列暂不可用，请稍后重试。", finished_at=timezone.now())
+                raise TaskQueueUnavailable() from exc
+            return Response(AnalysisTaskSerializer(task).data, status=status.HTTP_202_ACCEPTED)
+        from ..services.research_assistant import ASSISTANT_ALGORITHM_VERSION, ResearchAssistantError, build_evidence_snapshot
         if data["useModel"]:
             from ..services.case_analysis import case_model_configuration
             if not case_model_configuration()["configured"]:
@@ -618,11 +708,12 @@ class ResearchAssistantView(APIView):
             run_research_assistant_task.apply_async(args=[task.pk])
         except Exception as exc:
             record_runtime_event("task.queue_unavailable", request=request, task_id=task.pk, exception=exc)
-            task.status = AnalysisTask.Status.FAILED
-            task.progress = 100
-            task.error_summary = "科研助手任务队列暂不可用，请稍后重试。"
-            task.finished_at = timezone.now()
-            task.save(update_fields=["status", "progress", "error_summary", "finished_at"])
+            AnalysisTask.objects.filter(pk=task.pk, status=AnalysisTask.Status.QUEUED).update(
+                status=AnalysisTask.Status.FAILED,
+                progress=100,
+                error_summary="科研助手任务队列暂不可用，请稍后重试。",
+                finished_at=timezone.now(),
+            )
             raise TaskQueueUnavailable() from exc
         return Response(AnalysisTaskSerializer(task).data, status=status.HTTP_202_ACCEPTED)
 
@@ -640,15 +731,13 @@ class VisualizationArtifactDownloadView(APIView):
             artifact = queryset.get(pk=pk)
         except VisualizationArtifact.DoesNotExist as exc:
             raise NotFound("图表文件不存在或无权访问。") from exc
-        if not default_storage.exists(artifact.storage_key):
-            raise NotFound("图表文件暂不可用。")
-        inline = (
-            request.query_params.get("inline") == "1"
-            and artifact.file_format in {"svg", "png", "html"}
-        )
-        response = FileResponse(
-            default_storage.open(artifact.storage_key, "rb"),
-            as_attachment=not inline,
+        mark_sensitive_access(request, operation="artifact.download", action="download", resources=[artifact])
+        try:
+            verified = verified_artifact_bytes(artifact)
+        except ArtifactReadError as exc:
+            raise ArtifactUnavailable() from exc
+        inline = (request.query_params.get("inline") == "1" and artifact.file_format in {"svg", "png", "html"})
+        response = FileResponse(verified, as_attachment=not inline,
             filename=artifact.filename,
             content_type=artifact.mime_type,
         )
@@ -666,5 +755,4 @@ class VisualizationArtifactDownloadView(APIView):
             # Otherwise Django's default DENY also blocks the intended iframe.
             response["X-Frame-Options"] = "SAMEORIGIN"
             response["Content-Security-Policy"] += "; frame-ancestors 'self'"
-        mark_sensitive_access(request, operation="artifact.download", action="download", resources=[artifact])
         return response

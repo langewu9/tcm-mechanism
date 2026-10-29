@@ -1,16 +1,18 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { Activity, ArrowLeft, Network, RefreshCw } from "lucide-react";
-import { getAnalysisTask, type AnalysisTask } from "../api/datasets";
-import { createVisualization, runNetworkPharmacology, runReactomeEnrichment, runStringNetwork, type NetworkPharmacologyResult } from "../api/network";
+import { getAnalysisTask, getAnalysisTaskSummaries, type AnalysisTask } from "../api/datasets";
+import { createVisualization, runNetworkPharmacology, runReactomeEnrichment, runStringNetwork, type NetworkPharmacologyResult, type ReactomeEnrichmentResult as ReactomeResult } from "../api/network";
 import { ApiError } from "../api/client";
 import { KnowledgeNetworkGraph } from "../components/KnowledgeNetworkGraph";
 import { NetworkResultDownloads } from "../components/NetworkResultDownloads";
 import { ReactomeEnrichmentResult } from "../components/ReactomeEnrichmentResult";
 import { StringTaskResult } from "../components/StringNetworkResult";
+import { NetworkPharmacologyCharts } from "../components/NetworkPharmacologyCharts";
 import { RAnalysisGallery } from "../components/RAnalysisGallery";
 import { RChartViewer, hasInteractiveRenderer } from "../components/RChartViewer";
 import { TargetIntersectionFigure, TargetIntersectionNotice, intersectionState } from "../components/TargetIntersectionFigure";
+import { waitForCompleteTask } from "../api/complete-evidence";
 
 type QueryTask = { sourceTaskId: number; task: AnalysisTask };
 
@@ -24,8 +26,53 @@ function verifyTaskSource(task: AnalysisTask, sourceTaskId: number, kind: string
   }
 }
 
+function isParentId(value: unknown, parentId: number) {
+  return value === parentId || value === String(parentId);
+}
+
+function verifyOverlapTask(task: AnalysisTask, sourceTaskId: number, requestedId?: number) {
+  if (!Number.isSafeInteger(task.id) || task.id < 1 || (requestedId !== undefined && task.id !== requestedId)
+    || task.task_type !== "visualization" || task.parent_task !== sourceTaskId
+    || task.input_parameters.analysisKind !== "r_visualization" || task.input_parameters.chartKey !== "overlap"
+    || !isParentId(task.input_parameters.parentTaskId, sourceTaskId)) {
+    throw new ApiError("R 图表任务与当前分析的来源关联不一致，暂不展示该图表。", "TASK_SOURCE_MISMATCH", null, null, 502);
+  }
+  if (task.status === "succeeded") {
+    const value = task.result as Record<string, unknown>;
+    if (value.taskId !== task.id || !isParentId(value.parentTaskId, sourceTaskId) || value.chartKey !== "overlap") {
+      throw new ApiError("R 图表结果与请求的任务编号不一致，暂不展示该图表。", "TASK_SOURCE_MISMATCH", null, null, 502);
+    }
+  }
+}
+
+async function restoreOverlapTask(sourceTaskId: number, isActive: () => boolean): Promise<AnalysisTask | null> {
+  const seen = new Set<number>();
+  for (let pageNumber = 1; isActive(); pageNumber++) {
+    // Only use the authenticated summaries endpoint; never follow a supplied next URL.
+    const page = await getAnalysisTaskSummaries(pageNumber, sourceTaskId);
+    if (!isActive()) return null;
+    let newRows = 0;
+    for (const summary of page.results) {
+      if (!seen.has(summary.id)) { seen.add(summary.id); newRows++; }
+      if (!Number.isSafeInteger(summary.id) || summary.id < 1 || summary.task_type !== "visualization"
+        || summary.parent_task !== sourceTaskId || summary.display_parameters?.analysisKind !== "r_visualization"
+        || summary.display_parameters.chartKey !== "overlap"
+        || !isParentId(summary.display_parameters.parentTaskId, sourceTaskId)) continue;
+      const task = await getAnalysisTask(summary.id);
+      if (!isActive()) return null;
+      verifyOverlapTask(task, sourceTaskId, summary.id);
+      return task;
+    }
+    if (!page.next) return null;
+    if (!newRows) throw new Error("R 图表历史分页响应无效，请重新读取。");
+  }
+  return null;
+}
+
 export function NetworkPharmacologyPage() {
   const location = useLocation();
+  const [params, setParams] = useSearchParams();
+  const savedNetworkId = params.get("networkTask");
   const [herb, setHerb] = useState("");
   const [disease, setDisease] = useState("");
   const [result, setResult] = useState<NetworkPharmacologyResult | null>(null);
@@ -36,19 +83,26 @@ export function NetworkPharmacologyPage() {
   const [shareWithString, setShareWithString] = useState(false);
   const [requiredScore, setRequiredScore] = useState(700);
   const [busy, setBusy] = useState(false);
+  const [localProgress, setLocalProgress] = useState("");
   const [pathwaySubmitting, setPathwaySubmitting] = useState(false);
   const [stringSubmitting, setStringSubmitting] = useState(false);
   const [visualizationSubmitting, setVisualizationSubmitting] = useState(false);
+  const [visualizationHistorySource, setVisualizationHistorySource] = useState<number | null>(null);
+  const [visualizationHistoryLoading, setVisualizationHistoryLoading] = useState(false);
+  const [visualizationHistoryError, setVisualizationHistoryError] = useState<string | null>(null);
+  const [visualizationHistoryReload, setVisualizationHistoryReload] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [pollingError, setPollingError] = useState<string | null>(null);
   const [caseContext, setCaseContext] = useState<{ caseId: number; candidateId: number } | null>(null);
   const mounted = useRef(false);
   const localSubmissionInFlight = useRef(false);
+  const submittedTaskId = useRef<number | null>(null);
   const queryGeneration = useRef(0);
   const currentSourceTaskId = useRef<number | null>(null);
   const submittingGeneration = useRef<{ pathway: number | null; string: number | null; visualization: number | null }>({ pathway: null, string: null, visualization: null });
   const pathwayTask = pathwayBinding?.sourceTaskId === result?.taskId ? pathwayBinding?.task ?? null : null;
   const stringTask = stringBinding?.sourceTaskId === result?.taskId ? stringBinding?.task ?? null : null;
+  const reactomeResult = pathwayTask?.status === "succeeded" ? pathwayTask.result as unknown as ReactomeResult : null;
   const visualizationTask = visualizationBinding?.sourceTaskId === result?.taskId ? visualizationBinding?.task ?? null : null;
 
   useEffect(() => {
@@ -59,6 +113,54 @@ export function NetworkPharmacologyPage() {
   function isCurrentQuery(generation: number, sourceTaskId: number) {
     return mounted.current && queryGeneration.current === generation && currentSourceTaskId.current === sourceTaskId;
   }
+
+  useEffect(() => {
+    if (!savedNetworkId || (localSubmissionInFlight.current && savedNetworkId === String(submittedTaskId.current))) return;
+    const generation = ++queryGeneration.current;
+    let active = true;
+    currentSourceTaskId.current = null;
+    setVisualizationBinding(null); setVisualizationHistorySource(null); setVisualizationHistoryError(null);
+    setResult(null); setError(null); setBusy(true);
+    setLocalProgress("正在读取已保存的本地分析…");
+    async function restore() {
+      try {
+        if (!/^[1-9]\d*$/.test(savedNetworkId!) || !Number.isSafeInteger(Number(savedNetworkId))) throw new Error("网络药理任务编号无效。");
+        const source = await getAnalysisTask(Number(savedNetworkId));
+        if (!active || !mounted.current || queryGeneration.current !== generation) return;
+        if (source.id !== Number(savedNetworkId) || source.task_type !== "network" || source.input_parameters.analysisKind !== "network_pharmacology") throw new Error("该任务不是网络药理分析，请从对应目录查询打开。");
+        const task = await waitForCompleteTask(source, {
+          isActive: () => active && mounted.current && queryGeneration.current === generation,
+          onTask: current => setLocalProgress(`任务 #${current.id} · ${current.status} · ${current.progress}%`),
+          onReadError: () => setLocalProgress("任务进度读取失败，正在重试读取已有任务…"),
+        });
+        if (!active || !mounted.current || queryGeneration.current !== generation) return;
+        if (task.id !== source.id || task.task_type !== "network" || task.input_parameters.analysisKind !== "network_pharmacology") throw new Error("历史任务来源不一致，请重新读取。");
+        const data = task.result as unknown as NetworkPharmacologyResult;
+        if (!data.summary || !Array.isArray(data.targets) || !data.network) throw new Error("任务没有可展示的网络药理结果。");
+        currentSourceTaskId.current = task.id;
+        setResult({ ...data, taskId: task.id }); setHerb(data.summary.herb); setDisease(data.summary.disease);
+        setVisualizationHistorySource(task.id);
+      } catch (cause) { if (active && mounted.current && queryGeneration.current === generation) setError(cause instanceof Error ? cause.message : "历史分析读取失败，请刷新重试。"); }
+      finally { if (active && mounted.current && queryGeneration.current === generation) setBusy(false); }
+    }
+    void restore();
+    return () => { active = false; };
+  }, [savedNetworkId]);
+
+  useEffect(() => {
+    if (visualizationHistorySource === null) { setVisualizationHistoryLoading(false); return; }
+    const sourceTaskId = visualizationHistorySource;
+    const generation = queryGeneration.current;
+    let active = true;
+    const isActive = () => active && isCurrentQuery(generation, sourceTaskId);
+    setVisualizationHistoryLoading(true); setVisualizationHistoryError(null);
+    void restoreOverlapTask(sourceTaskId, isActive).then(task => {
+      if (isActive()) setVisualizationBinding(task ? { sourceTaskId, task } : null);
+    }).catch(() => {
+      if (isActive()) setVisualizationHistoryError("历史 R 图表读取失败，主分析结果已保留。可重新读取历史图表，不会自动重新绘图。");
+    }).finally(() => { if (isActive()) setVisualizationHistoryLoading(false); });
+    return () => { active = false; };
+  }, [visualizationHistorySource, visualizationHistoryReload]);
 
   useEffect(() => {
     if (!location.state || typeof location.state !== "object") return;
@@ -87,8 +189,12 @@ export function NetworkPharmacologyPage() {
         if (!binding || !active || !isCurrentQuery(generation, binding.sourceTaskId)) return false;
         try {
           const latest = await getAnalysisTask(binding.task.id);
-          if (!active || !isCurrentQuery(generation, binding.sourceTaskId) || latest.id !== binding.task.id) return false;
-          verifyTaskSource(latest, binding.sourceTaskId, kind);
+          if (!active || !isCurrentQuery(generation, binding.sourceTaskId)) return false;
+          if (kind === "r_visualization") verifyOverlapTask(latest, binding.sourceTaskId, binding.task.id);
+          else {
+            if (latest.id !== binding.task.id) throw new Error("任务编号与读取请求不一致。");
+            verifyTaskSource(latest, binding.sourceTaskId, kind);
+          }
           update((current) => current?.sourceTaskId === binding.sourceTaskId && current.task.id === latest.id ? { sourceTaskId: binding.sourceTaskId, task: latest } : current);
           return true;
         } catch (cause) {
@@ -108,33 +214,46 @@ export function NetworkPharmacologyPage() {
     event.preventDefault();
     if (localSubmissionInFlight.current) return;
     localSubmissionInFlight.current = true;
+    submittedTaskId.current = null;
     const generation = ++queryGeneration.current;
     currentSourceTaskId.current = null;
     submittingGeneration.current = { pathway: null, string: null, visualization: null };
     setBusy(true);
+    setLocalProgress("正在提交完整本地分析…");
     setError(null);
     setPollingError(null);
     setResult(null);
     setPathwayBinding(null);
     setStringBinding(null);
     setVisualizationBinding(null);
+    setVisualizationHistorySource(null);
+    setVisualizationHistoryError(null);
+    setVisualizationHistoryLoading(false);
     setPathwaySubmitting(false);
     setStringSubmitting(false);
     setVisualizationSubmitting(false);
     setShareWithReactome(false);
     setShareWithString(false);
+    let rememberedTask = 0;
     try {
       const latest = await runNetworkPharmacology({
         herb,
         disease,
         ...(caseContext ? { source_case_id: caseContext.caseId, source_candidate_id: caseContext.candidateId } : {}),
+      }, {
+        isActive: () => mounted.current && queryGeneration.current === generation,
+        onTask: task => { if (mounted.current && queryGeneration.current === generation) {
+          setLocalProgress(`任务 #${task.id} · ${task.status === "queued" ? "排队中" : task.status === "running" ? "正在读取完整证据" : "已完成"} · ${task.progress}%`);
+          if (rememberedTask !== task.id) { rememberedTask = task.id; submittedTaskId.current = task.id; setParams(current => { const next = new URLSearchParams(current); next.set("networkTask", String(task.id)); return next; }, { replace: true }); }
+        } },
+        onReadError: () => { if (mounted.current && queryGeneration.current === generation) setLocalProgress("任务进度暂时读取失败，正在重试读取已有任务…"); },
       });
       if (mounted.current && queryGeneration.current === generation) {
         currentSourceTaskId.current = latest.taskId;
         setResult(latest);
       }
     } catch (cause) {
-      if (mounted.current && queryGeneration.current === generation) setError(errorMessage(cause));
+      if (mounted.current && queryGeneration.current === generation) setError(cause instanceof Error ? cause.message : errorMessage(cause));
     } finally {
       localSubmissionInFlight.current = false;
       if (mounted.current && queryGeneration.current === generation) setBusy(false);
@@ -184,7 +303,7 @@ export function NetworkPharmacologyPage() {
   }
 
   async function requestVisualization() {
-    if (!result || !intersectionState(result).comparable || visualizationSubmitting || Boolean(visualizationTask && ["queued", "running"].includes(visualizationTask.status))) return;
+    if (!result || !intersectionState(result).comparable || visualizationSubmitting || visualizationHistoryLoading || Boolean(visualizationTask && ["queued", "running"].includes(visualizationTask.status))) return;
     const generation = queryGeneration.current;
     const sourceTaskId = result.taskId;
     if (!isCurrentQuery(generation, sourceTaskId) || submittingGeneration.current.visualization === generation) return;
@@ -193,7 +312,7 @@ export function NetworkPharmacologyPage() {
     setVisualizationSubmitting(true);
     try {
       const task = await createVisualization(sourceTaskId, "overlap");
-      verifyTaskSource(task, sourceTaskId, "r_visualization");
+      verifyOverlapTask(task, sourceTaskId);
       if (isCurrentQuery(generation, sourceTaskId)) setVisualizationBinding({ sourceTaskId, task });
     } catch (cause) { if (isCurrentQuery(generation, sourceTaskId)) setError(errorMessage(cause)); }
     finally {
@@ -206,6 +325,7 @@ export function NetworkPharmacologyPage() {
 
       <div className="page-heading"><div className="page-heading-copy"><h1 className="page-title">中药—疾病靶点交集</h1><p className="page-description">在已导入的本地知识目录中匹配中药成分靶点和疾病靶点，展示关系证据与来源版本。</p></div><Link to="/" className="btn btn-secondary"><ArrowLeft size={16} />返回首页</Link></div>
       {error && <div className="notice-error workspace-notice" role="alert">{error}</div>}
+      {busy && <p className="section-help" role="status">{localProgress}</p>}
       {pollingError && <div className="notice-error workspace-notice" role="status">{pollingError}</div>}
       <div className="case-workspace-grid workspace-split">
         <form className="panel case-form" onSubmit={(event) => void submit(event)}>
@@ -224,10 +344,13 @@ export function NetworkPharmacologyPage() {
                 if (!isCurrentQuery(queryGeneration.current, result.taskId) || localSubmissionInFlight.current) return;
                 queryGeneration.current += 1; currentSourceTaskId.current = null;
                 setDisease(label); setResult(null); setPathwayBinding(null); setStringBinding(null); setVisualizationBinding(null);
+                setVisualizationHistorySource(null); setVisualizationHistoryLoading(false); setVisualizationHistoryError(null);
                 setShareWithReactome(false); setShareWithString(false); setPollingError(null); setError(null);
               }} />
               <TargetIntersectionFigure result={result} />
-              <div className="source-record-actions"><button className="btn btn-secondary" type="button" disabled={!intersectionState(result).comparable || visualizationSubmitting || Boolean(visualizationTask && ["queued", "running"].includes(visualizationTask.status))} onClick={() => void requestVisualization()}>生成 R 图表</button></div>
+              <div className="source-record-actions"><button className="btn btn-secondary" type="button" disabled={!intersectionState(result).comparable || visualizationSubmitting || visualizationHistoryLoading || Boolean(visualizationTask && ["queued", "running"].includes(visualizationTask.status))} onClick={() => void requestVisualization()}>生成 R 图表</button></div>
+              {visualizationHistoryLoading && <p className="section-help" role="status">正在读取已保存的 R 图表…</p>}
+              {visualizationHistoryError && <div className="notice-error" role="alert"><p>{visualizationHistoryError}</p><button className="btn btn-secondary" type="button" disabled={visualizationSubmitting || visualizationHistoryLoading} onClick={() => setVisualizationHistoryReload(value => value + 1)}>重新读取历史 R 图表</button></div>}
               {visualizationTask && <VisualizationResult task={visualizationTask} />}
               <div className="proteomics-metrics">
                 <Metric label="已返回中药靶点" value={result.summary.herbTargetCount} />
@@ -238,9 +361,9 @@ export function NetworkPharmacologyPage() {
                 <Metric label="关联成分" value={result.summary.componentCount} />
               </div>
               <NetworkResultDownloads result={result} />
-              <RAnalysisGallery key={result.taskId} taskId={result.taskId} />
+              <RAnalysisGallery key={`network-gallery-${result.taskId}`} taskId={result.taskId} additionalCharts={[{ key: "query-statistics", label: "查询统计", content: <NetworkPharmacologyCharts key={`statistics-${result.taskId}`} result={result} reactome={reactomeResult} /> }]} />
               <details className="raw-details"><summary>查看备用证据链图（节点与来源详情）</summary>
-                <KnowledgeNetworkGraph network={result.network} knownTruncated={result.limits.linksTruncated || result.limits.targetsTruncated} />
+                <KnowledgeNetworkGraph network={result.network} knownTruncated={result.limits.nodesTruncated || result.limits.linksTruncated || result.limits.targetsTruncated} />
               </details>
               {result.summary.matchedFormulas?.length ? <p className="section-help">方剂 {result.summary.matchedFormulas.join("、")} 已按本地组成关系展开为中药：{result.summary.matchedHerbs.join("、") || "暂无可追溯组成"}。</p> : null}
               {result.targets.length ? <div className="case-list-items">{result.targets.map((target, index) => <article className="panel source-record" key={`${target.normalizedTarget}-${index}`}>
@@ -248,7 +371,7 @@ export function NetworkPharmacologyPage() {
                 <p className="section-help">中药证据 {target.herbEvidenceCount} 条 · 疾病证据 {target.diseaseEvidenceCount} 条 · 直接关联 {target.directEvidenceCount} 条</p>
                 <ul className="proteomics-pathways">{target.sources.slice(0, 8).map((source, index) => <li key={`${source.sourceRecordId}-${index}`}><strong>{source.source} · {source.sourceVersion}</strong><span>{source.relationType} / {source.evidenceType} / {source.sourceRecordId}</span></li>)}</ul>
               </article>)}</div> : <div className="panel empty-state"><strong>{intersectionState(result).badge}</strong><p>{intersectionState(result).message}</p></div>}
-              {(result.limits.targetsTruncated || result.limits.linksTruncated) && <p className="section-help">结果过大，页面仅展示了部分网络节点或靶点。</p>}
+              {(result.limits.nodesTruncated || result.limits.targetsTruncated || result.limits.linksTruncated) && <p className="section-help">页面网络图和靶点表可能只展示部分记录；完整证据以该任务的冻结导出为准。</p>}
               {result.targets.length >= 2 && <section className="case-form-fields external-analysis-options" aria-label="可选外部分析">
                 <label className="proteomics-consent"><input type="checkbox" checked={shareWithReactome} onChange={(event) => setShareWithReactome(event.target.checked)} /><span><strong>同意提交基因标识到 MyGene.info 与 Reactome</strong><small>仅提交当前页面列出的候选靶点，最多 500 个；不提交医案或完整数据文件。</small></span></label>
                 <div className="source-record-actions"><button className="btn btn-secondary" type="button" disabled={!shareWithReactome || pathwaySubmitting || result.targets.length > 500 || result.limits.targetsTruncated || Boolean(pathwayTask && ["queued", "running"].includes(pathwayTask.status))} onClick={() => void requestPathways()}>{pathwaySubmitting ? "正在创建 Reactome 任务…" : "Reactome 通路富集"}</button>{result.targets.length > 500 || result.limits.targetsTruncated ? <span className="section-help">Reactome 最多接收 500 个完整显示的靶点；当前结果过多，请缩小范围。</span> : null}</div>
@@ -257,9 +380,9 @@ export function NetworkPharmacologyPage() {
                 <label className="form-label">最低置信度<select className="field" value={requiredScore} onChange={(event) => setRequiredScore(Number(event.target.value))}><option value={400}>中等（400）</option><option value={700}>高（700）</option><option value={900}>最高（900）</option></select></label>
                 <div className="source-record-actions"><button className="btn btn-secondary" type="button" disabled={!shareWithString || stringSubmitting || result.targets.length > 200 || result.limits.targetsTruncated || Boolean(stringTask && ["queued", "running"].includes(stringTask.status))} onClick={() => void requestString()}>{stringSubmitting ? "正在创建 STRING 任务…" : "STRING PPI 网络"}</button>{result.targets.length > 200 || result.limits.targetsTruncated ? <span className="section-help">STRING 最多接收 200 个完整显示的靶点；当前结果过多，请缩小范围。</span> : null}</div>
                 {stringTask && <StringTaskResult task={stringTask} sourceTaskId={result.taskId} />}
-                {stringTask?.status === "succeeded" && <RAnalysisGallery key={stringTask.id} taskId={stringTask.id} />}
+                {stringTask?.status === "succeeded" && <RAnalysisGallery key={`string-gallery-${stringTask.id}`} taskId={stringTask.id} />}
               </section>}
-              {pathwayTask?.status === "succeeded" && <RAnalysisGallery key={pathwayTask.id} taskId={pathwayTask.id} />}
+              {pathwayTask?.status === "succeeded" && <RAnalysisGallery key={`reactome-gallery-${pathwayTask.id}`} taskId={pathwayTask.id} />}
             </div>
           </>}
         </section>

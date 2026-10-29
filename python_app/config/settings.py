@@ -176,11 +176,21 @@ DATA_UPLOAD_MAX_MEMORY_SIZE = env.int("API_REQUEST_MAX_BYTES", default=1024 * 10
 FILE_UPLOAD_MAX_MEMORY_SIZE = 2 * 1024 * 1024
 DATA_UPLOAD_MAX_NUMBER_FILES = 1
 PROTEOMICS_MAX_ROWS = env.int("PROTEOMICS_MAX_ROWS", default=25_000)
+LOCAL_ANALYSIS_RELATION_LIMIT = env.int("LOCAL_ANALYSIS_RELATION_LIMIT", default=50_000)
 PROTEOMICS_MAX_COLUMNS = env.int("PROTEOMICS_MAX_COLUMNS", default=250)
 PROTEOMICS_MAX_CELLS = env.int("PROTEOMICS_MAX_CELLS", default=1_000_000)
 SQLITE_SOURCE_ROOT = env("SQLITE_SOURCE_ROOT", default="")
 SQLITE_SOURCE_MAX_BYTES = env.int("SQLITE_SOURCE_MAX_BYTES", default=512 * 1024 * 1024)
 SQLITE_SOURCE_MAX_ROWS = env.int("SQLITE_SOURCE_MAX_ROWS", default=500_000)
+COMPOUND_SOURCE_ALIASES = env.json("COMPOUND_SOURCE_ALIASES", default={})
+if (not isinstance(COMPOUND_SOURCE_ALIASES, dict) or len(COMPOUND_SOURCE_ALIASES) > 100
+        or any(not isinstance(key, str) or not key or len(key) > 64 or ':' in key or any(ord(c) < 32 for c in key)
+               or key.casefold() in {'entity', 'pubchem', 'cid', 'chembl', 'sqlite'}
+               or not isinstance(values, list) or not values or len(values) > 20
+               or any(not isinstance(value, str) or not value or len(value) > 80 for value in values)
+               for key, values in COMPOUND_SOURCE_ALIASES.items())
+        or len({key.casefold() for key in COMPOUND_SOURCE_ALIASES}) != len(COMPOUND_SOURCE_ALIASES)):
+    raise ImproperlyConfigured("COMPOUND_SOURCE_ALIASES must map distinct source prefixes to registered source slug lists.")
 STRING_DB_VERSION = env("STRING_DB_VERSION", default="")
 CASE_MODEL_BASE_URL = env("CASE_MODEL_BASE_URL", default="")
 CASE_MODEL_NAME = env("CASE_MODEL_NAME", default="")

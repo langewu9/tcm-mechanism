@@ -18,6 +18,7 @@ const DashboardPage = lazy(() => import("../pages/DashboardPage").then((module) 
 const AdminOverviewPage = lazy(() => import("../pages/AdminOverviewPage").then((module) => ({ default: module.AdminOverviewPage })));
 const AnalysisPage = lazy(() => import("../pages/AnalysisPage").then((module) => ({ default: module.AnalysisPage })));
 const DemoCenterPage = lazy(() => import("../pages/DemoCenterPage").then((module) => ({ default: module.DemoCenterPage })));
+const TaskHistoryPage = lazy(() => import("../pages/TaskHistoryPage").then((module) => ({ default: module.TaskHistoryPage })));
 export function App() {
   return <BrowserRouter><PageLoadBoundary><Suspense fallback={<PageLoading />}><Routes>
     <Route path="/" element={<HomePage />} />
@@ -35,6 +36,7 @@ export function App() {
       <Route path="/research" element={<KnowledgeExplorerPage />} />
       <Route path="/assistant" element={<ResearchAssistantPage />} />
       <Route path="/analysis" element={<AnalysisPage />} />
+      <Route path="/tasks/:taskId" element={<TaskHistoryPage />} />
       <Route path="/admin" element={<AdminOverviewPage />} />
       <Route path="/admin/sources" element={<SourcesPage />} />
       <Route path="/admin/integrations" element={<Navigate to="/dashboard" replace />} />

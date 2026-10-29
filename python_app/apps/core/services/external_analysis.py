@@ -25,6 +25,7 @@ from apps.proteomics.external_reactome import (
     analyze_reactome_human_pathways,
     resolve_human_identifiers,
 )
+from .task_recovery import TaskExecutionStopped, lock_running_analysis
 
 
 STRING_VERSION_URL = "https://string-db.org/api/json/version"
@@ -212,11 +213,12 @@ def _enqueue(task: AnalysisTask) -> AnalysisTask:
         run_external_analysis_task.apply_async(args=[task.pk])
     except Exception as exc:
         record_runtime_event("task.queue_unavailable", task_id=task.pk, exception=exc)
-        task.status = AnalysisTask.Status.FAILED
-        task.progress = 100
-        task.error_summary = "分析任务队列暂不可用，请稍后重试。"
-        task.finished_at = timezone.now()
-        task.save(update_fields=["status", "progress", "error_summary", "finished_at"])
+        AnalysisTask.objects.filter(pk=task.pk, status=AnalysisTask.Status.QUEUED).update(
+            status=AnalysisTask.Status.FAILED,
+            progress=100,
+            error_summary="分析任务队列暂不可用，请稍后重试。",
+            finished_at=timezone.now(),
+        )
         raise TaskQueueUnavailable() from exc
     return task
 
@@ -488,21 +490,17 @@ def execute_external_analysis(task: AnalysisTask) -> dict:
                 raise ExternalAnalysisError("关联任务的输入或溯源信息不一致，已停止外部提交。")
         if kind == "reactome_enrichment":
             result, version = _run_reactome(labels)
-            _attach_source_release(task, "reactome", version)
+            source_slug, source_metadata = "reactome", None
         elif kind == "string_ppi":
             if DataSource.objects.filter(slug="string", enabled=False).exists():
                 raise ExternalAnalysisError("管理员已停用 STRING 外部分析服务。")
             result, version = _run_string(labels, int(params["requiredScore"]))
-            _attach_source_release(
-                task,
-                "string",
-                version,
-                {
-                    "endpoint": result.get("sourceEndpoint"),
-                    "retrievedAt": result.get("retrievedAt"),
-                    "networkType": "physical",
-                },
-            )
+            source_slug = "string"
+            source_metadata = {
+                "endpoint": result.get("sourceEndpoint"),
+                "retrievedAt": result.get("retrievedAt"),
+                "networkType": "physical",
+            }
         else:
             raise ExternalAnalysisError("不支持的外部分析类型。")
         if task.parent_task_id is not None:
@@ -510,25 +508,34 @@ def execute_external_analysis(task: AnalysisTask) -> dict:
                 "sourceTaskId": task.parent_task_id,
                 "parentProvenance": deepcopy(params["parentProvenance"]),
             }
-        task.status = AnalysisTask.Status.SUCCEEDED
-        task.progress = 100
-        task.result = result
-        task.finished_at = timezone.now()
-        task.save(update_fields=["status", "progress", "result", "finished_at"])
-        return {"status": task.status, "taskId": task.pk}
+        # External requests happen before taking a database lock. Source-release
+        # creation and attachment are published only with the successful result.
+        with transaction.atomic():
+            locked_task = lock_running_analysis(task.pk)
+            _attach_source_release(locked_task, source_slug, version, source_metadata)
+            locked_task.status = AnalysisTask.Status.SUCCEEDED
+            locked_task.progress = 100
+            locked_task.result = result
+            locked_task.finished_at = timezone.now()
+            locked_task.save(update_fields=["status", "progress", "result", "finished_at"])
+        return {"status": AnalysisTask.Status.SUCCEEDED, "taskId": task.pk}
+    except TaskExecutionStopped:
+        raise
     except ExternalAnalysisError as exc:
         record_runtime_event("external.rejected", task_id=task.pk, exception=exc)
-        task.status = AnalysisTask.Status.FAILED
-        task.progress = 100
-        task.error_summary = str(exc)
-        task.finished_at = timezone.now()
-        task.save(update_fields=["status", "progress", "error_summary", "finished_at"])
-        return {"status": task.status, "taskId": task.pk}
+        updated = AnalysisTask.objects.filter(pk=task.pk, status=AnalysisTask.Status.RUNNING).update(
+            status=AnalysisTask.Status.FAILED,
+            progress=100,
+            error_summary=str(exc),
+            finished_at=timezone.now(),
+        )
+        return {"status": AnalysisTask.Status.FAILED if updated else "skipped", "taskId": task.pk}
     except Exception as exc:
         record_runtime_event("external.failed", task_id=task.pk, exception=exc)
-        task.status = AnalysisTask.Status.FAILED
-        task.progress = 100
-        task.error_summary = "外部分析失败，请联系管理员并提供任务编号。"
-        task.finished_at = timezone.now()
-        task.save(update_fields=["status", "progress", "error_summary", "finished_at"])
-        return {"status": task.status, "taskId": task.pk}
+        updated = AnalysisTask.objects.filter(pk=task.pk, status=AnalysisTask.Status.RUNNING).update(
+            status=AnalysisTask.Status.FAILED,
+            progress=100,
+            error_summary="外部分析失败，请联系管理员并提供任务编号。",
+            finished_at=timezone.now(),
+        )
+        return {"status": AnalysisTask.Status.FAILED if updated else "skipped", "taskId": task.pk}

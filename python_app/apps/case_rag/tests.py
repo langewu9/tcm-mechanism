@@ -173,7 +173,9 @@ class CaseCorpusTests(APITestCase):
     def test_personal_case_rag_uses_frozen_reference_and_verbatim_patient_evidence(self, model):
         case = MedicalCase.objects.create(owner=self.user, title="合成测试", deidentified_text="患者咳嗽。")
         snapshot = build_case_snapshot("咳嗽", [self.documents[0].pk])
+        # Direct service execution simulates a task already claimed by a worker.
         task = AnalysisTask.objects.create(owner=self.user, task_type="case_link", medical_case=case,
+            status=AnalysisTask.Status.RUNNING,
             input_parameters={"caseContentSha256": case_input_sha256(case), "caseCorpusSnapshot": snapshot})
         self.release.is_active = False
         self.release.save(using="case_rag")

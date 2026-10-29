@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { SubviewTabs, useSubviewVisible } from "./SubviewTabs";
 import { loadRWidgetDocument } from "./rWidgetDocument";
+import { ArtifactPreview } from "./ArtifactPreview";
 
 export function hasInteractiveRenderer(version: unknown) {
   return typeof version === "string" && /^r-viz-0\.(?:[4-9]|[1-9]\d+)\./.test(version);
@@ -11,7 +12,6 @@ export function RChartViewer({ title, svgUrl, htmlUrl, interactive = false, defa
   title: string; svgUrl?: string; htmlUrl?: string; interactive?: boolean; defaultExpanded?: boolean; onClose?: () => void; footer?: ReactNode;
 }) {
   const [mode, setMode] = useState(interactive && htmlUrl ? "interactive" : "static");
-  const [imageError, setImageError] = useState(false);
   const [expanded, setExpanded] = useState(defaultExpanded);
   const dialog = useRef<HTMLDivElement>(null);
   const visible = useSubviewVisible();
@@ -42,8 +42,7 @@ export function RChartViewer({ title, svgUrl, htmlUrl, interactive = false, defa
   function close() { setExpanded(false); onClose?.(); }
   // Keep form/polling state, but do not execute heavy widgets in hidden result pages.
   if (!visible) return null;
-  const staticView = imageError ? <p className="notice-error" role="alert">静态图片暂不可用，请尝试下载或重新准备图表资源。</p>
-    : svgUrl ? <img className="visualization-preview" src={svgUrl} alt={title} onError={() => setImageError(true)} />
+  const staticView = svgUrl ? <ArtifactPreview src={svgUrl} alt={title} />
       : <p className="section-help">暂无静态图片。</p>;
   const views = [
     ...(interactive && htmlUrl ? [{ key: "interactive", label: "交互图表", content: <>

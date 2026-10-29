@@ -48,13 +48,15 @@ def validate_sqlite_source_config(config: dict) -> dict[str, str]:
     if not isinstance(target_mode, str) or target_mode not in {"single", "list"}:
         raise SQLiteSourceError("靶点字段内容必须选择 single 或 list。")
     parsed["targetCellMode"] = target_mode
-    metadata_column = config.get("rowMetadataColumn")
-    if metadata_column:
+    for metadata_key in ("rowMetadataColumn", "diseaseRowMetadataColumn"):
+        metadata_column = config.get(metadata_key)
+        if not metadata_column:
+            continue
         if not isinstance(metadata_column, str) or not _IDENTIFIER.fullmatch(metadata_column):
             raise SQLiteSourceError("来源身份元数据列名无效。")
         if target_mode != "single":
             raise SQLiteSourceError("来源身份元数据要求 single 模式，避免将一个编号关联多个靶点。")
-        parsed["rowMetadataColumn"] = metadata_column
+        parsed[metadata_key] = metadata_column
     for key, label in expected.items():
         value = config.get(key)
         if not isinstance(value, str) or not value.strip():
@@ -80,6 +82,8 @@ def validate_sqlite_source_config(config: dict) -> dict[str, str]:
             continue
         if not _IDENTIFIER.fullmatch(parsed[key]):
             raise SQLiteSourceError(f"数据表字段映射 {key} 只允许字母、数字和下划线。")
+    if parsed.get("diseaseRowMetadataColumn") and not (parsed.get("diseaseTargetTable") or parsed.get("diseaseHerbTargetTable")):
+        raise SQLiteSourceError("疾病来源行元数据列必须同时配置疾病数据表。")
     return parsed
 
 
@@ -167,8 +171,9 @@ def inspect_sqlite_source(configuration: dict) -> SQLiteSourceSnapshot:
             if not table_columns:
                 raise SQLiteSourceError(f"指定的数据表“{table}”不存在或没有可读取字段。")
             required = {config[key] for key in column_keys}
-            if table_key == "table" and config.get("rowMetadataColumn"):
-                required.add(config["rowMetadataColumn"])
+            metadata_key = "rowMetadataColumn" if table_key == "table" else "diseaseRowMetadataColumn"
+            if config.get(metadata_key):
+                required.add(config[metadata_key])
             missing = required - set(table_columns)
             if missing:
                 raise SQLiteSourceError(f"数据表“{table}”缺少所需字段：{', '.join(sorted(missing))}。")
@@ -237,7 +242,8 @@ def iter_configured_rows(configuration: dict, *, include_metadata=False) -> Iter
         first = _quoted(config[first_column])
         second = _quoted(config[second_column])
         third = _quoted(config[third_column])
-        query = f"SELECT rowid, {first}, {second}, {third} FROM {table} WHERE rowid > ? ORDER BY rowid LIMIT ?"
+        extra = f", {_quoted(config['diseaseRowMetadataColumn'])}" if include_metadata and config.get("diseaseRowMetadataColumn") else ""
+        query = f"SELECT rowid, {first}, {second}, {third}{extra} FROM {table} WHERE rowid > ? ORDER BY rowid LIMIT ?"
         cursor = -(2**63)
         try:
             while True:
@@ -249,7 +255,14 @@ def iter_configured_rows(configuration: dict, *, include_metadata=False) -> Iter
                     break
                 for row in rows:
                     cursor = int(row[0])
-                    yield kind, cursor, row[1], row[2], row[3]
+                    if extra:
+                        try:
+                            metadata = read_identity_record(row[4], cursor)
+                        except ValueError as exc:
+                            raise SQLiteSourceError(str(exc)) from exc
+                        yield kind, cursor, row[1], row[2], row[3], metadata
+                    else:
+                        yield kind, cursor, row[1], row[2], row[3]
         finally:
             connection.close()
 

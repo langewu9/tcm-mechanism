@@ -1,0 +1,52 @@
+// Real disease snapshot component; deferred requests and explicit lifecycle.
+const fs=require('node:fs'),path=require('node:path'),Module=require('node:module'),assert=require('node:assert/strict');
+const root=path.resolve(__dirname,'..'),load=Module.createRequire(path.join(root,'package.json')),ts=load('typescript');
+const hooks=[],calls=[],waits=[],restored=[];
+let cursor=0,dirty=false,effects=[],tree,evidence=null,params=new URLSearchParams(),writes=0;
+const react={useState(initial){const i=cursor++;hooks[i]??={value:initial};return[hooks[i].value,next=>{const value=typeof next==='function'?next(hooks[i].value):next;if(!Object.is(value,hooks[i].value)){hooks[i].value=value;dirty=true;writes++;}}];},useRef(initial){const i=cursor++;hooks[i]??={value:{current:initial}};return hooks[i].value;},useEffect(fn,deps){const i=cursor++,old=hooks[i];if(!old||deps.some((value,index)=>!Object.is(value,old.deps[index]))){hooks[i]={deps};effects.push(()=>{old?.cleanup?.();hooks[i].cleanup=fn();});}}};
+const jsx=(type,props)=>({type,props});
+const deferred=(name,args)=>new Promise((resolve,reject)=>calls.push({name,args,resolve,reject}));
+const file=path.join(root,'src/components/DiseaseEvidenceSnapshot.tsx'),subject=new Module(file);
+subject.require=name=>{
+  if(name==='react')return react;
+  if(name==='react/jsx-runtime')return{jsx,jsxs:jsx};
+  if(name==='react-router-dom')return{useSearchParams:()=>[params,fn=>{params=typeof fn==='function'?fn(params):fn;dirty=true;}]};
+  if(name==='../api/catalog')return{saveDiseaseEvidenceAnalysis:(...args)=>deferred('save',args)};
+  if(name==='../api/datasets')return{getAnalysisTask:(...args)=>deferred('read',args)};
+  if(name==='../api/complete-evidence')return{waitForCompleteTask:(source,options)=>new Promise((resolve,reject)=>{waits.push({source,options,resolve,reject});options.onTask(source);})};
+  if(name==='./SnapshotEvidence')return{SnapshotEvidence:'SnapshotEvidence'};
+  throw new Error('Unexpected import '+name);
+};
+subject._compile(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText,file);
+function render(){let guard=0;do{assert.ok(guard++<20,'render loop');dirty=false;cursor=0;effects=[];tree=subject.exports.DiseaseEvidenceSnapshot({evidence,onRestoreQuery:q=>restored.push(q)});effects.forEach(fn=>fn());}while(dirty);}
+const nodes=value=>!value||typeof value!=='object'?[]:Array.isArray(value)?value.flatMap(nodes):[value,...nodes(value.props?.children)];
+const text=value=>typeof value==='string'||typeof value==='number'?String(value):Array.isArray(value)?value.map(text).join(''):value?.props?text(value.props.children):'';
+const button=label=>nodes(tree).find(node=>node.type==='button'&&text(node)===label);
+const flush=async()=>{for(let i=0;i<12;i++)await Promise.resolve();render();};
+const query=hash=>({query:'合成疾病'+hash[0],resultSha256:hash,matches:[{id:1}]});
+const task=(id,hash,status='queued')=>({id,task_type:'network',status,progress:status==='succeeded'?100:5,input_parameters:{analysisKind:'disease_evidence',expectedResultSha256:hash,query:'合成疾病'+hash[0]},result:status==='succeeded'?{analysisKind:'disease_evidence',query:'合成疾病'+hash[0],counts:{diseases:1,herbs:2,targets:4005,links:4005,relations:4005},snapshot:{complete:true,sha256:'f'.repeat(64),tables:{evidenceRecords:{count:4005,sha256:'e'.repeat(64)}}}}:{}});
+(async()=>{
+  render();assert.equal(tree,null);
+  const a='a'.repeat(64),b='b'.repeat(64);
+  evidence=query(a);render();const oldSave=button('保存完整疾病查询').props.onClick;oldSave();oldSave();render();assert.equal(calls.length,1);
+  evidence=query(b);render();calls[0].resolve(task(1,a));await flush();assert.equal(waits.length,0,'Old save never attaches to a replacement query');
+  oldSave();assert.equal(calls.length,1,'Cached old handler cannot submit a stale query');
+  const save=button('保存完整疾病查询').props.onClick;save();render();calls.at(-1).resolve(task(2,b));await flush();assert.equal(params.get('diseaseTask'),'2');
+  assert.ok(text(tree).includes('排队中'));save();assert.equal(calls.length,2,'Pending task cannot be duplicated');
+  waits[0].options.onReadError();render();assert.ok(text(tree).includes('正在重试读取已有任务'));
+  const success=task(2,b,'succeeded');waits[0].options.onTask(success);waits[0].resolve(success);await flush();
+  assert.ok(text(tree).includes('4005'));assert.equal(nodes(tree).find(n=>n.type==='SnapshotEvidence').props.taskId,2);
+  assert.equal(calls.filter(c=>c.name==='save').length,2);
+  evidence=null;render();assert.equal(calls.at(-1).name,'read');assert.equal(calls.at(-1).args[0],2);
+  calls.at(-1).reject(new Error('synthetic read failure'));await flush();assert.ok(button('重新读取任务'),'Restore failure offers a GET retry');
+  button('重新读取任务').props.onClick();render();assert.equal(calls.at(-1).name,'read');calls.at(-1).resolve(success);await flush();
+  waits.at(-1).resolve(success);await flush();assert.equal(restored.at(-1),'合成疾病b');
+  assert.equal(calls.filter(c=>c.name==='save').length,2,'Read retry cannot create another analysis');
+  params=new URLSearchParams('diseaseTask=3');render();calls.at(-1).resolve({...task(3,b,'succeeded'),result:{analysisKind:'disease_evidence',query:'x',snapshot:{complete:true,sha256:'f'.repeat(64),tables:{}},counts:{}}});await flush();
+  assert.ok(text(tree).includes('没有可展示'));assert.ok(!nodes(tree).some(n=>n.type==='SnapshotEvidence'),'Malformed success cannot render scientific counts');
+  params=new URLSearchParams('diseaseTask=4');render();calls.at(-1).resolve({...task(4,b),input_parameters:{analysisKind:'catalog_evidence'}});await flush();
+  assert.ok(text(tree).includes('不是本次疾病'));assert.ok(!nodes(tree).some(n=>n.type==='SnapshotEvidence'));
+  params=new URLSearchParams('diseaseTask=invalid');render();const count=calls.length;assert.ok(text(tree).includes('编号无效'));assert.equal(calls.length,count);
+  params=new URLSearchParams('diseaseTask=5');render();const last=calls.at(-1);hooks.forEach(hook=>hook?.cleanup?.());const before=writes;last.resolve(task(5,b,'succeeded'));for(let i=0;i<12;i++)await Promise.resolve();assert.equal(writes,before,'Unmount prevents late private writes');
+  console.log('PASS: disease complete save, duplicate/stale guards, task recovery and GET-only retry, input restoration, malformed count/type/URL rejection, task-bound downloads and unmount isolation.');
+})().catch(error=>{console.error(error.stack);process.exitCode=1;});
