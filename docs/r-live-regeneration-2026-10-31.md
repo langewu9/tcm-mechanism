@@ -25,7 +25,9 @@
 
 ## 数据链路
 
-用户正常上传数据 → Django 校验并完成分析、保存结果 → Celery 执行绘图任务 → R 0.4.2 运行绘图包 → Django 校验并保存 SVG/PDF/PNG/HTML 私有产物 → 前端通过鉴权接口浏览、下载。
+用户正常上传数据 → Django 校验并完成分析、保存结果 → Celery 执行绘图任务 → R 绘图服务运行绘图包 → Django 校验并保存 SVG/PDF/PNG/HTML 私有产物 → 前端通过鉴权接口浏览、下载。
+
+本次绘图服务版本为 `r-viz-0.4.2`；这是服务的 `rendererVersion`，不是 R 语言本身的版本号。
 
 R 接收绘图所需的受限分析数据，不直接连接业务数据库。前端展示本次任务返回的产物。输入摘要、输出 SHA-256、文件大小及 renderer 版本由任务和产物记录保存。
 
@@ -40,25 +42,25 @@ R 接收绘图所需的受限分析数据，不直接连接业务数据库。前
 以下测试使用隔离的 SQLite 内存库，R 响应采用 mock，不能视为真实 PostgreSQL/R 服务验收：
 
 - 完整 Django suite：787 tests，7 skipped，118.802 秒，退出码 0。主库和 case_rag 均为内存库，media/runtime 使用临时目录，缓存和 Celery broker 在进程内；网络连接由 audit hook 阻止。日志位于 `python_app/var/live-r-generation-2026-10-31/backend-full-tests.log`（不入库）。
-- 绘图、重新生成和任务恢复专项：57 tests，2 skipped，3.995 秒。两个跳过项是已有 PostgreSQL 专用并发测试。
+- 绘图、重新生成和任务恢复专项：2026-11-01 补存日志时复跑，57 tests，2 skipped，4.570 秒，退出码 0。两个跳过项是已有 PostgreSQL 专用并发测试。完整命令和输出见 `python_app/var/live-r-generation-2026-10-31/backend-focused-tests.log`（不入库）。
 - 专项实际执行 worker 的三代绘图，每代 mock 返回四种文件；检查旧任务结果、旧文件记录及字节不变、所有文件哈希及鉴权下载、上一代任务回查、默认/false 兼容、同 hash pending 复用和不同 hash 不误复用。另覆盖失败重试、部分落盘清理、取消保护和权限隔离。
-- `makemigrations --check --dry-run`：`No changes detected`。专项包含 0029→0030 的历史行保留和新唯一约束验证。
+- `makemigrations --check --dry-run`：2026-11-01 补存日志时复跑，`No changes detected`，退出码 0；日志为同目录 `migration-drift-check.log`。专项包含 0029→0030 的历史行保留和新唯一约束验证。
 
 ## 前端验证
 
-API、research、R、network 回归通过；existing-feature-audit 为 28/28，scientific wording 为 5/5。`tsc -b`、Vite production build 和 `git diff --check` 通过。另修复切换网络任务后，旧请求迟到可能使新任务按钮停留在“正在提交”的状态问题。
+API、research、R、network 回归通过；existing-feature-audit 为 28/28，scientific wording 为 5/5。2026-11-01 补存日志复跑时，四组分别完成 4/4、15/15、4/4、7/7 个测试脚本，均退出 0；`tsc -b`、Vite production build 也退出 0。命令、输出及最终汇总见同目录 `frontend-verification.log`（不入库）。`git diff --check` 通过。另修复切换网络任务后，旧请求迟到可能使新任务按钮停留在“正在提交”的状态问题。
 
 ## 真实 PostgreSQL/R 与浏览器验收结果
 
-已现场确认：历史父分析任务 #36 的旧绘图任务 #38，可以重新生成新绘图任务 #45；新任务记录的 renderer 为 R 0.4.2，旧 #38 仍可浏览。这是实际服务链路证据，与上述 mock 测试分开记录。
+已现场确认：历史父分析任务 #36 的旧绘图任务 #38，可以重新生成新绘图任务 #45；新任务记录的 `rendererVersion` 为 `r-viz-0.4.2`，旧 #38 仍可浏览。这是实际服务链路证据，与上述 mock 测试分开记录。
 
 新的 1,200 行合成 CSV 取自仓库现有 `public/r-demo/proteomics_volcano.json` 的数值，未读取预生成图片。经正常界面上传、字段映射及后台分析，父任务 #46 成功，记录 1,200 输入行、306 通过筛选行、0 非法数值行。MyGene/Reactome、g:Profiler 和 STRING 外部查询均未勾选。
 
 | 实际绘图任务 | 来源分析任务 | 操作 | 现场完成时间（北京时间） | 结果 |
 | --- | --- | --- | --- | --- |
-| #45 | #36 | 对旧 #38 图重新运行 R | 2026-10-31 21:14:06 | R 0.4.2，四种新文件，旧 #38 可浏览 |
-| #47 | #46 | 首次根据新上传数据运行 R | 2026-10-31 21:22:22 | R 0.4.2，四种文件，交互预览显示 1,200/1,200 行 |
-| #48 | #46 | 相同输入再次运行 R | 2026-10-31 21:22:35 | R 0.4.2，另四种文件，历史链接指向 #47 |
+| #45 | #36 | 对旧 #38 图重新运行 R | 2026-10-31 21:14:06 | `r-viz-0.4.2`，四种新文件，旧 #38 可浏览 |
+| #47 | #46 | 首次根据新上传数据运行 R | 2026-10-31 21:22:22 | `r-viz-0.4.2`，四种文件，交互预览显示 1,200/1,200 行 |
+| #48 | #46 | 相同输入再次运行 R | 2026-10-31 21:22:35 | `r-viz-0.4.2`，另四种文件，历史链接指向 #47 |
 
 #47 与 #48 的输入 SHA-256 相同，绘图任务和产物记录独立；未借助改变输入哈希绕过缓存。浏览器已确认新图交互预览、静态预览及上一版入口；从正常鉴权下载入口取得 #48 PNG，其 SHA-256 与私有存储文件及数据库记录一致。
 
