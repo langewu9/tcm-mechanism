@@ -378,20 +378,35 @@ def execute_visualization_task(task: AnalysisTask) -> dict:
 
 
 @transaction.atomic
-def queue_visualization(*, parent_task: AnalysisTask, user, chart_key: str) -> tuple[AnalysisTask, bool]:
+def queue_visualization(*, parent_task: AnalysisTask, user, chart_key: str, regenerate: bool = False) -> tuple[AnalysisTask, bool]:
     parent_task = AnalysisTask.objects.select_for_update().get(pk=parent_task.pk)
     payload = build_chart_payload(parent_task, chart_key)
-    existing = AnalysisTask.objects.filter(
+    chart_jobs = AnalysisTask.objects.filter(
         owner=parent_task.owner,
         parent_task=parent_task,
         task_type=AnalysisTask.TaskType.VISUALIZATION,
         input_parameters__parentTaskId=parent_task.pk,
         input_parameters__chartKey=chart_key,
-        input_parameters__inputSha256=payload["inputSha256"],
-        status__in=[AnalysisTask.Status.QUEUED, AnalysisTask.Status.RUNNING, AnalysisTask.Status.SUCCEEDED],
-    ).first()
-    if existing:
-        return existing, False
+    )
+    matching_input = chart_jobs.filter(input_parameters__inputSha256=payload["inputSha256"])
+    pending = matching_input.filter(status__in=[AnalysisTask.Status.QUEUED, AnalysisTask.Status.RUNNING]).first()
+    if pending:
+        return pending, False
+    if not regenerate:
+        existing = matching_input.filter(status=AnalysisTask.Status.SUCCEEDED).first()
+        if existing:
+            return existing, False
+    parameters = {
+        "analysisKind": "r_visualization",
+        "parentTaskId": parent_task.pk,
+        "chartKey": chart_key,
+        "inputSha256": payload["inputSha256"],
+    }
+    if regenerate:
+        # The previous chart remains readable even if an adapter changed its
+        # payload hash. A new request never edits its task, manifest or files.
+        previous = chart_jobs.filter(status=AnalysisTask.Status.SUCCEEDED).first()
+        parameters.update(regenerate=True, previousRenderTaskId=previous.pk if previous else None)
     with transaction.atomic():
         job = AnalysisTask.objects.create(
             owner=parent_task.owner,
@@ -401,12 +416,7 @@ def queue_visualization(*, parent_task: AnalysisTask, user, chart_key: str) -> t
             dataset=parent_task.dataset,
             medical_case=parent_task.medical_case,
             parent_task=parent_task,
-            input_parameters={
-                "analysisKind": "r_visualization",
-                "parentTaskId": parent_task.pk,
-                "chartKey": chart_key,
-                "inputSha256": payload["inputSha256"],
-            },
+            input_parameters=parameters,
         )
         job.source_releases.set(parent_task.source_releases.all())
     return job, True

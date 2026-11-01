@@ -1,0 +1,132 @@
+{
+  "date": "2026-10-31",
+  "environment": "isolated local PostgreSQL + Django + Celery + R",
+  "synthetic": true,
+  "publicDeploymentValidated": false,
+  "sourceFixture": "public/r-demo/proteomics_volcano.json",
+  "sourceSha256": "51f5f598dbdd6ba69d9d9ad5410e1e5e6cb39e1f35010c416b2e40cedb65c215",
+  "uploadedCsvSha256": "be52a1b21d1e006526dd1f8cc4b1232366b44d6e3b09464097ae9fda1c789860",
+  "uploadedRows": 1200,
+  "analysisTaskId": 46,
+  "previousRecordsAndFilesUnchanged": true,
+  "oldTaskCountChecked": 44,
+  "oldArtifactFilesChecked": 48,
+  "newFileCountChecked": 12,
+  "renders": [
+    {
+      "taskId": 45,
+      "parentTaskId": 36,
+      "inputSha256": "95726fb1eddb43814f4d06d8e978f8f5cbc38d5444041cbae66ff9bef95441f0",
+      "regenerate": true,
+      "previousRenderTaskId": 38,
+      "createdAt": "2026-10-31T21:14:04.586202+08:00",
+      "finishedAt": "2026-10-31T21:14:06.257966+08:00",
+      "rendererVersion": "r-viz-0.4.2",
+      "artifacts": [
+        {
+          "id": 49,
+          "format": "svg",
+          "sha256": "cfe48762c23a5610d68655ce601db0d972844acab282245136bb233398edfb9e",
+          "byteSize": 9855
+        },
+        {
+          "id": 50,
+          "format": "pdf",
+          "sha256": "3d28aa9c5ca39878ef26503cfa35ffa241c303271db81503e16c38332f158f4d",
+          "byteSize": 960277
+        },
+        {
+          "id": 51,
+          "format": "png",
+          "sha256": "b46de7a1014655f51f69df960937ee9d261b70ee83fd2866cb4b15c64fe35b06",
+          "byteSize": 142466
+        },
+        {
+          "id": 52,
+          "format": "html",
+          "sha256": "c242e03b654f474a6ae6c0426a99d743b0b5e66822e2e0bceb6e348a34416d3c",
+          "byteSize": 1202057
+        }
+      ]
+    },
+    {
+      "taskId": 47,
+      "parentTaskId": 46,
+      "inputSha256": "af1e69c016f0c3b01badd5062696705b763135b4ee45c35a1a3939fa45b05790",
+      "regenerate": false,
+      "previousRenderTaskId": null,
+      "createdAt": "2026-10-31T21:22:20.374008+08:00",
+      "finishedAt": "2026-10-31T21:22:22.827525+08:00",
+      "rendererVersion": "r-viz-0.4.2",
+      "artifacts": [
+        {
+          "id": 53,
+          "format": "svg",
+          "sha256": "83217b884488e963632b689e72b9798f003f817109f4401672e3bcb0573ac5fa",
+          "byteSize": 163095
+        },
+        {
+          "id": 54,
+          "format": "pdf",
+          "sha256": "ef138bb1ba7cf9c3dbcdf68f612e563bb070d6066666b484dc8f25a8ade786b7",
+          "byteSize": 997407
+        },
+        {
+          "id": 55,
+          "format": "png",
+          "sha256": "bcbd8fc0e2021ddc589301f35e633a2295097c996423e8e88bd91a9eab8d4fc6",
+          "byteSize": 312884
+        },
+        {
+          "id": 56,
+          "format": "html",
+          "sha256": "47f173bb908301ebe581e51afb0005bad086f76c9ea853a10f4373122e8decf8",
+          "byteSize": 1538531
+        }
+      ]
+    },
+    {
+      "taskId": 48,
+      "parentTaskId": 46,
+      "inputSha256": "af1e69c016f0c3b01badd5062696705b763135b4ee45c35a1a3939fa45b05790",
+      "regenerate": true,
+      "previousRenderTaskId": 47,
+      "createdAt": "2026-10-31T21:22:33.075825+08:00",
+      "finishedAt": "2026-10-31T21:22:35.043552+08:00",
+      "rendererVersion": "r-viz-0.4.2",
+      "artifacts": [
+        {
+          "id": 57,
+          "format": "svg",
+          "sha256": "83217b884488e963632b689e72b9798f003f817109f4401672e3bcb0573ac5fa",
+          "byteSize": 163095
+        },
+        {
+          "id": 58,
+          "format": "pdf",
+          "sha256": "c7c6289440489f887a7b32d633cb2cb96afe650cf2cd08322f0c3e0ca2369a2f",
+          "byteSize": 997407
+        },
+        {
+          "id": 59,
+          "format": "png",
+          "sha256": "bcbd8fc0e2021ddc589301f35e633a2295097c996423e8e88bd91a9eab8d4fc6",
+          "byteSize": 312884
+        },
+        {
+          "id": 60,
+          "format": "html",
+          "sha256": "0d99c70c4d1ceaac3881eed87236deba6b108e94d8f1e901bb0954ad3a56691b",
+          "byteSize": 1538531
+        }
+      ]
+    }
+  ],
+  "browserDownloadVerified": {
+    "taskId": 48,
+    "format": "png",
+    "sha256": "bcbd8fc0e2021ddc589301f35e633a2295097c996423e8e88bd91a9eab8d4fc6",
+    "matchesStoredArtifact": true,
+    "differsFromPregeneratedDemoPng": true
+  }
+}

@@ -17,20 +17,22 @@ tabs._compile(ts.transpileModule(fs.readFileSync(tabsFile, 'utf8'), {compilerOpt
   module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX,
 }}).outputText, tabsFile);
 const unused = new Proxy({}, {get: () => () => {throw Error('No request is permitted in this component test');}});
+const Viewer = () => null;
 subject.require = name => {
   if (name === 'react') return React;
   if (name === 'react/jsx-runtime') return load(name);
   if (name === 'lucide-react') return new Proxy({}, {get: () => () => null});
-  if (name === 'react-router-dom') return unused;
+  if (name === 'react-router-dom') return {Link:({to,children,...props})=>React.createElement('a',{...props,href:to},children)};
   if (name === '../api/client') return {ApiError: class extends Error {}};
   if (name.startsWith('../api/')) return unused;
   if (name === '../components/SubviewTabs') return tabs.exports;
+  if (name === '../components/RChartViewer') return {RChartViewer:Viewer,hasInteractiveRenderer:()=>false};
   if (name.startsWith('../components/')) return new Proxy({}, {get: () => () => null});
   throw Error('Unexpected import ' + name);
 };
 // Expose only to this compiled test module; the production module exports and
 // component implementation stay unchanged.
-const source = fs.readFileSync(file, 'utf8') + '\nexport { ProteomicsResultView };\n';
+const source = fs.readFileSync(file, 'utf8') + '\nexport { ProteomicsResultView, ProteomicsVisualizationResult };\n';
 subject._compile(ts.transpileModule(source, {compilerOptions: {
   module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX,
 }}).outputText, file);
@@ -92,6 +94,28 @@ check('Actual summary and row-QC rendering explains numeric ambiguity, including
   assert.ok(html.includes('样本列 Sample&lt;1&gt; 含逗号数值格式'));
   assert.ok(!html.includes('ambiguous_'), 'Known machine reasons must render their explanation');
   assert.ok(!html.includes('<1>'), 'Sample names are rendered as text, never markup');
+});
+
+
+check('Each redraw state retains links to its current task and the previous immutable figure', () => {
+  for(const status of ['queued','running','failed','cancelled','succeeded']){
+    const task={id:102,status,progress:5,error_summary:'SYNTHETIC_R_FAILURE',input_parameters:{previousRenderTaskId:101},
+      result:{previousRenderTaskId:101,rendererVersion:'r-viz-0.4.2',artifacts:[]}};
+    const html=renderToStaticMarkup(React.createElement(subject.exports.ProteomicsVisualizationResult,{task,title:'R_TEST',alt:'R_TEST'}));
+    assert.ok(html.includes('href="/tasks/102"'));assert.ok(html.includes('href="/tasks/101"'));assert.ok(html.includes('查看上一版图表'));
+    assert.ok(!html.includes('/r-demo/')&&!html.includes('/r-public-demo/'));
+    if(status==='failed')assert.ok(html.includes('SYNTHETIC_R_FAILURE'));
+    if(status==='succeeded')assert.ok(html.includes('r-viz-0.4.2'));
+  }
+});
+check('An old static proteomics figure and a new R rendering mount different viewer instances', () => {
+  const nodes = node => !node || typeof node !== 'object' ? [] : Array.isArray(node) ? node.flatMap(nodes) : [node, ...nodes(node.props?.children)];
+  for(const [id,version] of [[101,'r-viz-0.3.0'],[102,'r-viz-0.4.2']]){
+    const task={id,status:'succeeded',input_parameters:{},result:{rendererVersion:version,artifacts:[{id,format:'svg',downloadUrl:`/private/${id}.svg`}]}};
+    const rendered=subject.exports.ProteomicsVisualizationResult({task,title:'R_TEST',alt:'R_TEST'});
+    const viewer=nodes(rendered).find(node=>node.type===Viewer);
+    assert.equal(viewer.key,String(id));assert.equal(viewer.props.svgUrl,`/private/${id}.svg?inline=1`);
+  }
 });
 
 let failed = 0;

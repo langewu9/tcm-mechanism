@@ -491,13 +491,15 @@ export function ProteomicsPage() {
 
   async function requestVisualization(key: "proteomics_volcano" | "proteomics_go_kegg_enrichment", existing: AnalysisTask | null, update: (value: AnalysisTask) => void) {
     if (!task || task.status !== "succeeded" || submissionInFlight.current || visualizationInFlight.current
-      || (existing && ["queued", "running", "succeeded"].includes(existing.status))) return;
+      || (existing && ["queued", "running"].includes(existing.status))) return;
     visualizationInFlight.current = true;
     const current = generation.current;
     setError(null);
     setVisualizationSubmitting(true);
     try {
-      const job = await createVisualization(task.id, key);
+      const job = existing
+        ? await createVisualization(task.id, key, { regenerate: true })
+        : await createVisualization(task.id, key);
       if (!mounted.current || generation.current !== current) return;
       if (job.task_type !== "visualization" || job.parent_task !== task.id
         || job.input_parameters.analysisKind !== "r_visualization" || job.input_parameters.chartKey !== key) {
@@ -693,13 +695,13 @@ function ProteomicsResultView({
       { key: "charts", label: "R 图表", content: <RAnalysisGallery key={task.id} taskId={task.id} additionalCharts={[
         { key: "proteomics_volcano", label: "差异蛋白火山图", content: <RChartSource chartKey="proteomics_volcano"><section className="proteomics-result-section">
       <div className="case-list-heading"><div><h3 className="section-title-sm">差异蛋白火山图</h3><p className="section-help">根据本任务已保存的 log2FC、P 值和筛选状态生成，最多绘制 5,000 行；不发送原始文件或医案。</p></div>
-        <button className="btn btn-secondary" type="button" disabled={visualizationSubmitting || Boolean(volcanoVisualizationTask && ["queued", "running", "succeeded"].includes(volcanoVisualizationTask.status))} onClick={onCreateVolcanoVisualization}>{visualizationSubmitting ? "正在创建图表…" : volcanoVisualizationTask?.status === "succeeded" ? "R 火山图已生成" : volcanoVisualizationTask?.status === "failed" ? "重试生成 R 火山图" : "生成 R 火山图"}</button></div>
+        <button className="btn btn-secondary" type="button" disabled={visualizationSubmitting || Boolean(volcanoVisualizationTask && ["queued", "running"].includes(volcanoVisualizationTask.status))} onClick={onCreateVolcanoVisualization}>{visualizationSubmitting ? "正在创建图表…" : volcanoVisualizationTask && ["queued", "running"].includes(volcanoVisualizationTask.status) ? "后台绘图中…" : volcanoVisualizationTask?.status === "succeeded" ? "重新运行 R 火山图" : volcanoVisualizationTask?.status === "failed" ? "重试生成 R 火山图" : "生成 R 火山图"}</button></div>
       {volcanoVisualizationTask && <ProteomicsVisualizationResult task={volcanoVisualizationTask} title="差异蛋白火山图" alt="差异蛋白火山图；横轴为 log2 Fold Change，纵轴为负对数 P 值，颜色区分阈值筛选结果" />}
     </section></RChartSource> },
         { key: "proteomics_go_kegg_enrichment", label: "GO / KEGG 富集气泡图", content: <RChartSource chartKey="proteomics_go_kegg_enrichment"><section className="proteomics-result-section">
           <h3 className="section-title-sm">GO / KEGG 富集气泡图</h3>
           <p className="section-help">只使用当前任务保存的富集结果，不发送原始文件或医案。</p>
-          <button className="btn btn-secondary" type="button" disabled={!result.externalGProfiler?.terms.length || visualizationSubmitting || Boolean(visualizationTask && ["queued", "running", "succeeded"].includes(visualizationTask.status))} onClick={onCreateGoKeggVisualization}>{!result.externalGProfiler?.terms.length ? "缺少所需分析数据" : visualizationSubmitting ? "正在创建图表…" : visualizationTask?.status === "succeeded" ? "R 气泡图已生成" : visualizationTask?.status === "failed" ? "重试生成 R 气泡图" : "生成 R 富集气泡图"}</button>
+          <button className="btn btn-secondary" type="button" disabled={!result.externalGProfiler?.terms.length || visualizationSubmitting || Boolean(visualizationTask && ["queued", "running"].includes(visualizationTask.status))} onClick={onCreateGoKeggVisualization}>{!result.externalGProfiler?.terms.length ? "缺少所需分析数据" : visualizationSubmitting ? "正在创建图表…" : visualizationTask && ["queued", "running"].includes(visualizationTask.status) ? "后台绘图中…" : visualizationTask?.status === "succeeded" ? "重新运行 R 富集气泡图" : visualizationTask?.status === "failed" ? "重试生成 R 气泡图" : "生成 R 富集气泡图"}</button>
           {visualizationTask && <ProteomicsVisualizationResult task={visualizationTask} title="GO / KEGG 富集气泡图" alt="GO / KEGG 富集气泡图；横轴为 GeneRatio，点大小为命中数，颜色表示 FDR 显著性" />}
         </section></RChartSource> },
       ]} /> },
@@ -781,13 +783,21 @@ function ProteomicsResultView({
 }
 
 function ProteomicsVisualizationResult({ task, title, alt }: { task: AnalysisTask; title: string; alt: string }) {
-  if (["queued", "running"].includes(task.status)) return <p className="section-help" role="status">R 绘图任务 #{task.id} 正在后台执行（{task.progress}%）。</p>;
-  if (task.status === "failed") return <div className="notice-error" role="alert">R 图表生成失败：{task.error_summary}</div>;
+  const previousRenderTaskId = task.input_parameters.previousRenderTaskId ?? (task.result as { previousRenderTaskId?: number } | null)?.previousRenderTaskId;
+  const history = <div className="source-record-actions"><Link className="btn btn-secondary" to={`/tasks/${task.id}`}>查看绘图任务 #{task.id}</Link>
+    {typeof previousRenderTaskId === "number" && Number.isSafeInteger(previousRenderTaskId) && previousRenderTaskId > 0 && previousRenderTaskId !== task.id
+      && <Link className="btn btn-secondary" to={`/tasks/${previousRenderTaskId}`}>查看上一版图表（任务 #{previousRenderTaskId}）</Link>}
+  </div>;
+  if (["queued", "running"].includes(task.status)) return <div><p className="section-help" role="status">R 绘图任务 #{task.id} 正在后台执行（{task.progress}%）。</p>{history}</div>;
+  if (task.status === "failed") return <div><div className="notice-error" role="alert">R 图表生成失败：{task.error_summary}</div>{history}</div>;
+  if (task.status === "cancelled") return <div><p className="section-help" role="status">R 绘图任务 #{task.id} 已取消。</p>{history}</div>;
   const value = task.result as { rendererVersion?: string; artifacts?: Array<{ id: number; format: string; downloadUrl: string }> };
   const artifacts = value.artifacts ?? [];
   const svg = artifacts.find((artifact) => artifact.format === "svg");
   const html = artifacts.find((artifact) => artifact.format === "html");
   return <div className="panel source-record"><h3>{title}</h3>
+    <p className="section-help">任务 #{task.id} · {String(value.rendererVersion ?? "版本未记录")}</p>
+    {history}
     {!hasInteractiveRenderer(value.rendererVersion) && <p className="notice-info">此任务提供静态图表，可查看或下载原始图片。</p>}
     <RChartViewer key={task.id} title={alt} interactive={hasInteractiveRenderer(value.rendererVersion)}
       svgUrl={svg && `${svg.downloadUrl}?inline=1`} htmlUrl={html && `${html.downloadUrl}?inline=1`} />

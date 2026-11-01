@@ -127,12 +127,14 @@ export function RAnalysisGallery({ taskId, additionalCharts = [], initialSource 
   async function renderChart(key: string) {
     const chart = parent ? rChartCatalog(parent).find(item => item.key === key) : null;
     if (submissionInFlight.current || !historyReady || !chart?.available || parent?.status !== "succeeded"
-      || (jobs[key] && ["queued", "running", "succeeded"].includes(jobs[key].status))) return;
+      || (jobs[key] && ["queued", "running"].includes(jobs[key].status))) return;
     submissionInFlight.current = true;
     const current = generation.current;
     setBusy(key); setError(null);
     try {
-      const job = await createVisualization(taskId, key);
+      const job = jobs[key]
+        ? await createVisualization(taskId, key, { regenerate: true })
+        : await createVisualization(taskId, key);
       verifyGalleryJob(job, taskId, key);
       if (generation.current === current) setJobs(previous => ({ ...previous, [key]: job }));
     } catch (cause) {
@@ -152,15 +154,21 @@ export function RAnalysisGallery({ taskId, additionalCharts = [], initialSource 
       const job = jobs[chart.key];
       const pending = Boolean(job && ["queued", "running"].includes(job.status));
       const value = record(job?.result);
+      const previousRenderTaskId = job?.input_parameters.previousRenderTaskId ?? value.previousRenderTaskId;
       const artifacts = list(value.artifacts) as Artifact[];
       const svg = artifacts.find(item => item.format === "svg");
       const html = artifacts.find(item => item.format === "html");
       return { key: chart.key, label: chart.label, content: <div className="panel source-record">
         <h4>{chart.label}</h4><p className="section-help">{chart.note}</p>
         <RChartSource key={chart.key} chartKey={chart.key}>
-        <button className="btn btn-secondary" type="button" disabled={!historyReady || !chart.available || busy !== null || pending || job?.status === "succeeded"} onClick={() => void renderChart(chart.key)}>
-          {!chart.available ? "缺少所需分析数据" : busy === chart.key ? "正在提交…" : pending ? `后台绘图 ${job?.progress ?? 0}%` : job?.status === "succeeded" ? "已生成" : job?.status === "failed" ? "重试绘图" : "生成 R 图表"}
+        <button className="btn btn-secondary" type="button" disabled={!historyReady || !chart.available || busy !== null || pending} onClick={() => void renderChart(chart.key)}>
+          {!chart.available ? "缺少所需分析数据" : busy === chart.key ? "正在提交…" : pending ? `后台绘图 ${job?.progress ?? 0}%` : job?.status === "succeeded" ? "重新运行 R 绘图" : job?.status === "failed" ? "重试绘图" : "生成 R 图表"}
         </button>
+        {job && <div className="source-record-actions">
+          <a className="btn btn-secondary" href={`/tasks/${job.id}`}>查看绘图任务 #{job.id}</a>
+          {typeof previousRenderTaskId === "number" && Number.isSafeInteger(previousRenderTaskId) && previousRenderTaskId > 0 && previousRenderTaskId !== job.id
+            && <a className="btn btn-secondary" href={`/tasks/${previousRenderTaskId}`}>查看上一版图表（任务 #{previousRenderTaskId}）</a>}
+        </div>}
         {job?.status === "failed" && <p className="notice-error" role="alert">{job.error_summary}</p>}
         {job?.status === "succeeded" && <>
           <details className="raw-details"><summary>绘图记录</summary><p className="section-help">任务 #{job.id} · {String(value.rendererVersion ?? "")} · 分析 #{taskId}</p></details>

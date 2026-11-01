@@ -224,6 +224,7 @@ class CaseCandidateReviewRequestSerializer(serializers.Serializer):
 
 
 class VisualizationRequestSerializer(serializers.Serializer):
+    regenerate = serializers.BooleanField(required=False, default=False)
     chartKey = serializers.ChoiceField(choices=[
         "overlap", "components", "pathways", "proteomics_summary", "proteomics_top_nodes",
         "proteomics_go_kegg_enrichment", "proteomics_volcano",

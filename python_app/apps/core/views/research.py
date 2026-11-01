@@ -557,6 +557,7 @@ class AnalysisTaskViewSet(SensitiveReadAuditMixin, viewsets.ReadOnlyModelViewSet
                 parent_task=parent_task,
                 user=request.user,
                 chart_key=serializer.validated_data["chartKey"],
+                regenerate=serializer.validated_data["regenerate"],
             )
         except VisualizationInputError as exc:
             raise ValidationError({"chartKey": str(exc)}) from exc

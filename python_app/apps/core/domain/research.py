@@ -325,8 +325,8 @@ class VisualizationArtifact(models.Model):
         ordering = ["file_format", "id"]
         constraints = [
             models.UniqueConstraint(
-                fields=["task", "chart_key", "file_format", "input_sha256"],
-                name="uniq_task_chart_artifact_input",
+                fields=["render_task", "file_format"],
+                name="uniq_render_artifact_format",
             )
         ]
         indexes = [models.Index(fields=["owner", "created_at"], name="viz_owner_created_idx")]

@@ -7,13 +7,13 @@ require.extensions['.ts']=(module,file)=>module._compile(compile(file),file);
 const {ApiError}=load('./src/api/client.ts');
 // Expand only the hook-free tab stub. Executing arbitrary child components in
 // this harness would consume the page's hook slots and corrupt its state.
-const jsx=(type,props)=>{
+const jsx=(type,props,key)=>{
   if(type==='SubviewTabs'){
     const active=props.views.some(view=>view.key===props.value)?props.value:props.views[0]?.key;
     return {type,props:{...props,children:props.views.filter(view=>props.keepMounted||view.key===active)
       .map(view=>({type:'div',props:{role:'tabpanel',hidden:view.key!==active,children:view.content}}))}};
   }
-  return {type,props};
+  return {type,props,key};
 };
 const deferred=(name,calls)=>(...args)=>new Promise((resolve,reject)=>calls.push({name,args,resolve,reject}));
 function harness(relative,imports,router={Link:'Link',useSearchParams:()=>[new URLSearchParams(),()=>{}]}){
@@ -192,4 +192,114 @@ check('R chart history failure preserves its parent and offers a read-only retry
   clock();const calls=[],called=name=>calls.filter(call=>call.name===name);const h=harness('src/components/RAnalysisGallery.tsx',{'../api/datasets':{getAnalysisTask:deferred('detail',calls),getAnalysisTaskSummaries:deferred('summary',calls)},'../api/task-restoration':{restoreGalleryJobs:deferred('restore',calls)},'../api/network':{createVisualization:deferred('create',calls)},'./RDemoGallery':{RDemoGallery:'RDemoGallery'}});h.props={taskId:1};h.render('RAnalysisGallery');
   try{called('detail')[0].resolve({...task(1,'succeeded','network'),result:{analysisKind:'catalog_evidence',network:{links:[{}]}}});called('summary')[0].reject(new ApiError('暂时断开','NETWORK_ERROR',null,null,0));await flush(h);assert.ok(text(h.value).includes('中药—成分—靶点目录关系图'));find(h,n=>n.type==='button'&&text(n)==='重新读取图表记录').props.onClick();h.render();assert.equal(called('detail').length,2);assert.equal(called('create').length,0);}finally{h.cleanup();}
 });
+
+const savedRender=(id,parentId,key,status='succeeded',previousRenderTaskId=null)=>({
+  ...task(id,status,'visualization',parentId),
+  input_parameters:{analysisKind:'r_visualization',parentTaskId:parentId,chartKey:key,previousRenderTaskId},
+  result:status==='succeeded'?{taskId:id,parentTaskId:parentId,chartKey:key,previousRenderTaskId,rendererVersion:'r-viz-0.3.0',
+    artifacts:[{id,format:'svg',downloadUrl:`/private/saved-${id}.svg`}]}:{},
+});
+async function restoredGallery(saved){
+  clock();const calls=[],called=name=>calls.filter(call=>call.name===name);
+  const h=harness('src/components/RAnalysisGallery.tsx',{
+    '../api/datasets':{getAnalysisTask:deferred('detail',calls),getAnalysisTaskSummaries:deferred('summary',calls)},
+    '../api/task-restoration':{restoreGalleryJobs:deferred('restore',calls)},
+    '../api/network':{createVisualization:deferred('create',calls)},
+  });
+  h.props={taskId:1};h.render('RAnalysisGallery');
+  called('detail')[0].resolve({...task(1,'succeeded','network'),result:{analysisKind:'catalog_evidence',network:{links:[{}]}}});
+  called('summary')[0].resolve(page([]));await flush(h);called('restore')[0].resolve({evidence_network:saved});await flush(h);
+  return {h,called};
+}
+check('A saved R 0.3 graph can run again; failed submission preserves the old artifact and retry intent',async()=>{
+  const {h,called}=await restoredGallery(savedRender(61,1,'evidence_network'));
+  try{
+    const run=find(h,n=>n.type==='button'&&text(n)==='重新运行 R 绘图');
+    assert.equal(run.props.disabled,false);run.props.onClick();run.props.onClick();
+    assert.deepEqual(called('create').map(call=>call.args),[[1,'evidence_network',{regenerate:true}]]);
+    assert.ok(nodes(h.value).some(n=>n.type==='a'&&n.props.href==='/tasks/61'));
+    called('create')[0].reject(new ApiError('SYNTHETIC_R_SUBMIT_FAILURE'));await flush(h);
+    assert.ok(text(h.value).includes('SYNTHETIC_R_SUBMIT_FAILURE'));
+    assert.equal(find(h,n=>n.type==='RChartViewer').props.svgUrl,'/private/saved-61.svg?inline=1');
+    find(h,n=>n.type==='button'&&text(n)==='重新运行 R 绘图').props.onClick();
+    assert.deepEqual(called('create')[1].args,[1,'evidence_network',{regenerate:true}]);
+    called('create')[1].resolve(savedRender(62,1,'evidence_network','queued',61));await flush(h);
+    assert.ok(nodes(h.value).some(n=>n.type==='a'&&n.props.href==='/tasks/61'&&text(n).includes('上一版')));
+    const pending=find(h,n=>n.type==='button'&&text(n).startsWith('后台绘图'));
+    assert.equal(pending.props.disabled,true);pending.props.onClick();assert.equal(called('create').length,2);
+    assert.ok(!nodes(h.value).some(n=>n.type==='RChartViewer'),'The queued task cannot masquerade as its old artifact or a demo');
+  }finally{h.cleanup();}
+});
+check('Retrying a failed or cancelled redraw preserves regeneration and the previous successful graph link',async()=>{
+  for(const status of ['failed','cancelled']){
+    const {h,called}=await restoredGallery(savedRender(62,1,'evidence_network',status,61));
+    try{
+      assert.ok(nodes(h.value).some(n=>n.type==='a'&&n.props.href==='/tasks/61'));
+      find(h,n=>n.type==='button'&&text(n)===(status==='failed'?'重试绘图':'生成 R 图表')).props.onClick();
+      assert.deepEqual(called('create')[0].args,[1,'evidence_network',{regenerate:true}]);
+    }finally{h.cleanup();}
+  }
+});
+check('Proteomics successful volcano and enrichment figures can rerun without losing parent binding or pending protection',async()=>{
+  for(const [key,property,callback] of [['proteomics_volcano','volcanoVisualizationTask','onCreateVolcanoVisualization'],['proteomics_go_kegg_enrichment','visualizationTask','onCreateGoKeggVisualization']]){
+    const {h,called,ready}=proteomics();
+    try{
+      await ready(task(20,'succeeded'),null,{[property]:savedRender(21,20,key)});
+      const view=()=>find(h,n=>n.type?.name==='ProteomicsResultView');
+      view().props[callback]();view().props[callback]();
+      assert.deepEqual(called('chart').map(call=>call.args),[[20,key,{regenerate:true}]]);
+      called('chart')[0].reject(new ApiError('SYNTHETIC_REDRAW_FAILURE'));await flush(h);
+      assert.ok(text(h.value).includes('SYNTHETIC_REDRAW_FAILURE'));assert.equal(view().props[property].id,21);
+      view().props[callback]();called('chart')[1].resolve(savedRender(22,20,key,'queued',21));await flush(h);
+      assert.equal(view().props[property].input_parameters.previousRenderTaskId,21);
+      view().props[callback]();assert.equal(called('chart').length,2);
+    }finally{h.cleanup();}
+  }
+});
+check('Failed and cancelled proteomics redraws always request a fresh R run',async()=>{
+  for(const status of ['failed','cancelled'])for(const [key,property,callback] of [['proteomics_volcano','volcanoVisualizationTask','onCreateVolcanoVisualization'],['proteomics_go_kegg_enrichment','visualizationTask','onCreateGoKeggVisualization']]){
+    const {h,called,ready}=proteomics();
+    try{
+      await ready(task(20,'succeeded'),null,{[property]:savedRender(22,20,key,status,21)});
+      find(h,n=>n.type?.name==='ProteomicsResultView').props[callback]();
+      assert.deepEqual(called('chart')[0].args,[20,key,{regenerate:true}]);
+    }finally{h.cleanup();}
+  }
+});
+check('A late proteomics redraw cannot replace figures belonging to a newly selected parent',async()=>{
+  for(const [key,property,callback] of [['proteomics_volcano','volcanoVisualizationTask','onCreateVolcanoVisualization'],['proteomics_go_kegg_enrichment','visualizationTask','onCreateGoKeggVisualization']]){
+    const {h,called,ready,navigate}=proteomics('proteomicsTask=20');
+    try{
+      await ready(task(20,'succeeded'),null,{[property]:savedRender(21,20,key)});
+      find(h,n=>n.type?.name==='ProteomicsResultView').props[callback]();
+      navigate('proteomicsTask=30');
+      called('restore')[1].resolve({task:task(30,'succeeded'),visualizationTask:null,volcanoVisualizationTask:null,[property]:savedRender(31,30,key)});await flush(h);
+      called('chart')[0].resolve(savedRender(22,20,key,'queued',21));await flush(h);
+      const view=find(h,n=>n.type?.name==='ProteomicsResultView');
+      assert.equal(view.props.task.id,30);assert.equal(view.props[property].id,31);
+      view.props[callback]();assert.deepEqual(called('chart')[1].args,[30,key,{regenerate:true}]);
+    }finally{h.cleanup();}
+  }
+});
+check('Gallery redraws remount the viewer for a new job and ignore late results after a parent change',async()=>{
+  const {h,called}=await restoredGallery(savedRender(61,1,'evidence_network'));
+  try{
+    assert.equal(find(h,n=>n.type==='RChartViewer').key,61);
+    find(h,n=>n.type==='button'&&text(n)==='重新运行 R 绘图').props.onClick();
+    const completed=savedRender(62,1,'evidence_network','succeeded',61);completed.result.rendererVersion='r-viz-0.4.2';
+    called('create')[0].resolve(completed);await flush(h);
+    assert.equal(find(h,n=>n.type==='RChartViewer').key,62);
+    assert.equal(find(h,n=>n.type==='RChartViewer').props.svgUrl,'/private/saved-62.svg?inline=1');
+    find(h,n=>n.type==='button'&&text(n)==='重新运行 R 绘图').props.onClick();
+    h.props={taskId:2};h.render();
+    called('detail')[1].resolve({...task(2,'succeeded','network'),result:{analysisKind:'catalog_evidence',network:{links:[{}]}}});
+    called('summary')[1].resolve(page([]));await flush(h);called('restore')[1].resolve({evidence_network:savedRender(71,2,'evidence_network')});await flush(h);
+    called('create')[1].resolve(savedRender(63,1,'evidence_network','queued',62));await flush(h);
+    assert.equal(find(h,n=>n.type==='RChartViewer').key,71);
+    assert.equal(find(h,n=>n.type==='RChartViewer').props.svgUrl,'/private/saved-71.svg?inline=1');
+    find(h,n=>n.type==='button'&&text(n)==='重新运行 R 绘图').props.onClick();
+    assert.deepEqual(called('create')[2].args,[2,'evidence_network',{regenerate:true}]);
+  }finally{h.cleanup();}
+});
+
 (async()=>{let failures=0;for(const {name,run} of checks){try{await run();console.log('PASS: '+name);}catch(error){failures++;console.error('FAIL: '+name+'\n'+error.stack);}}console.log(`${checks.length-failures}/${checks.length} feature audit regressions passed`);if(failures)process.exitCode=1;})().catch(error=>{console.error(error.stack);process.exitCode=1;});

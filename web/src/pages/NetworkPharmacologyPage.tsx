@@ -119,6 +119,8 @@ export function NetworkPharmacologyPage() {
     const generation = ++queryGeneration.current;
     let active = true;
     currentSourceTaskId.current = null;
+    submittingGeneration.current.visualization = null;
+    setVisualizationSubmitting(false);
     setVisualizationBinding(null); setVisualizationHistorySource(null); setVisualizationHistoryError(null);
     setResult(null); setError(null); setBusy(true);
     setLocalProgress("正在读取已保存的本地分析…");
@@ -311,7 +313,9 @@ export function NetworkPharmacologyPage() {
     setError(null);
     setVisualizationSubmitting(true);
     try {
-      const task = await createVisualization(sourceTaskId, "overlap");
+      const task = visualizationTask
+        ? await createVisualization(sourceTaskId, "overlap", { regenerate: true })
+        : await createVisualization(sourceTaskId, "overlap");
       verifyOverlapTask(task, sourceTaskId);
       if (isCurrentQuery(generation, sourceTaskId)) setVisualizationBinding({ sourceTaskId, task });
     } catch (cause) { if (isCurrentQuery(generation, sourceTaskId)) setError(errorMessage(cause)); }
@@ -348,7 +352,7 @@ export function NetworkPharmacologyPage() {
                 setShareWithReactome(false); setShareWithString(false); setPollingError(null); setError(null);
               }} />
               <TargetIntersectionFigure result={result} />
-              <div className="source-record-actions"><button className="btn btn-secondary" type="button" disabled={!intersectionState(result).comparable || visualizationSubmitting || visualizationHistoryLoading || Boolean(visualizationTask && ["queued", "running"].includes(visualizationTask.status))} onClick={() => void requestVisualization()}>生成 R 图表</button></div>
+              <div className="source-record-actions"><button className="btn btn-secondary" type="button" disabled={!intersectionState(result).comparable || visualizationSubmitting || visualizationHistoryLoading || Boolean(visualizationTask && ["queued", "running"].includes(visualizationTask.status))} onClick={() => void requestVisualization()}>{visualizationSubmitting ? "正在提交…" : visualizationTask && ["queued", "running"].includes(visualizationTask.status) ? "后台绘图中…" : visualizationTask?.status === "succeeded" ? "重新运行 R 绘图" : visualizationTask?.status === "failed" ? "重试绘图" : "生成 R 图表"}</button></div>
               {visualizationHistoryLoading && <p className="section-help" role="status">正在读取已保存的 R 图表…</p>}
               {visualizationHistoryError && <div className="notice-error" role="alert"><p>{visualizationHistoryError}</p><button className="btn btn-secondary" type="button" disabled={visualizationSubmitting || visualizationHistoryLoading} onClick={() => setVisualizationHistoryReload(value => value + 1)}>重新读取历史 R 图表</button></div>}
               {visualizationTask && <VisualizationResult task={visualizationTask} />}
@@ -396,15 +400,21 @@ function Metric({ label, value }: { label: string; value: number | string }) {
 }
 
 function VisualizationResult({ task }: { task: AnalysisTask }) {
-  if (["queued", "running"].includes(task.status)) return <p className="section-help">R 图表任务 #{task.id} 正在后台执行（{task.progress}%）。</p>;
-  if (task.status === "failed") return <div className="notice-error" role="alert">R 图表生成失败：{task.error_summary}</div>;
-  if (task.status === "cancelled") return <p className="section-help" role="status">R 图表任务 #{task.id} 已取消。</p>;
+  const previousRenderTaskId = task.input_parameters.previousRenderTaskId ?? (task.result as { previousRenderTaskId?: number } | null)?.previousRenderTaskId;
+  const history = <div className="source-record-actions"><Link className="btn btn-secondary" to={`/tasks/${task.id}`}>查看绘图任务 #{task.id}</Link>
+    {typeof previousRenderTaskId === "number" && Number.isSafeInteger(previousRenderTaskId) && previousRenderTaskId > 0 && previousRenderTaskId !== task.id
+      && <Link className="btn btn-secondary" to={`/tasks/${previousRenderTaskId}`}>查看上一版图表（任务 #{previousRenderTaskId}）</Link>}
+  </div>;
+  if (["queued", "running"].includes(task.status)) return <div><p className="section-help">R 图表任务 #{task.id} 正在后台执行（{task.progress}%）。</p>{history}</div>;
+  if (task.status === "failed") return <div><div className="notice-error" role="alert">R 图表生成失败：{task.error_summary}</div>{history}</div>;
+  if (task.status === "cancelled") return <div><p className="section-help" role="status">R 图表任务 #{task.id} 已取消。</p>{history}</div>;
   const value = task.result as { rendererVersion?: string; artifacts?: Array<{ id: number; format: string; filename: string; downloadUrl: string; rendererVersion: string }> };
   const artifacts = value.artifacts ?? [];
   const svg = artifacts.find((artifact) => artifact.format === "svg");
   const html = artifacts.find((artifact) => artifact.format === "html");
   return <div className="panel source-record"><h3>R 图表 · {String(value.rendererVersion ?? "")}</h3>
-    <RChartViewer title="中药—疾病靶点比对统计" interactive={hasInteractiveRenderer(value.rendererVersion)}
+    {history}
+    <RChartViewer key={task.id} title="中药—疾病靶点比对统计" interactive={hasInteractiveRenderer(value.rendererVersion)}
       svgUrl={svg && `${svg.downloadUrl}?inline=1`} htmlUrl={html && `${html.downloadUrl}?inline=1`} />
     <div className="source-record-actions">{artifacts.map((artifact) => <a className="btn btn-secondary" key={artifact.id} href={artifact.downloadUrl}>下载 {artifact.format.toUpperCase()}</a>)}</div>
   </div>;

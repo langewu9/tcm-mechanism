@@ -123,5 +123,6 @@ export const runReactomeEnrichment = (sourceTaskId: number) =>
 export const runStringNetwork = (sourceTaskId: number, required_score: number) =>
   apiRequest<AnalysisTask>("/api/v1/analysis/string-network/", { method: "POST", body: { source_task_id: sourceTaskId, required_score, consent: true } });
 
-export const createVisualization = (taskId: number, chartKey: string) =>
-  apiRequest<AnalysisTask>(`/api/v1/research/analysis-tasks/${taskId}/visualizations/`, { method: "POST", body: { chartKey } });
+export const createVisualization = (taskId: number, chartKey: string, options?: { regenerate?: boolean }) =>
+  apiRequest<AnalysisTask>(`/api/v1/research/analysis-tasks/${taskId}/visualizations/`, { method: "POST",
+    body: { chartKey, ...(options?.regenerate === undefined ? {} : { regenerate: options.regenerate }) } });

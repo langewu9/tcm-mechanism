@@ -7,6 +7,7 @@ const ts = load('typescript'), filename = path.join(root, 'src/pages/NetworkPhar
 const code = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
   compilerOptions: {module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX},
 }).outputText;
+class ApiError extends Error {}
 const source = id => ({taskId:id, summary:{herb:'SYNTHETIC_HERB_'+id,disease:'SYNTHETIC_DISEASE_'+id,
   herbTargetCount:2,diseaseTargetCount:2,strictIntersectionCount:1,directAssociationTargetCount:0,
   candidateTargetCount:1,componentCount:1,unmatchedHerbs:[],unmatchedDiseases:[]},
@@ -33,7 +34,7 @@ function harness(savedId='10') {
   };
   const uiModules=new Map();
   const enqueue=list=>(...args)=>{let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});list.push({args,resolve,reject});return promise;};
-  const jsx=(type,props)=>({type,props}), subject=new Module(filename);
+  const jsx=(type,props,key)=>({type,props,key}), subject=new Module(filename);
   global.window={setTimeout(fn){const id=++timerId;timers.set(id,fn);return id;},clearTimeout(id){timers.delete(id);}};
   subject.require=name=>{
     if(name==='../components/ArtifactPreview')return {ArtifactPreview:props=>jsx('img',props)};
@@ -41,7 +42,7 @@ function harness(savedId='10') {
     if(name==='react/jsx-runtime')return {jsx,jsxs:jsx,Fragment:'Fragment'};
     if(name==='react-router-dom')return {Link:'Link',useLocation:()=>({key:'synthetic',state:null}),useSearchParams:()=>[params,()=>{}]};
     if(name==='lucide-react')return {Activity:'Activity',ArrowLeft:'ArrowLeft',Network:'Network',RefreshCw:'RefreshCw'};
-    if(name==='../api/client')return {ApiError:class extends Error {}};
+    if(name==='../api/client')return {ApiError};
     if(name==='../api/datasets')return {getAnalysisTask:enqueue(reads),getAnalysisTaskSummaries:enqueue(summaries)};
     if(name==='../api/network')return {runNetworkPharmacology:enqueue(local),createVisualization:enqueue(creates),runReactomeEnrichment(){throw Error('External request forbidden');},runStringNetwork(){throw Error('External request forbidden');}};
     if(name==='../api/complete-evidence')return {waitForCompleteTask:async task=>task};
@@ -118,7 +119,9 @@ function harness(savedId='10') {
   // Failed/cancelled historical jobs stay truthful and never trigger an automatic retry.
   for(const status of ['failed','cancelled']){
     h=harness();await h.restore();h.summaries[0].resolve(page([summary(45,10,{status})]));await h.flush();h.reads[1].resolve(figure(45,10,status));await h.flush();
-    assert.ok(h.nodes().some(node=>h.text(node).includes(status==='failed'?'SYNTHETIC_RENDER_FAILED':'已取消')));assert.equal(h.historyError(),false);assert.equal(h.creates.length,0);h.unmount();
+    assert.ok(h.nodes().some(node=>h.text(node).includes(status==='failed'?'SYNTHETIC_RENDER_FAILED':'已取消')));assert.equal(h.historyError(),false);assert.equal(h.creates.length,0);
+    h.button(status==='failed'?'重试绘图':'生成 R 图表').props.onClick();
+    assert.deepEqual(h.creates[0].args,[10,'overlap',{regenerate:true}]);h.unmount();
   }
 
   for(const failure of ['list','detail']){
@@ -159,5 +162,38 @@ function harness(savedId='10') {
     h=harness();h.render();h.reads[0].resolve({...parent(10),input_parameters:{analysisKind}});await h.flush();
     assert.equal(h.summaries.length,0,'This route only restores local network pharmacology parents');assert.equal(h.creates.length,0);h.unmount();
   }
+
+  // Explicit redraw creates a new task while keeping the old immutable file reachable.
+  h=harness();await h.restore();h.summaries[0].resolve(page([summary(70)]));await h.flush();h.reads[1].resolve(figure(70));await h.flush();
+  assert.equal(h.nodes().find(node=>node.type?.name==='RChartViewer').key,70);
+  const rerun=h.button('重新运行 R 绘图');assert.equal(rerun.props.disabled,false);rerun.props.onClick();rerun.props.onClick();
+  assert.deepEqual(h.creates.map(call=>call.args),[[10,'overlap',{regenerate:true}]]);
+  h.creates[0].reject(new ApiError('SYNTHETIC_REDRAW_SUBMIT_FAILURE'));await h.flush();
+  assert.deepEqual(h.figureUrls(),['/private/synthetic-70.svg?inline=1']);
+  assert.ok(h.nodes().some(node=>node.props?.role==='alert'&&h.text(node).includes('SYNTHETIC_REDRAW_SUBMIT_FAILURE')));
+  h.button('重新运行 R 绘图').props.onClick();
+  const pending=figure(71,10,'queued');pending.input_parameters.previousRenderTaskId=70;
+  h.creates[1].resolve(pending);await h.flush();
+  assert.ok(h.nodes().some(node=>node.type==='Link'&&node.props.to==='/tasks/70'&&h.text(node).includes('上一版')));
+  const blocked=h.button('后台绘图中');assert.equal(blocked.props.disabled,true);blocked.props.onClick();assert.equal(h.creates.length,2);
+  assert.deepEqual(h.figureUrls(),[],'Pending redraw never presents a demo or the old file as the new result');
+  h.tick();const completed=figure(71);completed.input_parameters.previousRenderTaskId=70;completed.result.previousRenderTaskId=70;completed.result.rendererVersion='r-viz-0.4.2';
+  h.reads.at(-1).resolve(completed);await h.flush();assert.deepEqual(h.figureUrls(),['/private/synthetic-71.svg?inline=1']);
+  assert.equal(h.nodes().find(node=>node.type?.name==='RChartViewer').key,71,'New renderer task must remount the viewer rather than inherit old static state');
+  assert.ok(h.nodes().some(node=>node.type==='Link'&&node.props.to==='/tasks/70'));h.unmount();
+
+  // A redraw accepted after another query or navigation stays with its original parent.
+  for(const change of ['query','navigation']){
+    h=harness();await h.restore();h.summaries[0].resolve(page([summary(80)]));await h.flush();h.reads[1].resolve(figure(80));await h.flush();
+    h.button('重新运行 R 绘图').props.onClick();
+    if(change==='query'){h.submit();h.local[0].resolve(source(20));await h.flush();}
+    else{h.navigate(20);h.reads[2].resolve(parent(20));await h.flush();h.summaries[1].resolve(page());await h.flush();}
+    h.button('生成 R 图表').props.onClick();assert.deepEqual(h.creates[1].args,[20,'overlap']);await h.flush();
+    h.creates[0].resolve(figure(81,10,'queued'));await h.flush();
+    assert.equal(h.mainId(),20);assert.deepEqual(h.figureUrls(),[]);
+    const submitting=h.button('正在提交');assert.equal(submitting.props.disabled,true);submitting.props.onClick();assert.equal(h.creates.length,2,'Late old POST cannot release the newer submission lock');
+    h.creates[1].resolve(figure(82,20,'queued'));await h.flush();assert.ok(h.nodes().some(node=>node.type==='Link'&&node.props.to==='/tasks/82'));h.unmount();
+  }
+
   console.log('PASS: saved overlap restoration, later-page selection, durable parent/type/input/result identity, empty/failed/cancelled history, read-only retry, resumed polling, new-query/navigation/unmount isolation; no automatic R or external request.');
 })().catch(error=>{console.error(error.stack);process.exitCode=1;});
