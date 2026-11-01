@@ -48,7 +48,7 @@ R 接收绘图所需的受限分析数据，不直接连接业务数据库。前
 
 ## 前端验证
 
-API、research、R、network 回归通过；existing-feature-audit 为 28/28，scientific wording 为 5/5。2026-11-01 补存日志复跑时，四组分别完成 4/4、15/15、4/4、7/7 个测试脚本，均退出 0；`tsc -b`、Vite production build 也退出 0。命令、输出及最终汇总见同目录 `frontend-verification.log`（不入库）。`git diff --check` 通过。另修复切换网络任务后，旧请求迟到可能使新任务按钮停留在“正在提交”的状态问题。
+API、research、R、network 回归通过；existing-feature-audit 为 28/28，scientific wording 为 5/5。2026-11-01 补存日志复跑时，四组分别完成 4/4、15/15、4/4、7/7 个测试脚本，均退出 0；`tsc -b`、Vite production build 也退出 0。命令、逐项退出码及最终汇总见同目录 `frontend-verification.log`（不入库）；该日志未捕获子进程的 PASS 或构建明细，不能作为完整标准输出记录。`git diff --check` 通过。另修复切换网络任务后，旧请求迟到可能使新任务按钮停留在“正在提交”的状态问题。
 
 ## 真实 PostgreSQL/R 与浏览器验收结果
 
