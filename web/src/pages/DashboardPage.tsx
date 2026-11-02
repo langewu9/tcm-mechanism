@@ -4,6 +4,7 @@ import { ArrowRight, Database, FileSearch, FileText, FlaskConical, Leaf, Network
 import { type Session } from "../api/auth";
 import { ApiError } from "../api/client";
 import { getResearchDashboard, type DashboardTask, type ResearchDashboard } from "../api/catalog";
+import { getCaseCorpusSummary } from "../api/caseCorpus";
 
 const statusLabels: Record<DashboardTask["status"], string> = {
   queued: "排队中",
@@ -51,6 +52,8 @@ export function DashboardPage() {
   const [dashboard, setDashboard] = useState<ResearchDashboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [referenceCaseCount, setReferenceCaseCount] = useState<number | undefined>();
+  const [referenceCaseLoading, setReferenceCaseLoading] = useState(true);
 
   useEffect(() => {
     let active = true;
@@ -64,12 +67,24 @@ export function DashboardPage() {
     return () => { active = false; };
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    getCaseCorpusSummary().then((summary) => {
+      if (active) setReferenceCaseCount(summary.available ? summary.recordCount : undefined);
+    }).catch(() => {
+      if (active) setReferenceCaseCount(undefined);
+    }).finally(() => {
+      if (active) setReferenceCaseLoading(false);
+    });
+    return () => { active = false; };
+  }, []);
+
   const stats = dashboard?.stats;
   const metricCards = [
-    { label: "研究数据集", value: stats?.datasets, icon: Database },
-    { label: "我的医案", value: stats?.cases, icon: FileText },
-    { label: "分析任务", value: stats?.tasks, icon: FlaskConical },
-    { label: "知识节点", value: stats ? stats.herbs + stats.compounds + stats.targets + stats.pathways : undefined, icon: Network },
+    { label: "研究数据集", value: stats?.datasets, icon: Database, loading },
+    { label: "参考医案", value: referenceCaseCount, icon: FileText, loading: referenceCaseLoading },
+    { label: "分析任务", value: stats?.tasks, icon: FlaskConical, loading },
+    { label: "知识节点", value: stats ? stats.herbs + stats.compounds + stats.targets + stats.pathways : undefined, icon: Network, loading },
   ];
   const knowledge = [
     { label: "中药", value: stats?.herbs, icon: Leaf },
@@ -98,7 +113,7 @@ export function DashboardPage() {
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="研究数据统计">
       {metricCards.map((item) => <article className="stat-card" key={item.label}>
         <span className="stat-card-icon"><item.icon size={20} /></span>
-        <div><p>{item.label}</p><strong>{formatCount(item.value, loading)}</strong></div>
+        <div><p>{item.label}</p><strong>{formatCount(item.value, item.loading)}</strong></div>
       </article>)}
     </div>
 
