@@ -59,15 +59,18 @@ body:has(.yz-home) { min-width:0; background-color:#f5f0e8; animation:none; }
 .yz-home .hero-scroll-art .hero-scroll-roller-top { transform:translate3d(-50%,calc(-50% - var(--scroll-paper-height) * .5),0); }
 .yz-home .hero-scroll-art .hero-scroll-roller-bottom { transform:translate3d(-50%,calc(-50% + var(--scroll-paper-height) * .5),0); }
 .yz-home .hero-scroll-roller-image { display:block; width:100%; height:100%; }
-/* Move only the wood grain inside the cylindrical outline. The fixed light
-   and shadow preserve its round shape while the two rollers turn oppositely. */
-.yz-home .hero-scroll-roller-grain { position:absolute; inset:24% 11%; background:url("/images/yuanzhi-scroll/top-roller.png") 50% 50% / 128% 300% no-repeat; opacity:.68; mask-image:linear-gradient(90deg,transparent,#000 4%,#000 96%,transparent); pointer-events:none; }
-.yz-home .hero-scroll-roller-grain::after { content:""; position:absolute; inset:0; background:linear-gradient(180deg,#fff4d51a,transparent 36%,#28130638); }
+/* Twelve textured faces form a cylinder: the wood actually turns around its
+   horizontal axis. Keep clipping and fixed lighting outside the 3D rotor. */
+.yz-home .hero-scroll-roller-grain { position:absolute; inset:20% 11%; overflow:hidden; mask-image:linear-gradient(90deg,transparent,#000 3%,#000 97%,transparent); pointer-events:none; }
+.yz-home .hero-scroll-roller-scene { position:absolute; inset:0; perspective:800px; }
+.yz-home .hero-scroll-roller-rotor { position:absolute; inset:0; transform-style:preserve-3d; backface-visibility:visible; transform:rotateX(0deg); }
+.yz-home .hero-scroll-roller-face { position:absolute; left:50%; top:50%; width:100%; height:calc(var(--scroll-rod-height) * .16077 + .35px); backface-visibility:hidden; background:url("/images/yuanzhi-scroll/top-roller.png") 50% calc(20.7% + var(--roller-face) * 5.3%) / 128% 2000% no-repeat; transform:translate(-50%,-50%) rotateX(calc(var(--roller-face) * 30deg)) translateZ(calc(var(--scroll-rod-height) * .3)); }
+.yz-home .hero-scroll-roller-grain::after { content:""; position:absolute; inset:0; background:linear-gradient(180deg,#28130650,#fff4d522 28%,transparent 52%,#28130660); }
 .yz-home .hero-scroll-art.is-cycling .hero-scroll-roller-top { animation:yz-scroll-roll-top var(--scroll-cycle-duration) var(--scroll-cycle-ease) both; }
 .yz-home .hero-scroll-art.is-cycling .hero-scroll-paper-window { animation:yz-scroll-reveal var(--scroll-cycle-duration) var(--scroll-cycle-ease) both; }
 .yz-home .hero-scroll-art.is-cycling .hero-scroll-roller-bottom { animation:yz-scroll-roll-bottom var(--scroll-cycle-duration) var(--scroll-cycle-ease) both; }
-.yz-home .hero-scroll-art.is-cycling .hero-scroll-roller-top .hero-scroll-roller-grain { animation:yz-scroll-grain-top var(--scroll-cycle-duration) var(--scroll-cycle-ease) both; }
-.yz-home .hero-scroll-art.is-cycling .hero-scroll-roller-bottom .hero-scroll-roller-grain { animation:yz-scroll-grain-bottom var(--scroll-cycle-duration) var(--scroll-cycle-ease) both; }
+.yz-home .hero-scroll-art.is-cycling .hero-scroll-roller-top .hero-scroll-roller-rotor { animation:yz-scroll-spin-top var(--scroll-cycle-duration) var(--scroll-cycle-ease) both; will-change:transform; }
+.yz-home .hero-scroll-art.is-cycling .hero-scroll-roller-bottom .hero-scroll-roller-rotor { animation:yz-scroll-spin-bottom var(--scroll-cycle-duration) var(--scroll-cycle-ease) both; will-change:transform; }
 .yz-home .hero-scroll-paper { box-shadow:inset 9px 0 20px #5a391210,inset -9px 0 20px #5a391210; }
 .yz-home .hero-scroll-title { top:2.45rem; left:24%; font-size:5rem; }
 .yz-home .hero-scroll-caption { top:5.9rem; right:12%; }
@@ -85,13 +88,13 @@ body:has(.yz-home) { min-width:0; background-color:#f5f0e8; animation:none; }
   0%,100% { transform:translate3d(-50%,calc(-50% + var(--scroll-paper-height) * .5),0); }
   46%,54% { transform:translate3d(-50%,calc(-50% + var(--scroll-paper-height) * .06),0); }
 }
-@keyframes yz-scroll-grain-top {
-  0%,100% { background-position:50% 50%; }
-  46%,54% { background-position:50% 62%; }
+@keyframes yz-scroll-spin-top {
+  0%,100% { transform:rotateX(0deg); }
+  46%,54% { transform:rotateX(720deg); }
 }
-@keyframes yz-scroll-grain-bottom {
-  0%,100% { background-position:50% 50%; }
-  46%,54% { background-position:50% 38%; }
+@keyframes yz-scroll-spin-bottom {
+  0%,100% { transform:rotateX(0deg); }
+  46%,54% { transform:rotateX(-720deg); }
 }
 .yz-home .yz-data { display:grid; grid-template-columns:220px minmax(0,1fr); align-items:center; border-block:1px solid var(--yz-line); padding-block:28px; }
 .yz-home .yz-data-label { display:flex; gap:12px; align-items:center; }
@@ -282,6 +285,6 @@ body:has(.yz-home) { min-width:0; background-color:#f5f0e8; animation:none; }
   .yz-home * { scroll-behavior:auto; transition:none !important; }
   .yz-home .yz-title-char { animation:none; opacity:1; transform:none; filter:none; }
   /* The scroll is static by default; its single cycle only runs on direct interaction. */
-  .yz-home .hero-scroll-art:not(.is-cycling) :is(.hero-scroll-paper-window,.hero-scroll-roller,.hero-scroll-roller-grain) { animation:none !important; }
-  .yz-home .hero-scroll-art.is-cycling :is(.hero-scroll-paper-window,.hero-scroll-roller,.hero-scroll-roller-grain) { animation-duration:1ms !important; }
+  .yz-home .hero-scroll-art:not(.is-cycling) :is(.hero-scroll-paper-window,.hero-scroll-roller,.hero-scroll-roller-rotor) { animation:none !important; }
+  .yz-home .hero-scroll-art.is-cycling :is(.hero-scroll-paper-window,.hero-scroll-roller,.hero-scroll-roller-rotor) { animation-duration:1ms !important; }
 }
