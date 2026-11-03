@@ -8,7 +8,7 @@ import unicodedata
 from collections import defaultdict
 
 from django.db import transaction
-from django.db.models import Case, Count, IntegerField, Q, Value, When, Subquery
+from django.db.models import Case, Count, Exists, IntegerField, OuterRef, Q, Value, When, Subquery
 from django.utils import timezone
 
 from apps.core.models import AnalysisTask, EvidenceRelation, KnowledgeEntity, MedicalCase, MedicalCaseCandidate
@@ -217,6 +217,17 @@ def _complete_identity_inputs(herb_ids, disease_ids, formula_ids, selected_herb_
     compound_ids = herb_rows.order_by().values('object_id').distinct()
     target_rows = visible.filter(subject_id__in=Subquery(compound_ids), relation_type__in=COMPOUND_TARGET_TYPES,
         object__entity_type__in=['gene', 'protein'])
+    matching_herb_row = herb_rows.filter(
+        source_release_id=OuterRef('source_release_id'),
+        object_id=OuterRef('subject_id'),
+        metadata__sourceRowId=OuterRef('metadata__sourceRowId'),
+    ).exclude(metadata__sourceRowId__isnull=True)
+    target_rows = target_rows.annotate(
+        _matching_legacy_herb_row=Exists(matching_herb_row),
+    ).filter(
+        ~Q(source_release__metadata__connector='sqlite-herb-compound-target')
+        | (Q(metadata__sourceRowId__isnull=False) & Q(_matching_legacy_herb_row=True))
+    )
     disease_rows = visible.filter(subject_id__in=disease_ids, relation_type__in=DISEASE_TARGET_TYPES,
         object__entity_type__in=['gene', 'protein'])
     reviewed_disease_rows = _reviewed_disease_target_rows(disease_rows)
@@ -484,11 +495,15 @@ def build_network_pharmacology(
         "diseaseTargets", subject_ids=disease_ids, relation_types={"disease_target"},
         reviewed_disease_only=True,
     ) if diseases else []
+    raw_disease_target_limit = min(row_limit, RAW_EXPORT_LIMIT)
     raw_disease_target_relations = _relation_query(
         subject_ids=disease_ids, relation_types=DISEASE_TARGET_TYPES,
         preferred_herb_ids=list(selected_herbs_by_stable_id),
-        limit=min(row_limit, RAW_EXPORT_LIMIT) + 1,
+        limit=raw_disease_target_limit + 1,
     ) if diseases else []
+    relation_limits['diseaseTargets'] = relation_limits.get('diseaseTargets', False) or (
+        len(raw_disease_target_relations) > raw_disease_target_limit
+    )
     disease_herb_relations = read_relations(
         "diseaseHerbs", subject_ids=disease_ids, object_ids=herb_ids, relation_types=DISEASE_HERB_TYPES,
     ) if diseases and herbs else []
@@ -676,7 +691,7 @@ def build_network_pharmacology(
         "matchedDiseases": [item.label for item in diseases],
         "unmatchedDiseases": [] if diseases else [disease_query.strip()],
         "diseaseResolution": disease_resolution,
-        "diseaseTargetCount": len(disease_entities_by_identity),
+        "diseaseTargetCount": len(set(disease_entities_by_identity) | direct_identity_keys),
         "herbTargetCount": len(herb_entities_by_identity),
         "strictIntersectionCount": len(strict_identity_keys),
         "directAssociationTargetCount": len(direct_identity_keys),

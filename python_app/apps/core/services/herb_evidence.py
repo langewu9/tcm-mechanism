@@ -46,14 +46,13 @@ def _visible_relations(
     # Sort/filter just the primary keys, then hydrate at most limit+1 rows.
     # Wide entity metadata and source details do not enter the candidate sort.
     ids = structural_representatives(candidates, relation_types=relation_types).order_by("id").values("pk")[:limit + 1]
+    # Hydrate entity provenance only after the bounded ID subquery. Joining the
+    # two source paths keeps the query count constant without per-entity reads.
     queryset = EvidenceRelation.objects.filter(pk__in=Subquery(ids)).select_related(
-        "subject", "object", "source_release", "source_release__source",
+        "subject", "subject__source_release", "subject__source_release__source",
+        "object", "object__source_release", "object__source_release__source",
+        "source_release", "source_release__source",
     ).order_by("id")
-    # Entity provenance is used when assembling each unique compound/target.
-    # Load it in bounded batches instead of issuing two queries per entity.
-    queryset = queryset.prefetch_related(
-        "subject__source_release__source", "object__source_release__source",
-    )
     records = list(queryset)
     return records[:limit], len(records) > limit
 
