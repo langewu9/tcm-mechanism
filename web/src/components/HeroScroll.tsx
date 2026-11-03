@@ -1,4 +1,17 @@
-import { useId, useRef, useState } from "react";
+import { useId, useRef, useState, type CSSProperties } from "react";
+
+const rollerFaces = Array.from({ length: 12 }, (_, face) => face);
+
+function RollerSurface() {
+  return <span className="hero-scroll-roller-grain">
+    <span className="hero-scroll-roller-scene">
+      <span className="hero-scroll-roller-rotor">
+        {rollerFaces.map(face => <span key={face} className="hero-scroll-roller-face"
+          style={{ "--roller-face": face, filter: `brightness(${1 + Math.cos(face * Math.PI / 6) * .08})` } as CSSProperties} />)}
+      </span>
+    </span>
+  </span>;
+}
 
 export function HeroScroll() {
   const [isCycling, setIsCycling] = useState(false);
@@ -32,25 +45,28 @@ export function HeroScroll() {
         }
       }}
     >
-      <div className="hero-scroll-stage" onAnimationEnd={event => {
-        if (event.target === event.currentTarget && event.animationName === "yz-scroll-recoil") {
-          cycleRunning.current = false;
-          setIsCycling(false);
-        }
-      }}>
-        <img
-          src="/images/yuanzhi-scroll/top-roller.png"
-          alt=""
-          width={896}
-          height={112}
-          fetchPriority="high"
-          decoding="async"
-          className="hero-scroll-roller hero-scroll-roller-top"
-          onLoad={() => setAssetsReady(value => ({ ...value, roller: true }))}
-          onError={() => setAssetsReady(value => ({ ...value, roller: true }))}
-        />
+      <div className="hero-scroll-stage">
+        <div className="hero-scroll-roller hero-scroll-roller-top" aria-hidden="true">
+          <img
+            src="/images/yuanzhi-scroll/top-roller.png"
+            alt=""
+            width={896}
+            height={112}
+            fetchPriority="high"
+            decoding="async"
+            className="hero-scroll-roller-image"
+            onLoad={() => setAssetsReady(value => ({ ...value, roller: true }))}
+            onError={() => setAssetsReady(value => ({ ...value, roller: true }))}
+          />
+          <RollerSurface />
+        </div>
 
-        <div id={paperId} className="hero-scroll-paper-window">
+        <div id={paperId} className="hero-scroll-paper-window" onAnimationEnd={event => {
+          if (event.target === event.currentTarget && event.animationName === "yz-scroll-reveal") {
+            cycleRunning.current = false;
+            setIsCycling(false);
+          }
+        }}>
           <div className="hero-scroll-paper">
             <img
               src="/images/yuanzhi-scroll/paper.png"
@@ -76,14 +92,17 @@ export function HeroScroll() {
           </div>
         </div>
 
-        <img
-          src="/images/yuanzhi-scroll/top-roller.png"
-          alt=""
-          width={896}
-          height={112}
-          decoding="async"
-          className="hero-scroll-roller hero-scroll-roller-bottom"
-        />
+        <div className="hero-scroll-roller hero-scroll-roller-bottom" aria-hidden="true">
+          <img
+            src="/images/yuanzhi-scroll/top-roller.png"
+            alt=""
+            width={896}
+            height={112}
+            decoding="async"
+            className="hero-scroll-roller-image"
+          />
+          <RollerSurface />
+        </div>
       </div>
     </div>
   );

@@ -51,28 +51,52 @@ body:has(.yz-home) { min-width:0; background-color:#f5f0e8; animation:none; }
 .yz-home .yz-scroll-view { width:100%; }
 .yz-home .hero-scroll-art { --scroll-rod-width:100%; --scroll-rod-height:48px; --scroll-paper-width:87%; --scroll-paper-height:clamp(350px,44vh,440px); --scroll-cycle-duration:3.2s; --scroll-cycle-ease:cubic-bezier(.45,0,.55,1); display:block; position:relative; top:auto; right:auto; width:min(100%,400px); height:calc(var(--scroll-paper-height) + var(--scroll-rod-height) * 1.6); margin:0 auto; transform:none; cursor:pointer; touch-action:pan-y; -webkit-tap-highlight-color:transparent; }
 .yz-home .hero-scroll-art:focus-visible { outline:2px solid #4c7195; outline-offset:10px; border-radius:8px; }
-.yz-home .hero-scroll-stage { height:100%; filter:drop-shadow(0 18px 20px #50351e22); transform:translate3d(0,0,0); pointer-events:none; }
-.yz-home .hero-scroll-art .hero-scroll-paper-window { clip-path:inset(0); animation:none; }
-.yz-home .hero-scroll-art .hero-scroll-roller-bottom { transform:translate3d(-50%,var(--scroll-paper-height),0); animation:none; }
-.yz-home .hero-scroll-art.is-cycling .hero-scroll-stage { animation:yz-scroll-recoil var(--scroll-cycle-duration) var(--scroll-cycle-ease) both; will-change:transform; }
+.yz-home .hero-scroll-stage { height:100%; filter:drop-shadow(0 18px 20px #50351e22); pointer-events:none; }
+/* The paper and both roller centres share one fixed midpoint. Paper edges tuck
+   behind the opaque wood, rather than ending at the PNG's transparent margin. */
+.yz-home .hero-scroll-art .hero-scroll-paper-window { top:50%; transform:translate3d(-50%,-50%,0); clip-path:inset(0); animation:none; }
+.yz-home .hero-scroll-art .hero-scroll-roller { top:50%; animation:none; }
+.yz-home .hero-scroll-art .hero-scroll-roller-top { transform:translate3d(-50%,calc(-50% - var(--scroll-paper-height) * .5),0); }
+.yz-home .hero-scroll-art .hero-scroll-roller-bottom { transform:translate3d(-50%,calc(-50% + var(--scroll-paper-height) * .5),0); }
+.yz-home .hero-scroll-roller-image { display:block; width:100%; height:100%; }
+/* Twelve textured faces form a cylinder: the wood actually turns around its
+   horizontal axis. Keep clipping and fixed lighting outside the 3D rotor. */
+.yz-home .hero-scroll-roller-grain { position:absolute; inset:20% 11%; overflow:hidden; mask-image:linear-gradient(90deg,transparent,#000 3%,#000 97%,transparent); pointer-events:none; }
+.yz-home .hero-scroll-roller-scene { position:absolute; inset:0; perspective:800px; }
+.yz-home .hero-scroll-roller-rotor { position:absolute; inset:0; transform-style:preserve-3d; backface-visibility:visible; transform:rotateX(0deg); }
+.yz-home .hero-scroll-roller-face { position:absolute; left:50%; top:50%; width:100%; height:calc(var(--scroll-rod-height) * .16077 + .35px); backface-visibility:hidden; background:url("/images/yuanzhi-scroll/top-roller.png") 50% calc(20.7% + var(--roller-face) * 5.3%) / 128% 2000% no-repeat; transform:translate(-50%,-50%) rotateX(calc(var(--roller-face) * 30deg)) translateZ(calc(var(--scroll-rod-height) * .3)); }
+.yz-home .hero-scroll-roller-grain::after { content:""; position:absolute; inset:0; background:linear-gradient(180deg,#28130650,#fff4d522 28%,transparent 52%,#28130660); }
+.yz-home .hero-scroll-art.is-cycling .hero-scroll-roller-top { animation:yz-scroll-roll-top var(--scroll-cycle-duration) var(--scroll-cycle-ease) both; }
 .yz-home .hero-scroll-art.is-cycling .hero-scroll-paper-window { animation:yz-scroll-reveal var(--scroll-cycle-duration) var(--scroll-cycle-ease) both; }
-.yz-home .hero-scroll-art.is-cycling .hero-scroll-roller-bottom { animation:yz-scroll-roll var(--scroll-cycle-duration) var(--scroll-cycle-ease) both; }
+.yz-home .hero-scroll-art.is-cycling .hero-scroll-roller-bottom { animation:yz-scroll-roll-bottom var(--scroll-cycle-duration) var(--scroll-cycle-ease) both; }
+.yz-home .hero-scroll-art.is-cycling .hero-scroll-roller-top .hero-scroll-roller-rotor { animation:yz-scroll-spin-top var(--scroll-cycle-duration) var(--scroll-cycle-ease) both; will-change:transform; }
+.yz-home .hero-scroll-art.is-cycling .hero-scroll-roller-bottom .hero-scroll-roller-rotor { animation:yz-scroll-spin-bottom var(--scroll-cycle-duration) var(--scroll-cycle-ease) both; will-change:transform; }
 .yz-home .hero-scroll-paper { box-shadow:inset 9px 0 20px #5a391210,inset -9px 0 20px #5a391210; }
 .yz-home .hero-scroll-title { top:2.45rem; left:24%; font-size:5rem; }
 .yz-home .hero-scroll-caption { top:5.9rem; right:12%; }
 .yz-home .hero-scroll-art :is(.hero-scroll-title,.hero-scroll-caption,.hero-scroll-gold-node) { opacity:1; transform:none; animation:none; }
 .yz-home .hero-scroll-art .hero-scroll-herb { opacity:.24; transform:rotate(-4deg); animation:none; }
-@keyframes yz-scroll-recoil {
-  0%,100% { transform:translate3d(0,0,0); }
-  46%,54% { transform:translate3d(0,calc(var(--scroll-paper-height) * .44),0); }
-}
 @keyframes yz-scroll-reveal {
   0%,100% { clip-path:inset(0); }
-  46%,54% { clip-path:inset(0 0 88% 0); }
+  46%,54% { clip-path:inset(44% 0); }
 }
-@keyframes yz-scroll-roll {
-  0%,100% { transform:translate3d(-50%,var(--scroll-paper-height),0); }
-  46%,54% { transform:translate3d(-50%,calc(var(--scroll-paper-height) * .12),0); }
+@keyframes yz-scroll-roll-top {
+  0%,100% { transform:translate3d(-50%,calc(-50% - var(--scroll-paper-height) * .5),0); }
+  46%,54% { transform:translate3d(-50%,calc(-50% - var(--scroll-paper-height) * .06),0); }
+}
+@keyframes yz-scroll-roll-bottom {
+  0%,100% { transform:translate3d(-50%,calc(-50% + var(--scroll-paper-height) * .5),0); }
+  46%,54% { transform:translate3d(-50%,calc(-50% + var(--scroll-paper-height) * .06),0); }
+}
+/* Paper passes behind the rods: on closing, the upper front surface rolls
+   downward and the lower front surface upward; opening reverses both. */
+@keyframes yz-scroll-spin-top {
+  0%,100% { transform:rotateX(0deg); }
+  46%,54% { transform:rotateX(-720deg); }
+}
+@keyframes yz-scroll-spin-bottom {
+  0%,100% { transform:rotateX(0deg); }
+  46%,54% { transform:rotateX(720deg); }
 }
 .yz-home .yz-data { display:grid; grid-template-columns:220px minmax(0,1fr); align-items:center; border-block:1px solid var(--yz-line); padding-block:28px; }
 .yz-home .yz-data-label { display:flex; gap:12px; align-items:center; }
@@ -263,6 +287,6 @@ body:has(.yz-home) { min-width:0; background-color:#f5f0e8; animation:none; }
   .yz-home * { scroll-behavior:auto; transition:none !important; }
   .yz-home .yz-title-char { animation:none; opacity:1; transform:none; filter:none; }
   /* The scroll is static by default; its single cycle only runs on direct interaction. */
-  .yz-home .hero-scroll-art:not(.is-cycling) :is(.hero-scroll-stage,.hero-scroll-paper-window,.hero-scroll-roller-bottom) { animation:none !important; }
-  .yz-home .hero-scroll-art.is-cycling :is(.hero-scroll-stage,.hero-scroll-paper-window,.hero-scroll-roller-bottom) { animation-duration:var(--scroll-cycle-duration) !important; }
+  .yz-home .hero-scroll-art:not(.is-cycling) :is(.hero-scroll-paper-window,.hero-scroll-roller,.hero-scroll-roller-rotor) { animation:none !important; }
+  .yz-home .hero-scroll-art.is-cycling :is(.hero-scroll-paper-window,.hero-scroll-roller,.hero-scroll-roller-rotor) { animation-duration:1ms !important; }
 }
