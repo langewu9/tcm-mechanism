@@ -10,7 +10,8 @@ for (const extension of ['.ts', '.tsx']) require.extensions[extension] = (module
 const { rChartCatalog } = load('./src/components/RAnalysisGallery.tsx');
 const parent = { id: 1, task_type: 'proteomics', status: 'succeeded', result: {} };
 const empty = rChartCatalog(parent);
-assert.equal(empty.filter(chart => chart.available).length, 1);
+assert.equal(empty.filter(chart => chart.available).length, 0, 'An empty result has no persisted statistics to plot');
+assert.ok(empty.every(chart => chart.unavailableReason && chart.nextStep));
 assert.ok(empty.some(chart => chart.key === 'ppi_network' && !chart.available));
 const ppi = { source: 'STRING', networkType: 'physical', status: 'succeeded', edges: [{ source: 'SYN_A', target: 'SYN_B', score: 0.9 }] };
 assert.ok(rChartCatalog({ ...parent, result: { externalString: ppi } }).find(chart => chart.key === 'ppi_network').available);

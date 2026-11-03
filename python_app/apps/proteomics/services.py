@@ -782,6 +782,13 @@ def _build_result(
     qc.update(
         {
             "selectedRowCount": len(selected_rows),
+            # Volcano plots also use rows that did not pass the selection rules.
+            "volcanoEligibleRowCount": sum(
+                row.log2_fold_change is not None and math.isfinite(row.log2_fold_change)
+                and row.p_value is not None and math.isfinite(row.p_value)
+                and 0 <= row.p_value <= 1
+                for row in rows
+            ),
             "databaseMappedCount": len(database_mapped),
             "unverifiedSymbolCount": len(heuristic_mapped),
             "unmappedLabelCount": len(unmapped),

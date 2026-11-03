@@ -34,7 +34,9 @@ const text=node=>node==null||typeof node==='boolean'?'':typeof node==='string'||
 const find=(h,predicate)=>{const node=nodes(h.value).find(predicate);assert.ok(node,'Expected element is missing');return node;};
 const flush=async h=>{for(let i=0;i<15;i++)await Promise.resolve();h.render();};
 const page=(results,next=null)=>({results,count:results.length,next,previous:null});
-const task=(id,status='queued',type='proteomics',parent=null)=>({id,task_type:type,status,parent_task:parent,dataset:10,progress:0,input_parameters:{analysisKind:type==='visualization'?'r_visualization':undefined},result:{},created_at:'2026-10-20T00:00:00Z'});
+const task=(id,status='queued',type='proteomics',parent=null)=>({id,task_type:type,status,parent_task:parent,dataset:10,progress:0,input_parameters:{analysisKind:type==='visualization'?'r_visualization':undefined},result:type==='proteomics'?{
+  externalGProfiler:{status:'succeeded',terms:[{name:'SYNTHETIC_GO_TERM',source:'GO:BP',adjustedPValue:.01,geneRatio:.2,intersectionSize:2}]},
+}: {},created_at:'2026-10-20T00:00:00Z'});
 const dataset=id=>({id,name:'SYNTHETIC '+id,original_filename:'synthetic.csv',columns:['Gene','log2FC','PValue'],archived_at:null});
 let timers,id=0;
 function clock(){timers=new Map();global.window={setTimeout(fn){timers.set(++id,fn);return id;},clearTimeout(key){timers.delete(key);}};}
@@ -237,6 +239,30 @@ check('Retrying a failed or cancelled redraw preserves regeneration and the prev
       assert.ok(nodes(h.value).some(n=>n.type==='a'&&n.props.href==='/tasks/61'));
       find(h,n=>n.type==='button'&&text(n)===(status==='failed'?'重试绘图':'生成 R 图表')).props.onClick();
       assert.deepEqual(called('create')[0].args,[1,'evidence_network',{regenerate:true}]);
+    }finally{h.cleanup();}
+  }
+});
+check('Proteomics rejects unavailable figure requests before POST and preserves historical volcano validation',async()=>{
+  for(const [result,callback] of [
+    [{qc:{volcanoEligibleRowCount:0}},'onCreateVolcanoVisualization'],
+    [{thresholds:{log2FcMin:1,pValueMax:0}},'onCreateVolcanoVisualization'],
+    [{externalGProfiler:{status:'disabled',terms:[]}},'onCreateGoKeggVisualization'],
+    [{externalGProfiler:{status:'succeeded',terms:[{name:'INCOMPLETE',source:'GO:BP',adjustedPValue:.01}]}},'onCreateGoKeggVisualization'],
+  ]){
+    const {h,called,ready}=proteomics();
+    try{
+      await ready({...task(20,'succeeded'),result});
+      find(h,n=>n.type?.name==='ProteomicsResultView').props[callback]();await flush(h);
+      assert.equal(called('chart').length,0);
+      assert.match(text(h.value), /暂不能生成|阈值无效|没有字段完整的显著/);
+    }finally{h.cleanup();}
+  }
+  for(const result of [{rows:[],previewTruncated:false},{rows:[],qc:{volcanoEligibleRowCount:5}}]){
+    const {h,called,ready}=proteomics();
+    try{
+      await ready({...task(20,'succeeded'),result});
+      find(h,n=>n.type?.name==='ProteomicsResultView').props.onCreateVolcanoVisualization();
+      assert.deepEqual(called('chart')[0].args,[20,'proteomics_volcano']);
     }finally{h.cleanup();}
   }
 });

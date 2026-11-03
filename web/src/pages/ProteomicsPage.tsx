@@ -80,6 +80,39 @@ function formatNumber(value: number | null | undefined) {
   return value == null ? "—" : Number(value).toPrecision(4);
 }
 
+function proteomicsFigureReadiness(result: ProteomicsResult, chartKey: "proteomics_volcano" | "proteomics_go_kegg_enrichment") {
+  if (chartKey === "proteomics_volcano") {
+    const thresholds = result.thresholds;
+    if (thresholds && (!Number.isFinite(thresholds.log2FcMin) || thresholds.log2FcMin < 0
+      || !Number.isFinite(thresholds.pValueMax) || thresholds.pValueMax <= 0 || thresholds.pValueMax > 1)) {
+      return { available: false, message: "本任务的火山图阈值无效：P 值阈值须大于 0 且不超过 1，log2FC 阈值须为非负有限数。请回到分析设置核对阈值并创建新分析。已有结果保持不变。" };
+    }
+    const count = result.qc?.volcanoEligibleRowCount;
+    if (typeof count === "number" && Number.isSafeInteger(count) && count >= 0) {
+      return count > 0
+        ? { available: true, message: `本任务完整逐行结果中有 ${count.toLocaleString("zh-CN")} 行同时具有有效 log2FC 和原始 P 值，可生成火山图；绘图也包含未通过筛选的有效行。` }
+        : { available: false, message: "本任务没有同时具有有效 log2FC 和原始 P 值（0–1）的行，暂不能生成火山图。只有 FDR 不能代替原始 P 值；请补充原始 P 值列并重新分析，或查看分析概览。" };
+    }
+    // Historical results only preview selected rows. Absence from that preview
+    // cannot establish that the full persisted input has no plottable rows.
+    return { available: true, message: "这份历史结果未记录完整的火山图有效行数，提交绘图后由后台核验；不根据入选行预览判断缺少数据。火山图需要 log2FC 和原始 P 值，只有 FDR 不能代替。" };
+  }
+  const enrichment = result.externalGProfiler;
+  if (!enrichment || enrichment.status !== "succeeded") {
+    return { available: false, message: enrichment?.status === "no_significant_terms"
+      ? "本任务 GO/KEGG 分析没有显著富集条目，暂不能生成富集气泡图；这不表示没有上传数据。"
+      : "本任务没有已保存的 GO/KEGG 富集成功结果，暂不能生成富集气泡图。请先核对基因/蛋白标识，再在分析设置中单独同意并运行 GO/KEGG 分析；不会自动查询外部服务。" };
+  }
+  const available = (enrichment.terms ?? []).some(term => typeof term.name === "string" && term.name.trim()
+    && ["GO:BP", "GO:CC", "GO:MF", "KEGG"].includes(term.source)
+    && typeof term.geneRatio === "number" && Number.isFinite(term.geneRatio) && term.geneRatio >= 0 && term.geneRatio <= 1
+    && Number.isFinite(term.adjustedPValue) && term.adjustedPValue > 0 && term.adjustedPValue <= .05
+    && typeof term.intersectionSize === "number" && Number.isInteger(term.intersectionSize) && term.intersectionSize >= 1);
+  return { available, message: available
+    ? "本任务已有字段完整的显著 GO/KEGG 条目，将根据本任务保存的富集结果运行 R 绘图。"
+    : "本任务没有字段完整的显著 GO/KEGG 条目：气泡图需要通路名称、FDR（大于 0 且不超过 0.05）、GeneRatio 和命中数。请在富集数据中核对结果；不会以样例替代。" };
+}
+
 function formatExternalIdentifiers(identifiers: Array<{ namespace: string; identifier: string; source: string; sourceVersion: string | null }> | undefined) {
   if (!identifiers?.length) return "—";
   return identifiers.map((item) =>
@@ -492,6 +525,8 @@ export function ProteomicsPage() {
   async function requestVisualization(key: "proteomics_volcano" | "proteomics_go_kegg_enrichment", existing: AnalysisTask | null, update: (value: AnalysisTask) => void) {
     if (!task || task.status !== "succeeded" || submissionInFlight.current || visualizationInFlight.current
       || (existing && ["queued", "running"].includes(existing.status))) return;
+    const readiness = proteomicsFigureReadiness(task.result as ProteomicsResult, key);
+    if (!readiness.available) { setError(readiness.message); return; }
     visualizationInFlight.current = true;
     const current = generation.current;
     setError(null);
@@ -657,6 +692,8 @@ function ProteomicsResultView({
   onRowPageChange: (page: number) => void;
 }) {
   const [resultSubview, setResultSubview] = useState("overview");
+  const volcanoReadiness = proteomicsFigureReadiness(result, "proteomics_volcano");
+  const goKeggReadiness = proteomicsFigureReadiness(result, "proteomics_go_kegg_enrichment");
   return <div className="proteomics-result-content">
     <SubviewTabs label="蛋白组学结果子页" value={resultSubview} onChange={setResultSubview} keepMounted views={[
       { key: "overview", label: "结果概览", content: <>
@@ -695,13 +732,15 @@ function ProteomicsResultView({
       { key: "charts", label: "R 图表", content: <RAnalysisGallery key={task.id} taskId={task.id} additionalCharts={[
         { key: "proteomics_volcano", label: "差异蛋白火山图", content: <RChartSource chartKey="proteomics_volcano"><section className="proteomics-result-section">
       <div className="case-list-heading"><div><h3 className="section-title-sm">差异蛋白火山图</h3><p className="section-help">根据本任务已保存的 log2FC、P 值和筛选状态生成，最多绘制 5,000 行；不发送原始文件或医案。</p></div>
-        <button className="btn btn-secondary" type="button" disabled={visualizationSubmitting || Boolean(volcanoVisualizationTask && ["queued", "running"].includes(volcanoVisualizationTask.status))} onClick={onCreateVolcanoVisualization}>{visualizationSubmitting ? "正在创建图表…" : volcanoVisualizationTask && ["queued", "running"].includes(volcanoVisualizationTask.status) ? "后台绘图中…" : volcanoVisualizationTask?.status === "succeeded" ? "重新运行 R 火山图" : volcanoVisualizationTask?.status === "failed" ? "重试生成 R 火山图" : "生成 R 火山图"}</button></div>
+        <button className="btn btn-secondary" type="button" aria-describedby={`volcano-readiness-${task.id}`} disabled={!volcanoReadiness.available || visualizationSubmitting || Boolean(volcanoVisualizationTask && ["queued", "running"].includes(volcanoVisualizationTask.status))} onClick={onCreateVolcanoVisualization}>{visualizationSubmitting ? "正在创建图表…" : volcanoVisualizationTask && ["queued", "running"].includes(volcanoVisualizationTask.status) ? "后台绘图中…" : !volcanoReadiness.available ? "暂不能生成火山图" : volcanoVisualizationTask?.status === "succeeded" ? "重新运行 R 火山图" : volcanoVisualizationTask?.status === "failed" ? "重试生成 R 火山图" : "生成 R 火山图"}</button></div>
+      <p id={`volcano-readiness-${task.id}`} className={volcanoReadiness.available ? "section-help" : "notice-warning"}>{volcanoReadiness.message}</p>
       {volcanoVisualizationTask && <ProteomicsVisualizationResult task={volcanoVisualizationTask} title="差异蛋白火山图" alt="差异蛋白火山图；横轴为 log2 Fold Change，纵轴为负对数 P 值，颜色区分阈值筛选结果" />}
     </section></RChartSource> },
         { key: "proteomics_go_kegg_enrichment", label: "GO / KEGG 富集气泡图", content: <RChartSource chartKey="proteomics_go_kegg_enrichment"><section className="proteomics-result-section">
           <h3 className="section-title-sm">GO / KEGG 富集气泡图</h3>
           <p className="section-help">只使用当前任务保存的富集结果，不发送原始文件或医案。</p>
-          <button className="btn btn-secondary" type="button" disabled={!result.externalGProfiler?.terms.length || visualizationSubmitting || Boolean(visualizationTask && ["queued", "running"].includes(visualizationTask.status))} onClick={onCreateGoKeggVisualization}>{!result.externalGProfiler?.terms.length ? "缺少所需分析数据" : visualizationSubmitting ? "正在创建图表…" : visualizationTask && ["queued", "running"].includes(visualizationTask.status) ? "后台绘图中…" : visualizationTask?.status === "succeeded" ? "重新运行 R 富集气泡图" : visualizationTask?.status === "failed" ? "重试生成 R 气泡图" : "生成 R 富集气泡图"}</button>
+          <button className="btn btn-secondary" type="button" aria-describedby={`go-kegg-readiness-${task.id}`} disabled={!goKeggReadiness.available || visualizationSubmitting || Boolean(visualizationTask && ["queued", "running"].includes(visualizationTask.status))} onClick={onCreateGoKeggVisualization}>{visualizationSubmitting ? "正在创建图表…" : visualizationTask && ["queued", "running"].includes(visualizationTask.status) ? "后台绘图中…" : !goKeggReadiness.available ? "暂不能生成富集气泡图" : visualizationTask?.status === "succeeded" ? "重新运行 R 富集气泡图" : visualizationTask?.status === "failed" ? "重试生成 R 气泡图" : "生成 R 富集气泡图"}</button>
+          <p id={`go-kegg-readiness-${task.id}`} className={goKeggReadiness.available ? "section-help" : "notice-warning"}>{goKeggReadiness.message}</p>
           {visualizationTask && <ProteomicsVisualizationResult task={visualizationTask} title="GO / KEGG 富集气泡图" alt="GO / KEGG 富集气泡图；横轴为 GeneRatio，点大小为命中数，颜色表示 FDR 显著性" />}
         </section></RChartSource> },
       ]} /> },

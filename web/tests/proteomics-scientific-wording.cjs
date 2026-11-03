@@ -32,7 +32,7 @@ subject.require = name => {
 };
 // Expose only to this compiled test module; the production module exports and
 // component implementation stay unchanged.
-const source = fs.readFileSync(file, 'utf8') + '\nexport { ProteomicsResultView, ProteomicsVisualizationResult };\n';
+const source = fs.readFileSync(file, 'utf8') + '\nexport { ProteomicsResultView, ProteomicsVisualizationResult, proteomicsFigureReadiness };\n';
 subject._compile(ts.transpileModule(source, {compilerOptions: {
   module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX,
 }}).outputText, file);
@@ -56,6 +56,37 @@ const render = (result, overrides = {}) => renderToStaticMarkup(React.createElem
 
 const tests = [];
 const check = (name, run) => tests.push({name, run});
+check('Volcano availability uses complete-row QC, retains old-task validation and rejects undrawable thresholds', () => {
+  const ready = result => subject.exports.proteomicsFigureReadiness(result, 'proteomics_volcano');
+  assert.equal(ready({qc:{volcanoEligibleRowCount:0}}).available, false);
+  assert.match(ready({qc:{volcanoEligibleRowCount:0}}).message, /FDR 不能代替原始 P/);
+  assert.equal(ready({qc:{volcanoEligibleRowCount:1},rows:[],previewTruncated:false}).available, true);
+  assert.match(ready({qc:{volcanoEligibleRowCount:1200}}).message, /1,200 行/);
+  assert.match(ready({qc:{volcanoEligibleRowCount:1}}).message, /未通过筛选/);
+  for (const result of [{},{rows:[],previewTruncated:false},{qc:{volcanoEligibleRowCount:-1}}]) {
+    assert.equal(ready(result).available, true);
+    assert.match(ready(result).message, /后台核验/);
+  }
+  for (const thresholds of [{log2FcMin:1,pValueMax:0},{log2FcMin:-1,pValueMax:.05},
+    {log2FcMin:Infinity,pValueMax:.05},{log2FcMin:1,pValueMax:1.01}]) {
+    assert.equal(ready({thresholds,qc:{volcanoEligibleRowCount:10}}).available, false);
+    assert.match(ready({thresholds}).message, /创建新分析/);
+  }
+  assert.equal(ready({thresholds:{log2FcMin:0,pValueMax:1},qc:{volcanoEligibleRowCount:10}}).available, true);
+});
+check('GO bubbles require saved successful significant fields and never substitute a sample image', () => {
+  const term = {name:'SYNTHETIC_TERM',source:'GO:BP',adjustedPValue:.01,geneRatio:.2,intersectionSize:2};
+  const ready = (terms=[term],status='succeeded') => subject.exports.proteomicsFigureReadiness({externalGProfiler:{status,terms}}, 'proteomics_go_kegg_enrichment');
+  assert.equal(ready().available, true);
+  assert.equal(ready([]).available, false);
+  assert.equal(ready([term],'disabled').available, false);
+  assert.match(ready([],'no_significant_terms').message, /不表示没有上传数据/);
+  for (const bad of [{name:''},{source:'REAC'},{adjustedPValue:0},{adjustedPValue:.051},
+    {geneRatio:Infinity},{geneRatio:1.1},{geneRatio:null},{intersectionSize:0},{intersectionSize:1.5}]) {
+    assert.equal(ready([{...term,...bad}]).available, false, JSON.stringify(bad));
+  }
+  assert.match(ready([{}]).message, /不会以样例替代/);
+});
 check('Legacy unverified symbol sets keep their exact groups and count without claiming identity validation', () => {
   const result = legacyResult(), before = JSON.stringify(result), html = render(result);
   assert.ok(html.includes('参考符号对照'));
