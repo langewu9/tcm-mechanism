@@ -1,4 +1,17 @@
-import { useId, useRef, useState } from "react";
+import { useId, useRef, useState, type CSSProperties } from "react";
+
+const rollerFaces = Array.from({ length: 12 }, (_, face) => face);
+
+function RollerSurface() {
+  return <span className="hero-scroll-roller-grain">
+    <span className="hero-scroll-roller-scene">
+      <span className="hero-scroll-roller-rotor">
+        {rollerFaces.map(face => <span key={face} className="hero-scroll-roller-face"
+          style={{ "--roller-face": face, filter: `brightness(${1 + Math.cos(face * Math.PI / 6) * .08})` } as CSSProperties} />)}
+      </span>
+    </span>
+  </span>;
+}
 
 export function HeroScroll() {
   const [isCycling, setIsCycling] = useState(false);
@@ -45,7 +58,7 @@ export function HeroScroll() {
             onLoad={() => setAssetsReady(value => ({ ...value, roller: true }))}
             onError={() => setAssetsReady(value => ({ ...value, roller: true }))}
           />
-          <span className="hero-scroll-roller-grain" />
+          <RollerSurface />
         </div>
 
         <div id={paperId} className="hero-scroll-paper-window" onAnimationEnd={event => {
@@ -88,7 +101,7 @@ export function HeroScroll() {
             decoding="async"
             className="hero-scroll-roller-image"
           />
-          <span className="hero-scroll-roller-grain" />
+          <RollerSurface />
         </div>
       </div>
     </div>
