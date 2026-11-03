@@ -309,4 +309,3 @@ class DiseaseEvidenceSearchTests(APITestCase):
         self.assertTrue(relation_data["truncated"])
         self.assertEqual(relation_data["limits"]["maxRelations"], 1)
         self.assertEqual(relation_data["limits"]["returnedRelations"], 1)
-
