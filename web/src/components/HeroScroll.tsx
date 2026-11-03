@@ -32,25 +32,28 @@ export function HeroScroll() {
         }
       }}
     >
-      <div className="hero-scroll-stage" onAnimationEnd={event => {
-        if (event.target === event.currentTarget && event.animationName === "yz-scroll-recoil") {
-          cycleRunning.current = false;
-          setIsCycling(false);
-        }
-      }}>
-        <img
-          src="/images/yuanzhi-scroll/top-roller.png"
-          alt=""
-          width={896}
-          height={112}
-          fetchPriority="high"
-          decoding="async"
-          className="hero-scroll-roller hero-scroll-roller-top"
-          onLoad={() => setAssetsReady(value => ({ ...value, roller: true }))}
-          onError={() => setAssetsReady(value => ({ ...value, roller: true }))}
-        />
+      <div className="hero-scroll-stage">
+        <div className="hero-scroll-roller hero-scroll-roller-top" aria-hidden="true">
+          <img
+            src="/images/yuanzhi-scroll/top-roller.png"
+            alt=""
+            width={896}
+            height={112}
+            fetchPriority="high"
+            decoding="async"
+            className="hero-scroll-roller-image"
+            onLoad={() => setAssetsReady(value => ({ ...value, roller: true }))}
+            onError={() => setAssetsReady(value => ({ ...value, roller: true }))}
+          />
+          <span className="hero-scroll-roller-grain" />
+        </div>
 
-        <div id={paperId} className="hero-scroll-paper-window">
+        <div id={paperId} className="hero-scroll-paper-window" onAnimationEnd={event => {
+          if (event.target === event.currentTarget && event.animationName === "yz-scroll-reveal") {
+            cycleRunning.current = false;
+            setIsCycling(false);
+          }
+        }}>
           <div className="hero-scroll-paper">
             <img
               src="/images/yuanzhi-scroll/paper.png"
@@ -76,14 +79,17 @@ export function HeroScroll() {
           </div>
         </div>
 
-        <img
-          src="/images/yuanzhi-scroll/top-roller.png"
-          alt=""
-          width={896}
-          height={112}
-          decoding="async"
-          className="hero-scroll-roller hero-scroll-roller-bottom"
-        />
+        <div className="hero-scroll-roller hero-scroll-roller-bottom" aria-hidden="true">
+          <img
+            src="/images/yuanzhi-scroll/top-roller.png"
+            alt=""
+            width={896}
+            height={112}
+            decoding="async"
+            className="hero-scroll-roller-image"
+          />
+          <span className="hero-scroll-roller-grain" />
+        </div>
       </div>
     </div>
   );
