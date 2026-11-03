@@ -225,7 +225,8 @@ def _complete_identity_inputs(herb_ids, disease_ids, formula_ids, selected_herb_
     target_rows = target_rows.annotate(
         _matching_legacy_herb_row=Exists(matching_herb_row),
     ).filter(
-        ~Q(source_release__metadata__connector='sqlite-herb-compound-target')
+        Q(source_release__metadata__connector__isnull=True)
+        | ~Q(source_release__metadata__connector='sqlite-herb-compound-target')
         | (Q(metadata__sourceRowId__isnull=False) & Q(_matching_legacy_herb_row=True))
     )
     disease_rows = visible.filter(subject_id__in=disease_ids, relation_type__in=DISEASE_TARGET_TYPES,

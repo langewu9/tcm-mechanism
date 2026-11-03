@@ -12,7 +12,7 @@ function fixture(type, bipartite = false) {
   const actions=[];
   const chart = {getOption:()=>structuredClone(opts),getWidth:()=>1000,getHeight:()=>740,clear(){actions.push({type:'clearGraphics'});opts.series=[];},setOption(value){opts.series[0]??={};Object.assign(opts.series[0],value.series[0]);},on(name,fn){handlers[name]=fn;},dispatchAction(action){actions.push(action);if(action.type==='restore'&&handlers.brushSelected) handlers.brushSelected({batch:[]});},resize(){}};
   const context = {echarts:{getInstanceByDom:()=>chart},document:{getElementById:field,createElement:()=>({events:{},dataset:{},set id(value){fields.set(value,this);},addEventListener(name,fn){this.events[name]=fn;},append(){}}),createTextNode:t=>t,querySelectorAll:()=>[]},ResizeObserver:class{observe(){}},Set,Map,Number,Array,Object,Math};
-  vm.runInNewContext('('+code+')',context)({}, {chartType:type,defaultLayout:bipartite?'layered':'circular',hideIsolatesByDefault:bipartite});
+  vm.runInNewContext('('+code+')',context)({}, {chartType:type,defaultLayout:'circular',layout:bipartite?'layered':undefined,hideIsolatesByDefault:bipartite});
   return {fields,handlers,opts,actions,nodes,original};
 }
 const graph = fixture('network');
@@ -52,7 +52,7 @@ assert.equal(protein.label.position,'left');
 assert.equal(pathway.label.position,'right');
 assert.equal(protein.displayLabel,'A');
 assert.equal(pathway.x-protein.x,1000-190-240);
-assert.equal(annotation.opts.series[0].links[0].lineStyle.color,'#AEB8C7');
+assert.equal(annotation.opts.series[0].links[0].lineStyle.color,'#8A709B');
 annotation.fields.get('chart-isolates').checked=true; annotation.fields.get('chart-isolates').events.change();
 assert.equal(annotation.opts.series[0].data.length,3);
 assert.equal(annotation.opts.series[0].links.length,1);

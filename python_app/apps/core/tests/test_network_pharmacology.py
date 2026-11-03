@@ -231,7 +231,7 @@ class NetworkPharmacologyApiTests(APITestCase):
         self.assertEqual(result["summary"]["diseaseTargetCount"], 2)
         self.assertEqual(result["summary"]["directAssociationTargetCount"], 1)
         self.assertEqual({row["sourceRecordId"] for row in result["raw"]["diseaseTargets"]}, {"dt:1", "dt:2"})
-        self.assertEqual(result["raw"]["directDiseaseHerbLinks"], [])
+        self.assertEqual([row["sourceRecordId"] for row in result["raw"]["directDiseaseHerbLinks"]], ["dht:1"])
         self.assertFalse(AnalysisTask.objects.exists())
 
     def test_network_search_hides_entities_from_disabled_sources(self):
