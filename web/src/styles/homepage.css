@@ -88,13 +88,15 @@ body:has(.yz-home) { min-width:0; background-color:#f5f0e8; animation:none; }
   0%,100% { transform:translate3d(-50%,calc(-50% + var(--scroll-paper-height) * .5),0); }
   46%,54% { transform:translate3d(-50%,calc(-50% + var(--scroll-paper-height) * .06),0); }
 }
+/* Paper passes behind the rods: on closing, the upper front surface rolls
+   downward and the lower front surface upward; opening reverses both. */
 @keyframes yz-scroll-spin-top {
   0%,100% { transform:rotateX(0deg); }
-  46%,54% { transform:rotateX(720deg); }
+  46%,54% { transform:rotateX(-720deg); }
 }
 @keyframes yz-scroll-spin-bottom {
   0%,100% { transform:rotateX(0deg); }
-  46%,54% { transform:rotateX(-720deg); }
+  46%,54% { transform:rotateX(720deg); }
 }
 .yz-home .yz-data { display:grid; grid-template-columns:220px minmax(0,1fr); align-items:center; border-block:1px solid var(--yz-line); padding-block:28px; }
 .yz-home .yz-data-label { display:flex; gap:12px; align-items:center; }
