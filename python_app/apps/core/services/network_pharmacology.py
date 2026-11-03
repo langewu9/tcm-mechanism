@@ -843,7 +843,7 @@ def build_network_pharmacology(
         "charts": {
             "overlap": [
                 {"name": "中药靶点", "value": len(herb_entities_by_identity)},
-                {"name": "疾病靶点", "value": len(disease_entities_by_identity)},
+                {"name": "疾病靶点", "value": len(set(disease_entities_by_identity) | direct_identity_keys)},
                 {"name": "严格交集", "value": len(strict_identity_keys)},
                 {"name": "直接关联", "value": len(direct_identity_keys)},
             ],
