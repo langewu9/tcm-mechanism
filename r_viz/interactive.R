@@ -22,17 +22,34 @@ interactive_options <- function(payload) {
     nodes <- lapply(payload$data, function(row) {
       list(id = row$id, name = row$id, label = row$label, displayLabel = row$label, value = row$degree, originalDegree = row$degree,
         nodeType = row$type, category = match(row$type, types) - 1L,
+        canonicalTargetKey = row$canonicalTargetKey %||% NULL,
+        canonicalTargetNamespace = row$canonicalTargetNamespace %||% NULL,
+        identityStatus = row$identityStatus %||% NULL,
+        taxonKey = row$taxonKey %||% NULL,
+        targetOverlap = isTRUE(row$targetOverlap),
+        sourceEntityCount = row$sourceEntityCount %||% 1L,
         symbol = type_symbol(row$type),
-        symbolSize = 9 + 3 * sqrt(row$degree), itemStyle = list(color = type_color(row$type), borderColor = "white", borderWidth = 1.5))
+        symbolSize = 9 + 3 * sqrt(row$degree) + if (isTRUE(row$targetOverlap)) 3 else 0,
+        itemStyle = list(color = type_color(row$type),
+          borderColor = if (isTRUE(row$targetOverlap)) "#B65A50" else "white",
+          borderWidth = if (isTRUE(row$targetOverlap)) 2.5 else 1.5))
     })
     links <- lapply(payload$edges, function(row) list(source = row$source, target = row$target, value = row$score, score = row$score, evidence = row$evidence %||% list(),
       lineStyle = list(color = "#AEB8C7", width = 0.6 + 0.5 * row$score, opacity = 0.45, curveness = 0.32)))
     options$legend <- list(type = "scroll", top = 8, data = lapply(types, function(type) list(name = type, icon = type_symbol(type))),
       formatter = htmlwidgets::JS("function(name){return ({protein:'蛋白 / 基因',gene:'基因',target:'靶点',pathway:'通路',herb:'中药',ingredient:'成分',compound:'化合物',disease:'疾病',formula:'方剂',syndrome:'证候'})[name]||name;}"))
-    options$title <- list(text = "Circular network · 节点大小表示当前连接度", left = "center", bottom = 10,
+    initial_layout <- payload$layout %||% "layered"
+    if (!(initial_layout %in% c("circular", "force", "layered"))) initial_layout <- "layered"
+    # ECharts graph series does not support `layered`; render a valid circular
+    # fallback first, then let onRender replace it with the requested layout.
+    initial_render_layout <- if (initial_layout == "layered") "circular" else initial_layout
+    initial_title <- if (initial_layout == "circular") "环形关系图" else if (initial_layout == "layered") "网络药理学证据链" else "力导关系图"
+    options$title <- list(text = paste0(initial_title, " · 节点大小表示当前连接度"), left = "center", bottom = 10,
       textStyle = list(fontSize = 14, fontWeight = "normal", color = CHART_COLORS[["muted"]]))
-    options$series <- list(list(name = "关系网络", type = "graph", layout = "circular", roam = TRUE, draggable = TRUE,
-      top = 180, bottom = 180, left = 170, right = 170, scaleLimit = list(min = 0.25, max = 8),
+    options$series <- list(list(name = "关系网络", type = "graph", layout = initial_render_layout, roam = TRUE, draggable = TRUE,
+      top = if (initial_render_layout == "circular") 180 else 70, bottom = if (initial_render_layout == "circular") 180 else 65,
+      left = if (initial_render_layout == "circular") 170 else NULL, right = if (initial_render_layout == "circular") 170 else NULL,
+      scaleLimit = list(min = 0.25, max = 8),
       circular = list(rotateLabel = TRUE), force = list(repulsion = 240, edgeLength = c(50, 120), gravity = 0.06),
       categories = lapply(types, function(type) list(name = type, itemStyle = list(color = type_color(type)))), data = nodes, links = links,
       label = list(show = TRUE, position = "right", fontSize = 12, width = 140, overflow = "truncate", distance = 8, color = CHART_COLORS[["ink"]],
@@ -109,10 +126,12 @@ inline_widget_dependencies <- function(dependencies) {
 
 make_interactive_html <- function(payload) {
   bipartite <- is_gene_pathway_network(payload)
+  requested_layout <- payload$layout %||% "layered"
+  if (!(requested_layout %in% c("circular", "force", "layered"))) requested_layout <- "layered"
   height <- if (payload$chartType == "network") 960 else 740
   widget <- echarts4r::e_list(echarts4r::e_charts(renderer = "svg", height = paste0(height, "px")), interactive_options(payload))
   widget$x$chartType <- payload$chartType
-  widget$x$defaultLayout <- "circular"
+  widget$x$defaultLayout <- requested_layout
   widget$x$hideIsolatesByDefault <- bipartite
   widget <- htmlwidgets::onRender(widget, paste(readLines("interactive.js", warn = FALSE, encoding = "UTF-8"), collapse = "\n"))
   rendered <- htmltools::renderTags(widget)

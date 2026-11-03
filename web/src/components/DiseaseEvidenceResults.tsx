@@ -37,12 +37,13 @@ export function DiseaseEvidenceResults({ data }: { data: DiseaseEvidenceSearch }
       <div className="np-metrics">
         <div><span>匹配疾病</span><strong>{data.counts.diseases}</strong></div>
         <div><span>关联中药</span><strong>{data.counts.herbs}</strong></div>
-        <div><span>关联靶点</span><strong>{data.counts.targets}</strong></div>
+        <div><span>靶点来源实体</span><strong>{data.counts.targets}</strong></div>
         <div><span>关联记录</span><strong>{data.counts.links}</strong></div>
       </div>
+      <p className="notice-info">此处靶点数按来源实体统计并保留来源记录；网络药理交集按已核验的人类标准编号合并跨库靶点，未核验记录仍单独保留。</p>
 
       {data.expandedQueries.length > 0 && <p className="notice-info">
-        疾病别名表 {data.aliasSource} @ {data.aliasSourceCommit} 展开的检索词：{data.expandedQueries.join("、")}。别名只用于扩展检索，不代表术语等价，也不是药理证据。
+        整词疾病别名表（{data.aliasSource} @ {data.aliasSourceCommit}）本次检索词：{data.expandedQueries.join("、")}。只按完整名称查询对应别名，来源实体仍分别保留，不会自动并入疾病亚型。
       </p>}
       {data.ambiguous && <p className="notice-warning">检索词命中多个疾病实体，可能包含不同疾病或同名记录。下表分别保留数据库 ID、稳定标识和来源，不自动合并；若名称相同，可按 ID 区分。</p>}
       {data.matches.length === 0 ? <div className="empty-state">
@@ -54,7 +55,7 @@ export function DiseaseEvidenceResults({ data }: { data: DiseaseEvidenceSearch }
       </div> : null}
 
       {data.truncated && <p className="notice-warning">
-        返回结果已达到接口展示限制（最多 {data.limits.maxMatches} 个疾病匹配、{data.limits.maxRelations} 条关系）。页面中的数量和下方导出只包含本次已返回范围，不代表全库总数。
+        关联计数按本次匹配到的疾病实体汇总全部有效来源；关系明细展示 {data.limits.returnedRelations.toLocaleString()} / {data.counts.relations.toLocaleString()} 条，导出明细也受此展示上限影响。疾病匹配最多展示 {data.limits.maxMatches} 个来源实体。
       </p>}
 
       <div className="download-panel">

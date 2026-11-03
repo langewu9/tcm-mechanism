@@ -14,6 +14,8 @@ from apps.core.models import (CanonicalIdentifier, DataSource, EvidenceRelation,
     SourceRelease, TargetMaster, TargetIdentityMapping)
 from apps.core.services.network_pharmacology import build_network_pharmacology
 from apps.core.services.target_identity import compare_target_identities
+from apps.sources.connectors.ncbi_gene_reference import (EXPECTED_COLUMNS,
+    parse_reference as parse_ncbi_reference, select_matching_rows)
 from apps.sources.connectors.target_reference import FIELDS, HEADER, QUERY, load_reference, parse_reference
 from apps.sources.target_identity import ReferenceIndex, build_target_identities, current_release, input_profiles
 
@@ -57,6 +59,60 @@ class ReferenceResolutionTests(SimpleTestCase):
         for raw in [RAW.replace(b'9606',b'10090',1), RAW + RAW.split(b'\n')[1]+b'\n', b'Wrong\tHeader\n',
                     RAW.replace(b'3569;',b'BAD;')]:
             with self.subTest(raw=raw[:35]), self.assertRaises(ValueError): parse_reference(raw)
+    def test_ncbi_official_names_and_aliases_resolve_to_gene_id_but_unknown_taxon_stays_candidate(self):
+        ncbi_rows=[{'geneId':'3569','symbol':'IL6','synonyms':['Interleukin-6 alias'],
+            'description':'interleukin 6', 'geneType':'protein-coding', 'officialSymbol':'IL6',
+            'officialName':'interleukin 6', 'otherDesignations':['interleukin-6']}]
+        index=ReferenceIndex([], ncbi_rows)
+        for name in ['IL6','Interleukin-6 alias','interleukin 6']:
+            result=index.resolve(profile(kind='protein',label=name))
+            self.assertEqual(result['status'],'candidate')
+            self.assertIsNone(result['master'])
+            self.assertEqual(result['candidates'][0]['geneKey'],'entrez:9606:3569')
+            self.assertIn('NCBI Gene human nomenclature',result['candidates'][0]['referenceSources'])
+    def test_ncbi_duplicate_name_remains_ambiguous(self):
+        ncbi_rows=[{'geneId':str(gene),'symbol':f'G{gene}','synonyms':['shared alias'],
+            'description':f'gene {gene}', 'geneType':'protein-coding', 'officialSymbol':f'G{gene}',
+            'officialName':f'gene {gene}', 'otherDesignations':[]} for gene in [101,202]]
+        result=ReferenceIndex([], ncbi_rows).resolve(profile(kind='protein',label='shared alias'))
+        self.assertEqual(result['status'],'ambiguous')
+        self.assertEqual(result['candidateCount'],2)
+    def test_punctuation_normalized_ncbi_name_is_still_only_a_candidate(self):
+        ncbi_rows=[{'geneId':'3569','symbol':'IL6','synonyms':[], 'description':'interleukin-6',
+            'geneType':'protein-coding','officialSymbol':'IL6','officialName':'interleukin-6',
+            'otherDesignations':[]}]
+        result=ReferenceIndex([],ncbi_rows).resolve(profile(kind='protein',label='Interleukin 6'))
+        self.assertEqual(result['status'],'candidate')
+        self.assertEqual(result['method'],'normalized_ncbi_official_name_candidate')
+        self.assertEqual(result['candidates'][0]['geneKey'],'entrez:9606:3569')
+    def test_multiple_protein_accessions_for_one_gene_resolve_only_gene_level_candidate(self):
+        rows=parse_reference(RAW)
+        rows[0]['proteinName']='Shared protein name'
+        rows[1]['proteinName']='Shared protein name'
+        rows[1]['geneIds']=['3569']
+        result=ReferenceIndex(rows).resolve(profile(kind='protein',label='Shared protein name'))
+        self.assertEqual(result['status'],'candidate')
+        self.assertEqual(result['method'],'unique_gene_from_protein_candidates')
+        self.assertEqual(result['candidates'][0]['key'],'entrez:9606:3569')
+
+
+class NcbiGeneReferenceTests(SimpleTestCase):
+    def test_ncbi_human_reference_parser_checks_species_and_gene_ids(self):
+        rows=[['9606',str(i),'GENE'+str(i), '-', 'ALIAS'+str(i), '-', '-', '-', 'description '+str(i),
+            'protein-coding', 'GENE'+str(i), 'official description '+str(i), 'Official', '-', '20260101', '-']
+            for i in range(1,10001)]
+        raw=('\t'.join(EXPECTED_COLUMNS)+'\n'+'\n'.join('\t'.join(row) for row in rows)+'\n').encode()
+        import gzip
+        parsed=parse_ncbi_reference(gzip.compress(raw))
+        self.assertEqual(len(parsed),10000)
+        self.assertEqual(parsed[0]['geneId'],'1')
+        self.assertIn('ALIAS1',parsed[0]['synonyms'])
+        self.assertEqual(parsed[0]['officialName'],'official description 1')
+        with self.assertRaises(ValueError): parse_ncbi_reference(gzip.compress(raw.replace(b'9606\t1\t',b'10090\t1\t',1)))
+    def test_reference_prefilter_keeps_punctuation_equivalent_names(self):
+        row={'geneId':'1588','symbol':'CYP1A1','synonyms':[], 'description':'cytochrome P450 family 1 subfamily A member 1',
+            'officialSymbol':'CYP1A1','officialName':'cytochrome P450 family 1 subfamily A member 1','otherDesignations':[]}
+        self.assertEqual(select_matching_rows([row],{'Cytochrome P450-family 1, subfamily A member 1'}),[row])
 
 
 class TargetIdentityIntegrationTests(TestCase):
@@ -93,6 +149,9 @@ class TargetIdentityIntegrationTests(TestCase):
         self.assertEqual(result['verifiedGeneIntersectionCount'],1)
         self.assertEqual(result['verifiedProteinIntersectionCount'],0)
         self.assertEqual(result['disease']['verifiedRecords'],1);self.assertEqual(result['disease']['pendingRecords'],1)
+        self.assertEqual(result['disease']['records'],sum(result['disease']['statuses'].values()))
+        self.assertEqual(result['disease']['pendingRecords'],sum(
+            count for status,count in result['disease']['statuses'].items() if status!='verified'))
         pending_only=compare_target_identities({self.gene.pk},{self.pending.pk})
         self.assertEqual(pending_only['verifiedGeneIntersectionCount'],0)
         self.assertEqual(pending_only['pendingGeneOverlapCount'],1)
@@ -162,7 +221,14 @@ class TargetIdentityIntegrationTests(TestCase):
         for idx,(subject,obj,relation) in enumerate([(herb,compound,'contains'),(compound,self.gene,'targets'),(disease,self.protein,'disease_target')]):
             EvidenceRelation.objects.create(source_release=self.release,source_record_id=f'row{idx}',subject=subject,object=obj,relation_type=relation,evidence_type='fixture')
         result=build_network_pharmacology(user=self.user,herb_query='test-herb',disease_query='test-disease',row_limit=100,persist=True)
-        self.assertEqual(result['summary']['strictIntersectionCount'],0)
+        self.assertEqual(result['summary']['strictIntersectionCount'],1)
+        self.assertEqual(result['summary']['strictEntityIdIntersectionCount'],0)
+        self.assertEqual(result['summary']['herbTargetCount'],1)
+        self.assertEqual(result['summary']['diseaseTargetCount'],1)
+        self.assertEqual(len(result['targets']),1)
+        self.assertEqual(result['targets'][0]['matchType'],'严格交集')
+        self.assertEqual(set(result['targets'][0]['sourceEntityIds']),{self.gene.pk,self.protein.pk})
+        self.assertEqual(result['targets'][0]['canonicalTargetKey'],'entrez:9606:3569')
         self.assertEqual(result['targetIdentity']['verifiedGeneIntersectionCount'],1)
         self.assertEqual(EvidenceRelation.objects.count(),3)
         from apps.core.models import AnalysisTask
@@ -170,3 +236,27 @@ class TargetIdentityIntegrationTests(TestCase):
         self.assertIn(current_release().pk,task.source_releases.values_list('pk',flat=True))
         self.gene.label='new label';self.gene.save();self.apply();task.refresh_from_db()
         self.assertEqual(task.result,saved)
+
+    def test_complete_entity_intersection_is_not_lost_to_relation_row_limit(self):
+        self.apply(); herb=self.entity('herb','limited-herb','limited-herb')
+        compound=self.entity('compound','limited-compound','limited-compound')
+        disease=self.entity('disease','limited-disease','limited-disease')
+        EvidenceRelation.objects.create(source_release=self.release,source_record_id='limited-herb-compound',
+            subject=herb,object=compound,relation_type='contains',evidence_type='fixture')
+        EvidenceRelation.objects.create(source_release=self.release,source_record_id='limited-target-first',
+            subject=compound,object=self.gene,relation_type='targets',evidence_type='fixture')
+        EvidenceRelation.objects.create(source_release=self.release,source_record_id='limited-target-common',
+            subject=compound,object=self.protein,relation_type='targets',evidence_type='fixture')
+        EvidenceRelation.objects.create(source_release=self.release,source_record_id='limited-disease-common',
+            subject=disease,object=self.protein,relation_type='disease_target',evidence_type='fixture')
+        result=build_network_pharmacology(user=self.user,herb_query='limited-herb',disease_query='limited-disease',
+            row_limit=1,persist=False)
+        self.assertEqual(result['summary']['strictIntersectionCount'],1)
+        self.assertEqual(result['summary']['strictEntityIdIntersectionCount'],1)
+        self.assertEqual(set(result['targets'][0]['sourceEntityIds']),{self.gene.pk,self.protein.pk})
+        self.assertTrue(result['rawLimits']['inputRelationsTruncated']['compoundTargets'])
+        comparison=result['targetIdentity']['entityIdComparison']
+        self.assertEqual(comparison['herbTargetCount'],2)
+        self.assertEqual(comparison['diseaseTargetCount'],1)
+        self.assertEqual(comparison['intersectionCount'],1)
+        self.assertEqual(comparison['intersectionEntities'][0]['id'],self.protein.pk)

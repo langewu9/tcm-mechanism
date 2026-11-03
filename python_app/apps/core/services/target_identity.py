@@ -4,12 +4,61 @@ from apps.core.models import TargetIdentityMapping
 from apps.sources.target_identity import RESOLVER_VERSION, current_release, digest, input_profiles
 
 
-def compare_target_identities(herb_ids, disease_ids):
+def verified_target_node_identities(entity_ids, *, profiles=None):
+    """Return only current, verified human target identities for graph node merging."""
+    release = current_release()
+    ids = sorted(set(entity_ids))
+    if not release or not ids:
+        return {}
+    profiles = profiles if profiles is not None else input_profiles(ids)
+    rows = list(TargetIdentityMapping.objects.filter(
+        reference_release=release, status='verified', entity_id__in=ids,
+    ).select_related('master', 'gene').order_by('entity_id'))
+    current_rows = {}
+    genes_by_master = defaultdict(set)
+    for row in rows:
+        profile = profiles.get(row.entity_id)
+        if not profile or row.input_sha256 != digest(profile) or not row.master_id:
+            continue
+        master = row.master
+        if master.taxon_key != '9606':
+            continue
+        current_rows[row.entity_id] = row
+        if row.gene_id and row.gene.taxon_key == '9606' and row.gene.namespace == 'entrez':
+            genes_by_master[row.master_id].add(row.gene)
+
+    # Prefer a human gene key whenever the same verified master accession has
+    # an unambiguous Entrez crosswalk elsewhere in this comparison set. This
+    # lets an accession-only row merge with a gene-mapped row without guessing.
+    unique_gene_by_master = {
+        master_id: next(iter(genes)) for master_id, genes in genes_by_master.items() if len(genes) == 1
+    }
+    result = {}
+    for entity_id, row in current_rows.items():
+        master = row.master
+        gene = row.gene if row.gene_id and row.gene.taxon_key == '9606' else unique_gene_by_master.get(row.master_id)
+        canonical = gene or master
+        if canonical.namespace not in {'entrez', 'uniprot'} or canonical.taxon_key != '9606':
+            continue
+        result[row.entity_id] = {
+            'key': canonical.key,
+            'namespace': canonical.namespace,
+            'identifier': canonical.identifier,
+            'label': canonical.symbol or canonical.label,
+            'taxonKey': canonical.taxon_key,
+            'masterKey': master.key,
+            'geneKey': row.gene_id if row.gene_id and row.gene.taxon_key == '9606' else None,
+            'referenceReleaseId': release.pk,
+        }
+    return result
+
+
+def compare_target_identities(herb_ids, disease_ids, *, profiles=None):
     release = current_release()
     if not release:
         return {'available': False, 'version': RESOLVER_VERSION, 'reason': '尚未发布标准靶点映射。'}
     ids = set(herb_ids) | set(disease_ids)
-    profiles = input_profiles(ids)
+    profiles = profiles if profiles is not None else input_profiles(ids)
     mappings = {}
     ordered = sorted(ids)
     for start in range(0, len(ordered), 500):
@@ -33,9 +82,11 @@ def compare_target_identities(herb_ids, disease_ids):
                 # one-to-many/truncated proposals stay in the unresolved total.
                 if len(candidate_genes) == 1 and row.candidate_count == len(row.candidates):
                     pending_genes[next(iter(candidate_genes))].add(pk)
+        verified_records = statuses['verified']
+        pending_records = sum(count for status, count in statuses.items() if status != 'verified')
         return {'genes': genes, 'proteins': proteins, 'pending': pending_genes,
-                'summary': {'records': len(side_ids), 'verifiedRecords': statuses['verified'],
-                    'pendingRecords': len(side_ids)-statuses['verified'], 'statuses': dict(statuses),
+                'summary': {'records': verified_records + pending_records, 'verifiedRecords': verified_records,
+                    'pendingRecords': pending_records, 'statuses': dict(statuses),
                     'geneUnresolvedRecords': sum(1 for pk in side_ids if pk in mappings and mappings[pk].status == 'verified' and not mappings[pk].gene_id),
                     'genes': len(genes), 'proteins': len(proteins)}}
 
@@ -48,6 +99,7 @@ def compare_target_identities(herb_ids, disease_ids):
     def record(pk):
         p, row = profiles[pk], mappings.get(pk)
         return {'entityId': pk, 'label': p['label'], 'source': p['source'], 'originalTaxon': p['taxon'],
+            'taxonEvidence': row.evidence.get('taxonEvidence') if row else p.get('taxonEvidence'),
             'status': row.status if row else 'unmapped', 'method': row.match_method if row else '',
             'masterKey': row.master_id if row else None, 'geneKey': row.gene_id if row else None}
 
@@ -74,6 +126,8 @@ def compare_target_identities(herb_ids, disease_ids):
     return {'available': True, 'version': RESOLVER_VERSION, 'releaseId': release.pk,
         'comparisonVersion': 'target-identity-comparison-v2',
         'referenceVersion': release.version, 'referenceSha256': release.checksum_sha256,
+        'referenceCatalogs': release.metadata.get('referenceCatalogs', {}),
+        'sourceSpeciesAssertions': release.metadata.get('sourceSpeciesAssertions', {}),
         'referenceTaxon': '9606', 'herb': herb['summary'], 'disease': disease['summary'],
         'verifiedGeneIntersectionCount': len(gene_overlap), 'verifiedProteinIntersectionCount': len(protein_overlap),
         'pendingGeneOverlapCount': len(pending_overlap),

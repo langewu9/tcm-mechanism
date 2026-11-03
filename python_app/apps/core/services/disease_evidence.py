@@ -5,13 +5,8 @@ from __future__ import annotations
 from django.db.models import Q
 
 from apps.core.models import EvidenceRelation, KnowledgeEntity
-from .catalog_identity import structural_representatives
-from .disease_names import (
-    ALIAS_DATA,
-    disease_entity_queryset,
-    expand_disease_queries,
-    matched_disease_queries,
-)
+from .catalog_identity import exact_entity_queryset, structural_representatives
+from .disease_resolution import EXACT_ALIASES, exact_disease_terms
 
 
 MAX_MATCHES = 20
@@ -51,7 +46,7 @@ def _relation_record(relation: EvidenceRelation) -> dict:
     }
 
 
-def _visible_relations(disease_ids: set[int]) -> tuple[list[EvidenceRelation], bool]:
+def _visible_relations(disease_ids: set[int]):
     queryset = EvidenceRelation.objects.filter(
         is_active=True,
         subject__is_active=True,
@@ -73,12 +68,71 @@ def _visible_relations(disease_ids: set[int]) -> tuple[list[EvidenceRelation], b
         "source_release", "source_release__source",
     )
 
-    records = list(structural_representatives(queryset).order_by(
-        "relation_type", "subject__label", "subject__stable_id", "object__label",
-        "object__stable_id", "source_release__source__slug", "source_release__version",
-        "source_record_id", "id",
-    )[: MAX_RELATIONS + 1])
-    return records[:MAX_RELATIONS], len(records) > MAX_RELATIONS
+    queryset = structural_representatives(queryset)
+    herb_relations = queryset.filter(
+        relation_type=DISEASE_HERB_TYPE,
+        object__entity_type=KnowledgeEntity.EntityType.HERB,
+    )
+    target_relations = queryset.filter(
+        relation_type__in=DISEASE_TARGET_TYPES,
+        object__entity_type__in=TARGET_ENTITY_TYPES,
+    )
+    direct_target_relations = target_relations.filter(relation_type="disease_target")
+    triple_target_relations = target_relations.filter(relation_type="disease_herb_target")
+
+    herb_ids = set(herb_relations.order_by().values_list("object_id", flat=True).distinct())
+    target_ids = set(target_relations.order_by().values_list("object_id", flat=True).distinct())
+    direct_herb_stable_ids = {
+        metadata.get("herbStableId")
+        for metadata in triple_target_relations.order_by().values_list("metadata", flat=True)
+        if isinstance(metadata, dict) and isinstance(metadata.get("herbStableId"), str)
+        and metadata.get("herbStableId")
+    }
+
+    counts = {
+        "disease_target": direct_target_relations.count(),
+        "disease_herb_target": triple_target_relations.count(),
+        DISEASE_HERB_TYPE: herb_relations.count(),
+    }
+    total_count = sum(counts.values())
+
+    # Reserve display rows for each evidence layer. The old global alphabetical
+    # ordering let thousands of disease→herb edges consume the entire page
+    # before any disease→target evidence could be shown.
+    target_total = counts["disease_target"] + counts["disease_herb_target"]
+    target_budget = min(target_total, max(1, int(MAX_RELATIONS * 0.75))) if target_total else 0
+    direct_budget = min(counts["disease_target"], (target_budget + 1) // 2)
+    triple_budget = min(counts["disease_herb_target"], target_budget - direct_budget)
+    selected = {
+        "disease_target": direct_budget,
+        "disease_herb_target": triple_budget,
+        DISEASE_HERB_TYPE: min(counts[DISEASE_HERB_TYPE], MAX_RELATIONS - target_budget),
+    }
+    target_remaining = target_budget - direct_budget - triple_budget
+    for kind in ("disease_target", "disease_herb_target"):
+        extra = min(target_remaining, counts[kind] - selected[kind])
+        selected[kind] += extra
+        target_remaining -= extra
+    remaining = MAX_RELATIONS - sum(selected.values())
+    for kind in ("disease_target", "disease_herb_target", DISEASE_HERB_TYPE):
+        extra = min(remaining, counts[kind] - selected[kind])
+        selected[kind] += extra
+        remaining -= extra
+
+    ordering = (
+        "subject__label", "subject__stable_id", "object__label", "object__stable_id",
+        "source_release__source__slug", "source_release__version", "source_record_id", "id",
+    )
+    relation_groups = {
+        "disease_target": direct_target_relations,
+        "disease_herb_target": triple_target_relations,
+        DISEASE_HERB_TYPE: herb_relations,
+    }
+    records = []
+    for kind in ("disease_target", "disease_herb_target", DISEASE_HERB_TYPE):
+        if selected[kind]:
+            records.extend(list(relation_groups[kind].order_by(*ordering)[:selected[kind]]))
+    return records, total_count > MAX_RELATIONS, herb_ids, target_ids, direct_herb_stable_ids, total_count
 
 
 def _direct_herb_stable_id(relation: EvidenceRelation) -> str | None:
@@ -91,14 +145,7 @@ def _direct_herb_stable_id(relation: EvidenceRelation) -> str | None:
     return stable_id
 
 
-def _visible_herbs_by_stable_id(relations: list[EvidenceRelation]) -> dict[str, KnowledgeEntity]:
-    stable_ids = {
-        stable_id
-        for relation in relations
-        if relation.relation_type == "disease_herb_target"
-        for stable_id in [_direct_herb_stable_id(relation)]
-        if stable_id is not None
-    }
+def _visible_herbs_by_stable_id(stable_ids: set[str]) -> dict[str, KnowledgeEntity]:
     if not stable_ids:
         return {}
     herbs = KnowledgeEntity.objects.filter(
@@ -113,33 +160,57 @@ def _visible_herbs_by_stable_id(relations: list[EvidenceRelation]) -> dict[str, 
 
 def search_disease_evidence(query: str) -> dict:
     query = str(query or "").strip()
-    expanded_queries = expand_disease_queries(query)
+    expanded_queries = exact_disease_terms(query)
 
-    # The queryset provides the shared database search, and this value-based
-    # check prevents JSON object keys from being treated as disease synonyms.
-    matching_records = []
-    for entity in disease_entity_queryset(expanded_queries).iterator(chunk_size=MAX_MATCHES + 1):
-        if matched_disease_queries(entity, expanded_queries):
-            matching_records.append(entity)
-            if len(matching_records) > MAX_MATCHES:
+    # Reuse the intersection resolver's exact label/source-observation lookup.
+    # This keeps disease evidence and network pharmacology on the same scope,
+    # without silently widening a disease to its subtypes by substring match.
+    matching_by_id = {}
+    for term in expanded_queries:
+        for entity in exact_entity_queryset("disease", term).select_related(
+            "source_release", "source_release__source",
+        ).order_by("stable_id").iterator(chunk_size=MAX_MATCHES + 1):
+            matching_by_id.setdefault(entity.pk, entity)
+            if len(matching_by_id) > MAX_MATCHES:
                 break
+        if len(matching_by_id) > MAX_MATCHES:
+            break
+    matching_records = sorted(
+        matching_by_id.values(), key=lambda entity: (entity.label.casefold(), entity.stable_id.casefold(), entity.pk)
+    )
     matches_truncated = len(matching_records) > MAX_MATCHES
     matches = matching_records[:MAX_MATCHES]
 
-    relations, relations_truncated = _visible_relations({entity.pk for entity in matches}) if matches else ([], False)
-    direct_herbs = _visible_herbs_by_stable_id(relations)
+    relations, relations_truncated, herb_ids, target_ids, direct_herb_stable_ids, total_relations = (
+        _visible_relations({entity.pk for entity in matches})
+        if matches else ([], False, set(), set(), set(), 0)
+    )
+    direct_herbs = _visible_herbs_by_stable_id(direct_herb_stable_ids)
 
-    herbs_by_id: dict[int, KnowledgeEntity] = {}
-    targets_by_id: dict[int, KnowledgeEntity] = {}
+    herbs_by_id: dict[int, KnowledgeEntity] = {
+        entity.pk: entity for entity in KnowledgeEntity.objects.filter(
+            pk__in=herb_ids, is_active=True,
+        ).filter(Q(source_release__isnull=True) | Q(source_release__source__enabled=True)).select_related(
+            "source_release", "source_release__source",
+        )
+    }
+    herbs_by_id.update({entity.pk: entity for entity in direct_herbs.values()})
+    targets_by_id: dict[int, KnowledgeEntity] = {
+        entity.pk: entity for entity in KnowledgeEntity.objects.filter(
+            pk__in=target_ids, is_active=True,
+        ).filter(Q(source_release__isnull=True) | Q(source_release__source__enabled=True)).select_related(
+            "source_release", "source_release__source",
+        )
+    }
     links = []
     for relation in relations:
         herb_label = ""
         target_label = ""
+        herb_id = None
         if relation.relation_type == DISEASE_HERB_TYPE:
-            herbs_by_id[relation.object_id] = relation.object
             herb_label = relation.object.label
+            herb_id = relation.object_id
         else:
-            targets_by_id[relation.object_id] = relation.object
             target_label = relation.object.label
             if relation.relation_type == "disease_herb_target":
                 stable_id = _direct_herb_stable_id(relation)
@@ -147,8 +218,12 @@ def search_disease_evidence(query: str) -> dict:
                 if herb is not None:
                     herbs_by_id[herb.pk] = herb
                     herb_label = herb.label
+                    herb_id = herb.pk
 
         links.append({
+            "diseaseId": relation.subject_id,
+            "herbId": herb_id,
+            "targetId": relation.object_id if target_label else None,
             "disease": relation.subject.label,
             "herb": herb_label,
             "target": target_label,
@@ -165,8 +240,8 @@ def search_disease_evidence(query: str) -> dict:
         "dataQuality": data_quality_notices(),
         "query": query,
         "expandedQueries": expanded_queries,
-        "aliasSource": ALIAS_DATA["source"],
-        "aliasSourceCommit": ALIAS_DATA["sourceCommit"],
+        "aliasSource": EXACT_ALIASES["source"].rsplit(" @ ", 1)[0],
+        "aliasSourceCommit": EXACT_ALIASES["source"].rsplit("@ ", 1)[-1],
         "matches": [_entity_record(entity) for entity in matches],
         "ambiguous": len(matches) > 1,
         "herbs": [_entity_record(entity) for entity in sorted(herbs_by_id.values(), key=entity_sort_key)],
@@ -177,9 +252,13 @@ def search_disease_evidence(query: str) -> dict:
             "diseases": len(matches),
             "herbs": len(herbs_by_id),
             "targets": len(targets_by_id),
-            "links": len(links),
-            "relations": len(relations),
+            "links": total_relations,
+            "relations": total_relations,
         },
         "truncated": truncated,
-        "limits": {"maxMatches": MAX_MATCHES, "maxRelations": MAX_RELATIONS},
+        "limits": {
+            "maxMatches": MAX_MATCHES,
+            "maxRelations": MAX_RELATIONS,
+            "returnedRelations": len(relations),
+        },
     }

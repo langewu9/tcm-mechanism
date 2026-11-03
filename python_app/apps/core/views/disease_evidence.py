@@ -40,6 +40,9 @@ class DiseaseEvidenceRelationSerializer(serializers.Serializer):
 
 
 class DiseaseEvidenceLinkSerializer(serializers.Serializer):
+    diseaseId = serializers.IntegerField()
+    herbId = serializers.IntegerField(allow_null=True)
+    targetId = serializers.IntegerField(allow_null=True)
     disease = serializers.CharField()
     herb = serializers.CharField(allow_blank=True)
     target = serializers.CharField(allow_blank=True)
@@ -60,6 +63,7 @@ class DiseaseEvidenceCountsSerializer(serializers.Serializer):
 class DiseaseEvidenceLimitsSerializer(serializers.Serializer):
     maxMatches = serializers.IntegerField()
     maxRelations = serializers.IntegerField()
+    returnedRelations = serializers.IntegerField()
 
 
 class DiseaseEvidenceResponseSerializer(serializers.Serializer):

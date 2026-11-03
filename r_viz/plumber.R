@@ -8,7 +8,7 @@ library(echarts4r)
 library(htmlwidgets)
 library(htmltools)
 
-RENDERER_VERSION <- "r-viz-0.4.2"
+RENDERER_VERSION <- "r-viz-0.4.3"
 BROWSER_FONT_FAMILY <- '"Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", "Noto Sans SC", system-ui, sans-serif'
 PLOT_FONT_FAMILY <- Sys.getenv(
   "R_VIZ_FONT_FAMILY",

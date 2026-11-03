@@ -231,8 +231,9 @@ export function NetworkPharmacologyPage() {
               {visualizationTask && <VisualizationResult task={visualizationTask} />}
               <div className="proteomics-metrics">
                 <Metric label="已返回中药靶点" value={result.summary.herbTargetCount} />
-                <Metric label="已返回疾病靶点" value={result.summary.unmatchedDiseases.length ? "待匹配" : result.summary.diseaseTargetCount} />
-                <Metric label="原始实体交集" value={intersectionState(result).comparable ? result.summary.strictIntersectionCount : "待核验"} />
+                <Metric label="审核后疾病靶点" value={result.summary.unmatchedDiseases.length ? "待匹配" : result.targetIdentity?.diseaseTargetEvidence?.scope === "reviewed_direct_disease_targets_v1" ? result.summary.diseaseTargetCount : "旧口径"} />
+                <Metric label="疾病来源候选（不计交集）" value={result.targetIdentity?.diseaseTargetEvidence?.candidateEntityCount ?? "请重新查询"} />
+                <Metric label="已核验标准基因交集" value={result.targetIdentity?.available ? (result.targetIdentity.verifiedGeneIntersectionCount ?? 0) : "待核验"} />
                 <Metric label="疾病—中药直接关联" value={result.summary.directAssociationTargetCount} />
                 <Metric label="候选靶点" value={result.summary.candidateTargetCount} />
                 <Metric label="关联成分" value={result.summary.componentCount} />

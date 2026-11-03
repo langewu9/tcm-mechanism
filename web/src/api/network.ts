@@ -4,10 +4,13 @@ import type { DataQualityNotice } from "./catalog";
 
 export type NetworkRawTable = "herbLinks" | "diseaseTargets" | "diseaseHerbLinks" | "directDiseaseHerbLinks";
 
-export type TargetIdentityRecord = { entityId: number; label: string; source: string; originalTaxon: string; status: string; method: string; masterKey: string | null; geneKey: string | null };
+export type TargetIdentityRecord = { entityId: number; label: string; source: string; originalTaxon: string; taxonEvidence?: { taxon?: string; organism?: string; basis?: string; confirmedAt?: string; sourceSlug?: string } | null; status: string; method: string; masterKey: string | null; geneKey: string | null };
 export type TargetIdentityOverlap = { key: string; label: string; taxon: string; herbRecords: TargetIdentityRecord[]; diseaseRecords: TargetIdentityRecord[]; recordCounts: { herb: number; disease: number } };
-export type TargetIdentityResult = { available: boolean; version: string; comparisonVersion?: string; reason?: string; referenceVersion?: string; referenceSha256?: string; referenceTaxon?: string; releaseId?: number;
+export type TargetIdentityResult = { available: boolean; version: string; comparisonVersion?: string; reason?: string; referenceVersion?: string; referenceSha256?: string; referenceTaxon?: string; referenceCatalogs?: Record<string, { sha256?: string; recordCount?: number; retrievedAt?: string; version?: string }>; releaseId?: number;
+  sourceSpeciesAssertions?: Record<string, { taxon: string; organism: string; basis: string; confirmedAt: string }>;
   coverage?: { scope: string; rawRowLimitsApplied: boolean };
+  entityIdComparison?: { herbTargetCount: number; diseaseTargetCount: number; intersectionCount: number; intersectionEntities: Array<{ id: number; label: string; entity_type: string; stable_id: string }>; rowsTruncated: boolean; scope: string };
+  diseaseTargetEvidence?: { scope: string; confirmedRelationCount: number; confirmedEntityCount: number; candidateRelationCount: number; candidateEntityCount: number; candidateSources: Array<{ sourceSlug: string; sourceVersion: string; relationType: string; entityCount: number; relationCount: number; scope: "analysis" | "candidate" }>; policy: string };
   herb?: { records: number; verifiedRecords: number; pendingRecords: number; geneUnresolvedRecords?: number; genes: number; proteins: number; statuses: Record<string, number> };
   disease?: { records: number; verifiedRecords: number; pendingRecords: number; geneUnresolvedRecords?: number; genes: number; proteins: number; statuses: Record<string, number> };
   verifiedGeneIntersectionCount?: number; verifiedProteinIntersectionCount?: number; pendingGeneOverlapCount?: number;
@@ -41,6 +44,11 @@ export type NetworkPharmacologyResult = {
     diseaseTargetCount: number;
     herbTargetCount: number;
     strictIntersectionCount: number;
+    strictEntityIdIntersectionCount?: number;
+    diseaseTargetEntityCount?: number;
+    diseaseTargetCandidateEntityCount?: number;
+    diseaseTargetCandidateRelationCount?: number;
+    herbTargetEntityCount?: number;
     directAssociationTargetCount: number;
     candidateTargetCount: number;
     componentCount: number;
@@ -50,6 +58,9 @@ export type NetworkPharmacologyResult = {
     target: string;
     normalizedTarget: string;
     matchType: string;
+    canonicalTargetKey?: string | null;
+    identityStatus?: "verified" | "source_record_only";
+    sourceEntityIds?: number[];
     targetName: string;
     genes: string;
     pathways: string[];
@@ -70,9 +81,9 @@ export type NetworkPharmacologyResult = {
     tablesTruncated: Record<NetworkRawTable, boolean>;
     inputRelationsTruncated: Partial<Record<"formulaHerbs" | "herbCompounds" | "compoundTargets" | "diseaseTargets" | "pathways", boolean>>;
   };
-  network: { nodes: Array<{ id: string; label: string; type: string }>; links: Array<{ source: string; target: string; relation: string; sourceRecordId: string; sourceSlug: string }> };
+  network: { nodes: Array<{ id: string; label: string; type: string; canonicalTargetKey?: string; canonicalTargetNamespace?: string; identityStatus?: string; taxonKey?: string; targetOverlap?: boolean; sourceEntityCount?: number }>; links: Array<{ source: string; target: string; relation: string; sourceRecordId: string; sourceSlug: string }> };
   charts: { overlap: Array<{ name: string; value: number }>; components: Array<{ name: string; targets: number }>; pathways: Array<{ name: string; targets: number }> };
-  limits: { targetsTruncated: boolean; linksTruncated: boolean };
+  limits: { targetsTruncated: boolean; linksTruncated: boolean; networkNodesTruncated?: boolean };
 };
 
 export type ReactomePathway = {

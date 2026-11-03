@@ -17,10 +17,20 @@ EXACT_ALIASES = json.loads(
 ENTITY_LIMIT = 50
 
 
-def resolve_intersection_disease(query):
-    original = query.strip()
+def exact_disease_terms(query):
+    """Return the curated whole-term translations shared by disease readers."""
+    original = str(query or "").strip()
+    if not original:
+        raise ValueError("请输入疾病名称。")
+    if len(original) > MAX_QUERY_LENGTH or any(ord(character) < 32 for character in original):
+        raise ValueError("疾病名称过长或包含不支持的控制字符。")
     translations = EXACT_ALIASES["aliases"].get(original, [])
-    requested_terms = list(dict.fromkeys([original, *translations]))
+    return list(dict.fromkeys([original, *translations]))
+
+
+def resolve_intersection_disease(query):
+    requested_terms = exact_disease_terms(query)
+    original = requested_terms[0]
     entities = {}
     resolved_terms = []
     truncated = False

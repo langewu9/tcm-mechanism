@@ -229,7 +229,7 @@ class NetworkPharmacologyApiTests(APITestCase):
         )
         self.assertTrue(result["rawLimits"]["inputRelationsTruncated"]["diseaseTargets"])
         self.assertEqual(result["summary"]["diseaseTargetCount"], 2)
-        self.assertEqual(result["summary"]["directAssociationTargetCount"], 0)
+        self.assertEqual(result["summary"]["directAssociationTargetCount"], 1)
         self.assertEqual({row["sourceRecordId"] for row in result["raw"]["diseaseTargets"]}, {"dt:1", "dt:2"})
         self.assertEqual(result["raw"]["directDiseaseHerbLinks"], [])
         self.assertFalse(AnalysisTask.objects.exists())

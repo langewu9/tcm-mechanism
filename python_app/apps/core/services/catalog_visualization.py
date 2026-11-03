@@ -62,12 +62,14 @@ def _snapshot(data, kind):
                 (("仅检测名称", "detectedOnly"), ("精确名称交集", "matched"), ("仅参考名称", "referenceOnly"), ("同家族候选（非交集）", "familyMatches"))],
             "limits": {"truncated": False}, "evidenceSha256": data["evidenceSha256"]}, set()
     if kind in {"herb", "compound"}:
-        rows = [row for item in data["results"] for row in item["relations"]]
-        entity_ids = {entity["id"] for item in data["results"] for key in ("matches", "herbs", "compounds", "targets") for entity in item[key]}
-        truncated = any(item["truncated"] for item in data["results"])
+        rows = [row for item in data["results"] for row in [*item["relations"], *item.get("diseaseRelations", [])]]
+        entity_ids = {entity["id"] for item in data["results"] for key in ("matches", "herbs", "compounds", "targets", "diseases", "diseaseHerbs") for entity in item.get(key, [])}
+        truncated = any(item["truncated"] or item.get("diseaseRelationsTruncated", False) for item in data["results"])
+        focus_entity_ids = {entity["id"] for item in data["results"] for entity in item["matches"]}
     else:
         rows = data.get("relations", [])
         entity_ids = {entity["id"] for key in ("matches", "herbs", "targets") for entity in data.get(key, [])}
+        focus_entity_ids = {entity["id"] for entity in data.get("matches", [])}
         if kind == "entity": entity_ids.add(data["entity"]["id"])
         if kind == "pathway": entity_ids.update(item["entityId"] for item in data["items"])
         truncated = data.get("truncated", False)
@@ -95,6 +97,41 @@ def _snapshot(data, kind):
             "sourceSlug": row.get("sourceSlug", row.get("source_slug", "")), "sourceVersion": row.get("sourceVersion", row.get("source_version", "")),
             "sourceRecordId": row.get("sourceRecordId", row.get("source_record_id", str(relation_id))), "relationId": relation_id,
             "evidenceType": row.get("evidenceType", row.get("evidence_type", ""))})
+
+    # disease_herb_target is stored as a disease→target edge with the herb ID
+    # in the same source record. Project its disease→herb leg explicitly so
+    # the three-way evidence is visible without implying a separate herb-target experiment.
+    stable_to_id = {entity.stable_id: entity.pk for entity in entities}
+    projected = set()
+    for row in rows:
+        herb_stable_id = row.get("herbStableId")
+        relation_id = row.get("relationId", row.get("id"))
+        disease_id = row.get("subjectId", row.get("subject"))
+        if row.get("relationType") != "disease_herb_target" or not isinstance(herb_stable_id, str):
+            continue
+        herb_id = stable_to_id.get(herb_stable_id)
+        if disease_id not in lookup or herb_id is None or relation_id in projected:
+            continue
+        projected.add(relation_id)
+        links.append({"source": f"entity:{disease_id}", "target": f"entity:{herb_id}",
+            "relation": "disease_herb_target（三元证据）", "sourceSlug": row.get("sourceSlug", ""),
+            "sourceVersion": row.get("sourceVersion", ""), "sourceRecordId": row.get("sourceRecordId", str(relation_id)),
+            "relationId": relation_id, "evidenceType": row.get("evidenceType", "")})
+    for row in (data.get("links", []) if kind == "disease" else []):
+        disease_id, herb_id = row.get("diseaseId"), row.get("herbId")
+        relation_id = row.get("sourceRecordId")
+        if row.get("relationType") != "disease_herb_target" or not isinstance(disease_id, int) or not isinstance(herb_id, int):
+            continue
+        if f"entity:{disease_id}" not in shown or f"entity:{herb_id}" not in shown:
+            continue
+        key = (relation_id, disease_id, herb_id)
+        if key in projected:
+            continue
+        projected.add(key)
+        links.append({"source": f"entity:{disease_id}", "target": f"entity:{herb_id}",
+            "relation": "disease_herb_target（三元证据）", "sourceSlug": row.get("sourceSlug", ""),
+            "sourceVersion": row.get("sourceVersion", ""), "sourceRecordId": relation_id or "",
+            "relationId": relation_id, "evidenceType": row.get("relationType", "")})
     counts = Counter(entity.entity_type for entity in entities)
     summary = [{"label": label, "value": value} for label, value in (
         ("中药实体", counts["herb"]), ("成分实体", counts["compound"]),
@@ -110,6 +147,7 @@ def _snapshot(data, kind):
             {"label": "有靶点注释的通路", "value": sum(item["targetAnnotations"] > 0 for item in data["items"])}]
     return {"analysisKind": "catalog_evidence", "queryType": kind, "queryResult": data,
         "network": {"nodes": nodes, "links": links}, "catalogSummary": summary, "catalogCoverage": coverage,
+        "focusNodeIds": [f"entity:{entity_id}" for entity_id in sorted(focus_entity_ids)],
         "limits": {"truncated": truncated or len(entities) > 5000}, "evidenceSha256": data["evidenceSha256"]}, release_ids
 
 

@@ -111,6 +111,7 @@ export type HerbEvidenceRelation = {
   sourceVersion: string;
   sourceRecordId: string;
   score: number | null;
+  herbStableId?: string;
 };
 
 export type HerbEvidenceItem = {
@@ -122,6 +123,10 @@ export type HerbEvidenceItem = {
   compounds: HerbEvidenceEntity[];
   targets: HerbEvidenceEntity[];
   relations: HerbEvidenceRelation[];
+  diseases?: HerbEvidenceEntity[];
+  diseaseHerbs?: HerbEvidenceEntity[];
+  diseaseRelations?: HerbEvidenceRelation[];
+  diseaseRelationsTruncated?: boolean;
   truncated: boolean;
 };
 
@@ -134,6 +139,9 @@ export type HerbEvidenceSearch = {
 };
 
 export type DiseaseEvidenceLink = {
+  diseaseId?: number;
+  herbId?: number | null;
+  targetId?: number | null;
   disease: string;
   herb: string;
   target: string;
@@ -158,7 +166,7 @@ export type DiseaseEvidenceSearch = {
   links: DiseaseEvidenceLink[];
   counts: { diseases: number; herbs: number; targets: number; links: number; relations: number };
   truncated: boolean;
-  limits: { maxMatches: number; maxRelations: number };
+  limits: { maxMatches: number; maxRelations: number; returnedRelations: number };
 };
 
 export function searchDiseaseEvidence(query: string) {

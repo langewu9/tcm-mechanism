@@ -198,6 +198,7 @@ class BatchHerbEvidenceRelationSerializer(serializers.Serializer):
     sourceVersion = serializers.CharField()
     sourceRecordId = serializers.CharField()
     score = serializers.FloatField(allow_null=True)
+    herbStableId = serializers.CharField(required=False)
 
 
 class BatchHerbEvidenceItemSerializer(serializers.Serializer):
@@ -209,6 +210,10 @@ class BatchHerbEvidenceItemSerializer(serializers.Serializer):
     compounds = BatchHerbEvidenceEntitySerializer(many=True)
     targets = BatchHerbEvidenceEntitySerializer(many=True)
     relations = BatchHerbEvidenceRelationSerializer(many=True)
+    diseases = BatchHerbEvidenceEntitySerializer(many=True, required=False)
+    diseaseHerbs = BatchHerbEvidenceEntitySerializer(many=True, required=False)
+    diseaseRelations = BatchHerbEvidenceRelationSerializer(many=True, required=False)
+    diseaseRelationsTruncated = serializers.BooleanField(required=False)
     truncated = serializers.BooleanField()
 
 

@@ -20,7 +20,7 @@ from apps.core.models import (
     SourceRelease,
     SyncRun,
 )
-from apps.core.services.disease_names import expand_disease_queries
+from apps.core.services.disease_resolution import exact_disease_terms
 
 
 BASELINE_DISEASE_HERB_TARGET_ROWS = [
@@ -64,6 +64,10 @@ class DiseaseEvidenceSearchTests(APITestCase):
         cls.same_label_disease = cls.entity(
             "disease", "DOID:0000001", "肺纤维化", source_release=cls.disease_release,
         )
+        cls.subtype_disease = cls.entity(
+            "disease", "EFO:idiopathic-pf", "Idiopathic pulmonary fibrosis",
+            source_release=cls.disease_release,
+        )
         cls.isolated_disease = cls.entity(
             "disease", "EFO:isolated", "孤立疾病", source_release=cls.disease_release,
         )
@@ -104,6 +108,7 @@ class DiseaseEvidenceSearchTests(APITestCase):
         for row in BASELINE_DISEASE_TARGET_ROWS:
             target = cls.target_one if row["targetStableId"] == cls.target_one.stable_id else cls.target_two
             cls.relation(cls.disease, target, "disease_target", row["sourceRecordId"])
+        cls.relation(cls.subtype_disease, cls.target_one, "disease_target", "subtype:target")
 
     @classmethod
     def source_release(cls, slug, version, enabled=True):
@@ -149,12 +154,14 @@ class DiseaseEvidenceSearchTests(APITestCase):
         data = response.data
 
         self.assertEqual(data["query"], "肺纤维化")
-        self.assertEqual(data["expandedQueries"], expand_disease_queries("肺纤维化"))
+        self.assertEqual(data["expandedQueries"], exact_disease_terms("肺纤维化"))
         self.assertEqual(data["aliasSourceCommit"], "078d374")
         self.assertEqual(len(data["matches"]), 2)
         self.assertTrue(data["ambiguous"])
         self.assertEqual({row["id"] for row in data["matches"]}, {self.disease.pk, self.same_label_disease.pk})
         self.assertNotIn(self.disabled_disease.pk, {row["id"] for row in data["matches"]})
+        self.assertNotIn(self.subtype_disease.pk, {row["id"] for row in data["matches"]})
+        self.assertNotIn("Idiopathic pulmonary fibrosis", data["expandedQueries"])
 
         self.assertEqual([row["id"] for row in data["herbs"]], [self.herb_one.pk, self.herb_two.pk])
         self.assertEqual({row["id"] for row in data["targets"]}, {self.target_one.pk, self.target_two.pk})
@@ -162,7 +169,7 @@ class DiseaseEvidenceSearchTests(APITestCase):
         self.assertEqual(data["counts"], {
             "diseases": 2, "herbs": 2, "targets": 2, "links": 6, "relations": 6,
         })
-        self.assertEqual(data["limits"], {"maxMatches": 20, "maxRelations": 1200})
+        self.assertEqual(data["limits"], {"maxMatches": 20, "maxRelations": 1200, "returnedRelations": 6})
         self.assertFalse(data["truncated"])
 
         direct_rows = [row for row in data["links"] if row["relationType"] == "disease_herb_target"]
@@ -361,7 +368,10 @@ class DiseaseEvidenceSearchTests(APITestCase):
         with patch("apps.core.services.disease_evidence.MAX_RELATIONS", 1):
             relation_data = self.search().data
         self.assertEqual(len(relation_data["relations"]), 1)
-        self.assertEqual(relation_data["counts"]["relations"], 1)
-        self.assertEqual(relation_data["counts"]["links"], 1)
+        self.assertEqual(relation_data["relations"][0]["relationType"], "disease_target")
+        self.assertEqual(relation_data["counts"]["targets"], 2)
+        self.assertEqual(relation_data["counts"]["relations"], 6)
+        self.assertEqual(relation_data["counts"]["links"], 6)
         self.assertTrue(relation_data["truncated"])
         self.assertEqual(relation_data["limits"]["maxRelations"], 1)
+        self.assertEqual(relation_data["limits"]["returnedRelations"], 1)
