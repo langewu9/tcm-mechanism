@@ -1,7 +1,8 @@
 # 远志平台 Windows 启动手册
 
-更新日期：2026-10-30  
-适用目录：`D:\MMDD\tcm_collaboration_fixes_20261008`  
+更新日期：2026-11-03
+
+适用目录：当前仓库根目录
 适用配置：原 SQLite 数据库 + Docker Django/Redis/R/分析队列 + 本机 Vite 前端
 
 ## 本次问题与处理结果
@@ -13,7 +14,7 @@
 | 5173 端口被占用 | 曾手动运行 Vite，遗留的前端进程占用了端口 | 本次确认进程命令行属于项目 Vite 后才停止；启动器今后会复用本项目 Vite，遇到其他程序占用时会报错并保留该进程 |
 | 点错快捷方式 | `Docker Desktop.lnk` 只启动 Docker Desktop，不启动项目服务 | 桌面另设“远志平台一键启动.lnk”，指向本项目启动脚本；Docker 快捷方式保持原用途 |
 | `CreateProcessSecurityEnvironment failed (0x80070020)` | Windows 创建进程失败；重启后仍需由启动脚本逐层确认 Docker、容器和前端。现有记录不足以确定该系统错误的单一根因 | 用启动日志和服务健康检查定位具体阶段；不要仅凭 Docker 窗口已打开判断项目已启动 |
-| 旧日志出现 `'next' 不是命令` 或 Prisma Client 未初始化 | 那是旧 Next.js/Prisma 启动路线；当前网站前端运行于 `web/` 的 Vite，后端使用 Django API | 本地启动只使用本手册列出的入口，不混用 Next、Prisma 或旧数据库命令 |
+| 遗留日志提到其他前端或数据库命令 | 当前仓库已清理退役的旧运行栈；网站使用 `web/` 的 Vite 前端和 Django API | 只使用本手册列出的入口 |
 
 本次正确启动最终通过了原库文件检查、Docker Compose 容器等待、Django 健康检查、R renderer 健康检查、两个 Celery 队列注册、Vite 首页、API 代理及首页统计接口检查。确认的首页数据库统计为中药 8,967、成分 39,998、靶点 62,920、通路 2,883；数据库更新后数字可能变化。
 
@@ -32,7 +33,7 @@
 - `deploy\start-original-stack.ps1`：一键入口实际执行的启动和健康检查脚本。
 - `deploy\compose.original-sqlite.yml`：当前原数据库 Docker Compose 配置。
 - `deploy\compose.python.yml`：另一套 PostgreSQL 配置，不用于本地原 SQLite 数据库启动。
-- 旧 Next.js、Prisma 或独立前端命令：不要与当前入口并行启动。
+- 不要同时启动另一套项目或占用相同端口的开发服务。
 
 ## 故障排查
 

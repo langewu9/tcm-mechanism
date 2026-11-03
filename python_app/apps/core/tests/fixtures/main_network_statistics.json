@@ -2,7 +2,7 @@
   "sourceCommit": "078d374852d82ad398e98ff8e97d11f7eb2e3a62",
   "sourcePath": "src/app/api/network-pharmacology/route.ts",
   "sourceSha256": "f10d5860b889646cf183125c2b78df7751f7a551136a0f30848226316958ae7c",
-  "generation": "Ran the original main helper functions and herbTargets-to-summary block under Node.js, with fixed raw rows and a fixture prisma.target.findMany response. No Django statistic code was used to generate expected values.",
+  "generation": "Independent reference values were generated from the frozen main-branch network helper with fixed synthetic relation rows and target annotations. Django statistics were not used to create expected values.",
   "herbs": ["黄芩"],
   "disease": "肺纤维化",
   "herbRows": [

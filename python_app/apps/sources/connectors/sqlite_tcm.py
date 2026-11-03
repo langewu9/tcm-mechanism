@@ -221,7 +221,7 @@ def iter_source_rows(configuration: dict, *, include_metadata=False) -> Iterator
 
 
 def iter_configured_rows(configuration: dict, *, include_metadata=False) -> Iterator[tuple]:
-    """Yield rows from the three-table schema produced by main's cache_builder.py."""
+    """Yield rows from the supported three-table SQLite source format."""
     _, config = _source_path(configuration)
     yield from (("herb", *row) for row in iter_source_rows(configuration, include_metadata=include_metadata))
     table_specs = (
