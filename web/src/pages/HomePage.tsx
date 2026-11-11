@@ -90,6 +90,6 @@ export function HomePage() {
       <div className="yz-section-heading"><div><h2 id="workflow-title">使用流程</h2></div><Link to="/demo" className="yz-text-link">查看演示图库 <ArrowUpRight size={17} /></Link></div>
       <ol className="yz-steps">{workflow.map((item, index) => <li key={item.title}><span>0{index + 1}</span><h3>{item.title}</h3><p>{item.text}</p></li>)}</ol>
     </div></section>
-    <footer className="yz-container yz-footer"><div><strong>远志 AI Scientist</strong></div><div><Link to="/demo">演示图库</Link><a href="/api/docs/">平台 API <ArrowUpRight size={13} /></a><Link to={authenticated ? "/dashboard" : "/login"}>进入工作区 <ArrowRight size={14} /></Link></div></footer>
+    <footer className="yz-container yz-footer"><div><strong>远志 AI Scientist</strong></div><div><Link to="/demo">演示图库</Link><Link to={authenticated ? "/dashboard" : "/login"}>进入工作区 <ArrowRight size={14} /></Link></div></footer>
   </main>;
 }

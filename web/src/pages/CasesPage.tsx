@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { Link, useOutletContext } from "react-router-dom";
+import { Link, useOutletContext, useSearchParams } from "react-router-dom";
 import { ArrowLeft, FileHeart, Save, Sparkles, Stethoscope, Archive, RotateCcw } from "lucide-react";
-import { approveMedicalCase, createMedicalCase, deleteMedicalCase, getMedicalCaseAnalysis, getMedicalCaseAudit, getMedicalCases, restoreMedicalCase, reviewMedicalCaseCandidate, startMedicalCaseAnalysis, type CaseAuditEvent, type CaseEvidence, type CaseKnowledgeEvidence, type MedicalCase, type MedicalCaseCandidate, type MedicalCaseAnalysis, type Page } from "../api/cases";
+import { approveMedicalCase, createMedicalCase, deleteMedicalCase, getMedicalCase, getMedicalCaseAnalysis, getMedicalCaseAudit, getMedicalCases, restoreMedicalCase, reviewMedicalCaseCandidate, startMedicalCaseAnalysis, type CaseAuditEvent, type CaseEvidence, type CaseKnowledgeEvidence, type MedicalCase, type MedicalCaseCandidate, type MedicalCaseAnalysis, type Page } from "../api/cases";
 import { getAnalysisTask, type AnalysisTask } from "../api/datasets";
 import { type Session } from "../api/auth";
 import { ApiError } from "../api/client";
@@ -31,10 +31,12 @@ type CaseAnalysisResult = {
     caseCorpus?: CaseCorpusSummary;
   };
   evidenceChain?: {
+    algorithmVersion?: string;
     nodes: Array<{ id: number; label: string; entityType: string; stableId: string }>;
     links: Array<{ id: number; source: number; target: number; relationType: string; evidenceType: string; sourceName: string; sourceVersion: string; sourceRecordId: string; evidenceText: string }>;
     sources: Array<{ id: number; source: string; version: string }>;
     truncated?: boolean;
+    warnings?: string[];
   };
 };
 
@@ -68,8 +70,31 @@ function taskStatusLabel(task: AnalysisTask | null) {
   return "任务已取消";
 }
 
+function requireCaseTask(task: AnalysisTask, taskId: number, caseId?: number) {
+  if (!Number.isSafeInteger(taskId) || taskId <= 0 || task.id !== taskId || task.task_type !== "case_link" || !Number.isSafeInteger(task.medical_case) || Number(task.medical_case) <= 0 || (caseId !== undefined && task.medical_case !== caseId)) {
+    throw new ApiError("医案分析记录与所选任务不一致，请重新读取。", "INVALID_RESPONSE", null, null, 0);
+  }
+}
+
+function requireCaseAnalysis(response: MedicalCaseAnalysis, caseId: number, taskId?: number) {
+  if (taskId !== undefined && !response.task) throw new ApiError("未找到所选医案分析记录。", "INVALID_RESPONSE", null, null, 0);
+  if (response.task) requireCaseTask(response.task, taskId ?? response.task.id, caseId);
+  if (response.candidates.some(candidate => candidate.medical_case_id !== caseId || candidate.task_id !== response.task?.id)) {
+    throw new ApiError("医案候选与所选分析任务不一致，请重新读取。", "INVALID_RESPONSE", null, null, 0);
+  }
+}
+
 export function CasesPage({ embedded = false }: { embedded?: boolean }) {
   const { confirm, confirmation } = useConfirmation();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const savedTaskId = searchParams.get("caseTask");
+  const adoptedTaskId = useRef<string | null>(null);
+  const analysisSubmitInFlight = useRef(false);
+  const [historySelectionId, setHistorySelectionId] = useState<string | null>(null);
+  const [historyCase, setHistoryCase] = useState<MedicalCase | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historyReload, setHistoryReload] = useState(0);
   const user = useOutletContext<NonNullable<Session["user"]>>();
   const mounted = useRef(false);
   const mutationInFlight = useRef(false);
@@ -135,18 +160,77 @@ export function CasesPage({ embedded = false }: { embedded?: boolean }) {
   }, [loadCases, refresh]);
 
   useEffect(() => {
+    if (savedTaskId !== null && adoptedTaskId.current === savedTaskId) {
+      adoptedTaskId.current = null;
+      return;
+    }
+    adoptedTaskId.current = null;
+    const requestSequence = ++analysisRequestSequence.current;
+    setHistorySelectionId(savedTaskId);
+    setHistoryCase(null);
+    setHistoryError(null);
+    setHistoryLoading(savedTaskId !== null);
+    setAnalysisCaseId(null);
+    setAnalysisTask(null);
+    setAnalysisCandidates([]);
+    setAnalysisStale(false);
+    setAnalysisModelConfiguration({ configured: false, name: null, version: null });
+    setAnalysisLoadingId(null);
+    setAnalysisConsent(false);
+    setAnalysisPollFailures(0);
+    setCandidateReviewId(null);
+    setError(null);
+    if (savedTaskId === null) return;
+    if (!/^[1-9]\d*$/.test(savedTaskId) || !Number.isSafeInteger(Number(savedTaskId))) {
+      setHistoryError("医案分析任务编号无效，请从任务记录重新打开。");
+      setHistoryLoading(false);
+      return;
+    }
+    const taskId = Number(savedTaskId);
+    void (async () => {
+      try {
+        const task = await getAnalysisTask(taskId);
+        if (!mounted.current || requestSequence !== analysisRequestSequence.current) return;
+        requireCaseTask(task, taskId);
+        const caseId = task.medical_case as number;
+        const [item, response] = await Promise.all([getMedicalCase(caseId), getMedicalCaseAnalysis(caseId, taskId)]);
+        if (!mounted.current || requestSequence !== analysisRequestSequence.current) return;
+        if (item.id !== caseId) throw new ApiError("医案记录与所选分析任务不一致。", "INVALID_RESPONSE", null, null, 0);
+        requireCaseAnalysis(response, caseId, taskId);
+        setHistoryCase(item);
+        setAnalysisCaseId(caseId);
+        setAnalysisTask(response.task);
+        setAnalysisCandidates(response.candidates);
+        setAnalysisStale(response.stale);
+        setAnalysisModelConfiguration(response.modelConfiguration);
+      } catch (cause) {
+        if (!mounted.current || requestSequence !== analysisRequestSequence.current) return;
+        setHistoryError(errorMessage(cause));
+      } finally {
+        if (mounted.current && requestSequence === analysisRequestSequence.current) setHistoryLoading(false);
+      }
+    })();
+    return () => { analysisRequestSequence.current += 1; };
+  }, [savedTaskId, historyReload]);
+
+  useEffect(() => {
     if (analysisCaseId === null || !analysisTask || !["queued", "running"].includes(analysisTask.status)) return;
     const requestSequence = analysisRequestSequence.current;
     const delay = Math.min(1500 * (2 ** analysisPollFailures), 12000);
     const timer = window.setTimeout(() => {
       void getAnalysisTask(analysisTask.id).then(async (latest) => {
-        if (requestSequence !== analysisRequestSequence.current) return;
-        setAnalysisPollFailures(0);
-        setAnalysisTask(latest);
-        if (!["queued", "running"].includes(latest.status)) {
-          const current = await getMedicalCaseAnalysis(analysisCaseId);
-          if (requestSequence !== analysisRequestSequence.current) return;
-          setAnalysisTask(current.task ?? latest);
+        if (!mounted.current || requestSequence !== analysisRequestSequence.current) return;
+        requireCaseTask(latest, analysisTask.id, analysisCaseId);
+        if (["queued", "running"].includes(latest.status)) {
+          setAnalysisPollFailures(0);
+          setAnalysisTask(latest);
+        } else {
+          const current = await getMedicalCaseAnalysis(analysisCaseId, analysisTask.id);
+          if (!mounted.current || requestSequence !== analysisRequestSequence.current) return;
+          requireCaseAnalysis(current, analysisCaseId, analysisTask.id);
+          setAnalysisPollFailures(0);
+          setError(null);
+          setAnalysisTask(current.task);
           setAnalysisCandidates(current.candidates);
           setAnalysisStale(current.stale);
           setAnalysisModelConfiguration(current.modelConfiguration);
@@ -184,6 +268,7 @@ export function CasesPage({ embedded = false }: { embedded?: boolean }) {
       });
       if (!mounted.current) return;
       formElement.reset();
+      if (savedTaskId !== null) setSearchParams(params => { const next = new URLSearchParams(params); next.delete("caseTask"); return next; });
       setNotice("医案已保存，来源和提交账号已记录。");
       setArchived(false);
       if (pageNumber !== 1) setPageNumber(1);
@@ -212,6 +297,7 @@ export function CasesPage({ embedded = false }: { embedded?: boolean }) {
       else await deleteMedicalCase(item.id);
       if (!mounted.current) return;
       setNotice(item.archived_at ? "医案已恢复。" : "医案已归档，正文、来源和分析记录均已保留。");
+      if (savedTaskId !== null) setHistoryReload(value => value + 1);
       if (pageNumber > 1 && page?.results.length === 1) setPageNumber((value) => value - 1);
       else setRefresh((value) => value + 1);
     } catch (cause) {
@@ -266,6 +352,7 @@ export function CasesPage({ embedded = false }: { embedded?: boolean }) {
       await approveMedicalCase(item.id);
       if (!mounted.current) return;
       setNotice("医案已审核，审核账号和时间已写入审计记录。");
+      if (savedTaskId !== null) setHistoryReload(value => value + 1);
       setRefresh((value) => value + 1);
       if (activeAuditCaseId.current === item.id) await loadAudit(item.id);
     } catch (cause) {
@@ -279,6 +366,7 @@ export function CasesPage({ embedded = false }: { embedded?: boolean }) {
 
   async function toggleCaseAnalysis(item: MedicalCase) {
     if (analysisCaseId === item.id) {
+      if (savedTaskId !== null) setSearchParams(params => { const next = new URLSearchParams(params); next.delete("caseTask"); return next; });
       analysisRequestSequence.current += 1;
       setAnalysisCaseId(null);
       setAnalysisTask(null);
@@ -303,6 +391,7 @@ export function CasesPage({ embedded = false }: { embedded?: boolean }) {
     try {
       const response = await getMedicalCaseAnalysis(item.id);
       if (requestSequence !== analysisRequestSequence.current) return;
+      requireCaseAnalysis(response, item.id);
       setAnalysisTask(response.task);
       setAnalysisCandidates(response.candidates);
       setAnalysisStale(response.stale);
@@ -317,14 +406,23 @@ export function CasesPage({ embedded = false }: { embedded?: boolean }) {
   }
 
   async function runCaseAnalysis(item: MedicalCase) {
-    const requestSequence = analysisRequestSequence.current;
+    if (analysisSubmitInFlight.current) return;
+    analysisSubmitInFlight.current = true;
+    const requestSequence = ++analysisRequestSequence.current;
     setAnalysisLoadingId(item.id);
     setError(null);
     setNotice(null);
     try {
       const task = await startMedicalCaseAnalysis(item.id);
-      if (requestSequence !== analysisRequestSequence.current) return;
+      if (!mounted.current || requestSequence !== analysisRequestSequence.current) return;
+      requireCaseTask(task, task.id, item.id);
       setAnalysisTask(task);
+      setHistorySelectionId(String(task.id));
+      setHistoryCase(item);
+      setHistoryError(null);
+      setHistoryLoading(false);
+      adoptedTaskId.current = String(task.id);
+      setSearchParams(params => { const next = new URLSearchParams(params); next.set("caseTask", String(task.id)); return next; }, { replace: true });
       setAnalysisCandidates([]);
       setAnalysisStale(false);
       setAnalysisConsent(false);
@@ -333,19 +431,24 @@ export function CasesPage({ embedded = false }: { embedded?: boolean }) {
       if (requestSequence !== analysisRequestSequence.current) return;
       setError(errorMessage(cause));
     } finally {
+      analysisSubmitInFlight.current = false;
       if (requestSequence === analysisRequestSequence.current) setAnalysisLoadingId(null);
     }
   }
 
   async function decideCandidate(item: MedicalCase, candidate: MedicalCaseCandidate, decision: "accept" | "reject") {
     const requestSequence = analysisRequestSequence.current;
+    const selectedTaskId = analysisTask?.id;
+    if (!selectedTaskId || candidate.task_id !== selectedTaskId || candidate.medical_case_id !== item.id) return;
     setCandidateReviewId(candidate.id);
     setError(null);
     setNotice(null);
     try {
       await reviewMedicalCaseCandidate(item.id, candidate.id, decision);
-      const refreshed = await getMedicalCaseAnalysis(item.id);
-      if (requestSequence !== analysisRequestSequence.current) return;
+      if (!mounted.current || requestSequence !== analysisRequestSequence.current) return;
+      const refreshed = await getMedicalCaseAnalysis(item.id, selectedTaskId);
+      if (!mounted.current || requestSequence !== analysisRequestSequence.current) return;
+      requireCaseAnalysis(refreshed, item.id, selectedTaskId);
       setAnalysisTask(refreshed.task);
       setAnalysisCandidates(refreshed.candidates);
       setAnalysisStale(refreshed.stale);
@@ -359,6 +462,14 @@ export function CasesPage({ embedded = false }: { embedded?: boolean }) {
     }
   }
 
+  const fixedHistory = savedTaskId !== null;
+  // The URL may change one render before its restoration effect clears state.
+  // Keep records from the previous selection out of that intervening render.
+  const historyMatchesSelection = historySelectionId === savedTaskId;
+  const displayedCases = fixedHistory ? historyMatchesSelection && historyCase ? [historyCase] : [] : page?.results ?? [];
+  const displayedLoading = fixedHistory ? !historyMatchesSelection || historyLoading : loading;
+  const displayedError = fixedHistory ? historyMatchesSelection ? historyError : null : listError;
+  const displayedCount = fixedHistory ? historyMatchesSelection && historyCase ? 1 : 0 : page?.count;
   const mutating = saving || deletingId !== null || reviewingId !== null;
 
   return <>
@@ -369,11 +480,11 @@ export function CasesPage({ embedded = false }: { embedded?: boolean }) {
           <div className="flex items-center gap-3"><span className="page-heading-icon"><FileHeart size={20} /></span><h1 className="page-title">结构化医案库</h1></div>
           <p className="page-description">记录症状、舌脉、诊断、用药及资料来源。</p>
         </div>
-        <div className="page-heading-action"><span className="status-badge status-success">{loading ? "…" : listError ? "—" : page?.count ?? "—"} 条医案</span></div>
+        <div className="page-heading-action"><span className="status-badge status-success">{displayedLoading ? "…" : displayedError ? "—" : displayedCount ?? "—"} 条医案</span></div>
       </div>}
 
-      {error && <div className="notice-error workspace-notice" role="alert">{error}</div>}
-      {notice && <div className="notice-success workspace-notice" role="status">{notice}</div>}
+      {error && (!fixedHistory || historyMatchesSelection) && <div className="notice-error workspace-notice" role="alert">{error}</div>}
+      {notice && (!fixedHistory || historyMatchesSelection) && <div className="notice-success workspace-notice" role="status">{notice}</div>}
 
       <div className="workspace-split">
         <form className="panel space-y-3 p-5" onSubmit={submit} aria-label="新增医案">
@@ -393,10 +504,10 @@ export function CasesPage({ embedded = false }: { embedded?: boolean }) {
         </form>
 
         <section className="workspace-split-stack" aria-label="已保存医案">
-          <label className="form-label">显示范围<select className="field mt-2" value={String(archived)} disabled={mutating} onChange={(event) => { casesRequestSequence.current += 1; setPage(null); setLoading(true); setArchived(event.target.value === "true"); setPageNumber(1); }}><option value="false">使用中的医案</option><option value="true">已归档的医案</option></select></label>
-          {loading ? <div className="panel empty-state" role="status">正在读取医案…</div>
-            : listError ? <div className="panel empty-state" role="alert"><FileHeart size={26} /><strong>医案读取失败</strong><p>{listError}</p><button className="btn btn-secondary" type="button" onClick={() => setRefresh((value) => value + 1)} disabled={mutating}>重新读取</button></div>
-            : page?.results.length ? page.results.map((item) => <article key={item.id} className="case-record panel p-5">
+          <label className="form-label">显示范围<select className="field mt-2" value={String(fixedHistory && historyMatchesSelection && historyCase ? Boolean(historyCase.archived_at) : archived)} disabled={mutating} onChange={(event) => { if (fixedHistory) setSearchParams(params => { const next = new URLSearchParams(params); next.delete("caseTask"); return next; }); casesRequestSequence.current += 1; setPage(null); setLoading(true); setArchived(event.target.value === "true"); setPageNumber(1); }}><option value="false">使用中的医案</option><option value="true">已归档的医案</option></select></label>
+          {displayedLoading ? <div className="panel empty-state" role="status">正在读取医案…</div>
+            : displayedError ? <div className="panel empty-state" role="alert"><FileHeart size={26} /><strong>医案读取失败</strong><p>{displayedError}</p><button className="btn btn-secondary" type="button" onClick={() => fixedHistory ? setHistoryReload(value => value + 1) : setRefresh((value) => value + 1)} disabled={mutating}>重新读取</button></div>
+            : displayedCases.length ? displayedCases.map((item) => <article key={item.id} className="case-record panel p-5">
               <div className="flex items-start justify-between gap-3">
                 <div><h2 className="text-lg font-black">{item.title}</h2><p className="mt-2 text-sm leading-6 text-ink/65">{item.deidentified_text}</p></div>
                 <button className="btn btn-secondary px-2 py-1 text-xs text-cinnabar" type="button" onClick={() => void removeCase(item)} disabled={mutating} aria-label={`${item.archived_at ? "恢复" : "归档"}医案：${item.title}`} title={item.archived_at ? "恢复医案" : "归档并保留正文"}>{item.archived_at ? <RotateCcw size={14} /> : <Archive size={14} />}{deletingId === item.id ? "处理中" : item.archived_at ? "恢复" : "归档"}</button>
@@ -406,7 +517,7 @@ export function CasesPage({ embedded = false }: { embedded?: boolean }) {
                 <p><span>诊断</span>{valueOf(item.structured_data, "diagnosis")}</p>
                 <p><span>来源</span>{item.source_reference || "未填写"}</p>
               </div>
-              <details className="case-notes">
+              <details className="case-notes" open={fixedHistory && analysisCaseId === item.id ? true : undefined}>
                 <summary>研究详情、审核与分析</summary>
                 <div className="mt-3 space-y-3">
                   <p><span className={`status-badge ${item.review_status === "reviewed" ? "status-success" : "status-warning"}`}>{item.review_status === "reviewed" ? `已审核 · ${item.reviewed_by_username ?? "平台管理员"}` : "待审核"}</span></p>
@@ -438,9 +549,9 @@ export function CasesPage({ embedded = false }: { embedded?: boolean }) {
                 </div>
               </details>
             </article>)
-            : page?.count === 0 ? <div className="panel empty-state"><Stethoscope size={26} /><strong>暂无医案</strong><p>录入医案后，可在智能分析中选择。</p></div>
+            : displayedCount === 0 ? <div className="panel empty-state"><Stethoscope size={26} /><strong>暂无医案</strong><p>录入医案后，可在智能分析中选择。</p></div>
             : <div className="panel empty-state"><Stethoscope size={26} /><strong>本页暂无医案</strong><p>请返回上一页或重新读取医案。</p><button className="btn btn-secondary" type="button" onClick={() => { setPageNumber(1); setRefresh((value) => value + 1); }} disabled={mutating}>返回第一页</button></div>}
-          {page && page.count > 0 && !listError && <div className="case-pagination"><button className="btn btn-secondary" type="button" disabled={!page.previous || loading || mutating} onClick={() => setPageNumber((value) => Math.max(1, value - 1))}>上一页</button>
+          {!fixedHistory && page && page.count > 0 && !listError && <div className="case-pagination"><button className="btn btn-secondary" type="button" disabled={!page.previous || loading || mutating} onClick={() => setPageNumber((value) => Math.max(1, value - 1))}>上一页</button>
             <span>第 {pageNumber} 页</span><button className="btn btn-secondary" type="button" disabled={!page.next || loading || mutating} onClick={() => setPageNumber((value) => value + 1)}>下一页</button></div>}
         </section>
       </div>
@@ -515,6 +626,7 @@ function CaseAnalysisPanel({
         </> : <p className="section-help">本地知识库中没有匹配到带启用来源版本的记录；此次候选只依据医案原文生成。</p>}
       </div>}
       {task?.status === "succeeded" && <div className="case-analysis-section"><h5>已确认的知识库证据链</h5>
+        {result.evidenceChain?.warnings?.map((warning) => <p className="notice-warning" key={warning}>{warning}</p>)}
         {result.evidenceChain?.links.length ? <><ul className="proteomics-pathways">{result.evidenceChain.links.map((link) => <li key={link.id}><strong>{nodeNames.get(link.source) ?? `实体 #${link.source}`} → {nodeNames.get(link.target) ?? `实体 #${link.target}`} · {link.relationType}</strong><span>{link.sourceName} {link.sourceVersion} / {link.sourceRecordId} · {link.evidenceType}{link.evidenceText ? ` · ${link.evidenceText}` : ""}</span></li>)}</ul>
           {result.evidenceChain.truncated && <p className="section-help">证据关系较多，页面按系统上限截取；完整结果需缩小关联范围。</p>}
           <p className="section-help">来源版本：{result.evidenceChain.sources.map((source) => `${source.source} ${source.version}`).join("；") || "未记录"}</p>

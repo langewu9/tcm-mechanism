@@ -47,6 +47,19 @@ function taskSummary(task: DashboardTask) {
   return structured >= 0 ? `${readable} · ${statusLabels[task.status]}` : readable;
 }
 
+function taskRoute(task: DashboardTask) {
+  if (task.task_type === "research_assistant") return `/assistant?assistantTask=${task.id}`;
+  if (task.task_type === "proteomics") return `/proteomics?proteomicsTask=${task.id}`;
+  if (task.task_type === "text_analysis") return `/analysis?textTask=${task.id}`;
+  if (task.task_type === "case_link") return `/cases?caseTask=${task.id}`;
+  if (task.task_type === "visualization") return `/tasks/${task.id}`;
+  if (task.task_type !== "network") return taskRoutes[task.task_type];
+  if (task.analysis_kind === "catalog_evidence") return `/research?catalogTask=${task.id}`;
+  if (task.analysis_kind === "disease_evidence") return `/research?diseaseTask=${task.id}`;
+  if (task.analysis_kind === "network_pharmacology") return `/network-pharmacology?networkTask=${task.id}`;
+  return `/tasks/${task.id}`;
+}
+
 export function DashboardPage() {
   const user = useOutletContext<NonNullable<Session["user"]>>();
   const [dashboard, setDashboard] = useState<ResearchDashboard | null>(null);
@@ -133,7 +146,7 @@ export function DashboardPage() {
         <div className="panel-header"><div><h2 id="dashboard-latest-title" className="section-title-sm">最近分析</h2><p className="section-help">最近保存的五项任务</p></div><Link to="/analysis" className="text-xs font-bold text-cinnabar">文本分析</Link></div>
         {loading ? <div className="empty-state min-h-56" role="status">正在读取研究数据…</div>
           : error ? <div className="empty-state min-h-56" role="status"><strong>未能读取最近任务</strong><p>请稍后刷新页面重试。</p></div>
-          : dashboard?.latest_tasks.length ? <div className="divide-y divide-cinnabar/10">{dashboard.latest_tasks.map((task) => <Link to={taskRoutes[task.task_type]} key={task.id} className="block px-5 py-4 hover:bg-cinnabar/5">
+          : dashboard?.latest_tasks.length ? <div className="divide-y divide-cinnabar/10">{dashboard.latest_tasks.map((task) => <Link to={taskRoute(task)} key={task.id} className="block px-5 py-4 hover:bg-cinnabar/5">
             <div className="flex items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-2">
                 <p className="truncate text-sm font-bold">{task.title}</p>

@@ -10,6 +10,8 @@ import { runNetworkPharmacology, type NetworkPharmacologyResult } from "../api/n
 import { downloadText, encodeCsv } from "../utils/downloads";
 import { ComponentComparisonResults } from "./ComponentComparisonResults";
 import { DiseaseEvidenceResults } from "./DiseaseEvidenceResults";
+import { DiseaseEvidenceSnapshot } from "./DiseaseEvidenceSnapshot";
+import { NetworkPharmacologyCharts } from "./NetworkPharmacologyCharts";
 import { NetworkResultDownloads } from "./NetworkResultDownloads";
 import { PaginatedTable } from "./PaginatedTable";
 import { CatalogEvidenceFigures } from "./CatalogEvidenceFigures";
@@ -36,6 +38,8 @@ const examples: Partial<Record<Action, string>> = {
 const maxBatchItems = 12;
 const maxBatchNameLength = 120;
 const maxBatchQueryLength = maxBatchItems * maxBatchNameLength + maxBatchItems - 1;
+const maxCompoundNameLength = 300;
+const maxCompoundQueryLength = maxBatchItems * maxCompoundNameLength + maxBatchItems - 1;
 const entityTypes = [["", "全部实体"], ["disease", "疾病"], ["herb", "中药"], ["formula", "方剂"], ["compound", "成分"], ["syndrome", "证候"], ["gene", "基因"], ["protein", "蛋白"], ["pathway", "通路"]];
 const entityTypeLabel = Object.fromEntries(entityTypes.filter(([value]) => value));
 const jsonDownload = (name: string, data: unknown) => downloadText(name, JSON.stringify(data, null, 2), "application/json;charset=utf-8");
@@ -43,9 +47,10 @@ const csvDownload = (name: string, headers: string[], rows: Parameters<typeof en
 const errorMessage = (cause: unknown) => cause instanceof ApiError ? cause.message : "请求未完成，请稍后重试。";
 
 export function ResearchToolTabs() {
-  const [pageParams] = useSearchParams();
-  const [active, setActive] = useState<Action>("herb");
-  const [query, setQuery] = useState(examples.herb ?? "");
+  const [pageParams, setPageParams] = useSearchParams();
+  const savedDiseaseTask = pageParams.get("diseaseTask");
+  const [active, setActive] = useState<Action>(savedDiseaseTask ? "disease" : "herb");
+  const [query, setQuery] = useState((savedDiseaseTask ? examples.disease : examples.herb) ?? "");
   const [herbs, setHerbs] = useState(examples.herb ?? "");
   const [disease, setDisease] = useState(examples.disease ?? "");
   const [detected, setDetected] = useState("甘草酸、甘草苷、人参皂苷Rg1");
@@ -80,7 +85,12 @@ export function ResearchToolTabs() {
   const displayedRequest = requestId.current;
   const selectedTool = tools.find((tool) => tool.id === active)!;
   const hasResult = Boolean(evidence || chembl || comparison || pathways || network || diseaseEvidence || entityPage
-    || ((active === "herb" || active === "component") && pageParams.has("catalogTask")));
+    || ((active === "herb" || active === "component") && pageParams.has("catalogTask"))
+    || (active === "disease" && Boolean(savedDiseaseTask)));
+
+  useEffect(() => {
+    if (savedDiseaseTask && active !== "disease") changeTool("disease");
+  }, [savedDiseaseTask]);
 
   useEffect(() => {
     mounted.current = true;
@@ -134,9 +144,10 @@ export function ResearchToolTabs() {
     if (!currentTool() || requestLock.current !== null) return;
     if (active === "chembl" && !consentCurrent.current) { setError("请先阅读并勾选外部查询同意项。"); return; }
     if ((active === "herb" || active === "component")) {
-      const queries = [...new Set(query.split(/[,，、;；|/\n\r]+/).map((name) => name.trim()).filter(Boolean))];
+      const queries = [...new Set(query.split(active === "component" ? /[\n\r]+/ : /[,，、;；|/\n\r]+/).map((name) => name.trim()).filter(Boolean))];
       if (!queries.length || queries.length > maxBatchItems) { setError(queries.length ? `每次最多查询 ${maxBatchItems} 个名称。` : "请输入至少一个名称。"); return; }
-      if (queries.some((name) => Array.from(name).length > maxBatchNameLength)) { setError(`每个名称最多 ${maxBatchNameLength} 个字符，请缩短超长项后重试。`); return; }
+      const maxNameLength = active === "component" ? maxCompoundNameLength : maxBatchNameLength;
+      if (queries.some((name) => Array.from(name).length > maxNameLength)) { setError(`每个名称最多 ${maxNameLength} 个字符，请缩短超长项后重试。`); return; }
       resetResults();
       await run(() => searchHerbComponentEvidence(active === "herb" ? "herb" : "compound", queries), setEvidence);
     } else if (active === "chembl") {
@@ -146,9 +157,12 @@ export function ResearchToolTabs() {
     } else if (active === "pathway") {
       resetResults(); await run(() => searchReactomeCatalog(query.trim()), setPathways);
     } else if (active === "intersection") {
-      resetResults(); await run(() => runNetworkPharmacology({ herb: herbs, disease }), setNetwork);
+      const generation = toolGeneration.current;
+      resetResults(); await run(() => runNetworkPharmacology({ herb: herbs, disease }, { isActive: () => currentTool() && toolGeneration.current === generation }), setNetwork);
     } else if (active === "disease") {
-      resetResults(); await run(() => searchDiseaseEvidence(query.trim()), setDiseaseEvidence);
+      resetResults();
+      setPageParams(previous => { const next = new URLSearchParams(previous); next.delete("diseaseTask"); return next; }, { replace: true });
+      await run(() => searchDiseaseEvidence(query.trim()), setDiseaseEvidence);
     } else {
       const type = entityType;
       resetResults(); setActiveQuery(query.trim()); setActiveType(type); setPageNumber(1);
@@ -215,10 +229,10 @@ export function ResearchToolTabs() {
           </> : active === "compare" ? <>
             <label className="form-label" htmlFor="detected-components">检测成分（中文 / 英文 / 拉丁，可多个）<textarea id="detected-components" className="field" value={detected} maxLength={6000} onChange={(event) => setDetected(event.target.value)} required /></label>
             <label className="form-label" htmlFor="reference-components">参考成分（中文 / 英文 / 拉丁，可多个）<textarea id="reference-components" className="field" value={reference} maxLength={6000} onChange={(event) => setReference(event.target.value)} required /></label>
-          </> : active === "herb" ? <label className="form-label" htmlFor="research-query">中药名称（可输入多个）<textarea id="research-query" className="field" value={query} maxLength={maxBatchQueryLength} onChange={(event) => setQuery(event.target.value)} placeholder="例如：麦冬、半夏、人参、大枣、甘草、粳米" required /></label> : active === "component" ? <label className="form-label" htmlFor="research-query">成分名称（中文 / 英文 / 拉丁）<input id="research-query" className="field" value={query} maxLength={maxBatchQueryLength} onChange={(event) => setQuery(event.target.value)} placeholder="例如：甘草酸 / Glycyrrhizic acid" required /></label> : <label className="form-label" htmlFor="research-query">{active === "chembl" ? "分子名称（中文 / 英文 / 拉丁 / ChEMBL 规范名）" : active === "pathway" ? "通路名称或稳定 ID" : "检索词"}<input id="research-query" className="field" value={query} maxLength={active === "pathway" ? 160 : 120} onChange={(event) => { setQuery(event.target.value); if (active === "chembl") updateConsent(false); }} placeholder={active === "pathway" ? "例如：Interleukin 或 R-HSA-449147" : active === "chembl" ? "例如：甘草酸 / Glycyrrhizic acid" : `例如：${examples[active] || "肺纤维化、麦冬、TP53"}`} required={active !== "pathway" && (active !== "catalogue" || entityType === "disease")} /></label>}
+          </> : active === "herb" ? <label className="form-label" htmlFor="research-query">中药名称（可输入多个）<textarea id="research-query" className="field" value={query} maxLength={maxBatchQueryLength} onChange={(event) => setQuery(event.target.value)} placeholder="例如：麦冬、半夏、人参、大枣、甘草、粳米" required /></label> : active === "component" ? <label className="form-label" htmlFor="research-query">成分名称或编号（每行一个）<textarea id="research-query" className="field" value={query} maxLength={maxCompoundQueryLength} onChange={(event) => setQuery(event.target.value)} placeholder="例如：Quercetin 或 pubchem:167691" required /></label> : <label className="form-label" htmlFor="research-query">{active === "chembl" ? "分子名称（中文 / 英文 / 拉丁 / ChEMBL 规范名）" : active === "pathway" ? "通路名称或稳定 ID" : "检索词"}<input id="research-query" className="field" value={query} maxLength={active === "pathway" ? 160 : 120} onChange={(event) => { setQuery(event.target.value); if (active === "chembl") updateConsent(false); }} placeholder={active === "pathway" ? "例如：Interleukin 或 R-HSA-449147" : active === "chembl" ? "例如：甘草酸 / Glycyrrhizic acid" : `例如：${examples[active] || "肺纤维化、麦冬、TP53"}`} required={active !== "pathway" && (active !== "catalogue" || entityType === "disease")} /></label>}
           {active === "catalogue" && <label className="form-label" htmlFor="catalog-type">实体类型<select className="field" id="catalog-type" value={entityType} onChange={(event) => setEntityType(event.target.value)}>{entityTypes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>}
-          {active === "chembl" && <label className="chembl-consent"><input type="checkbox" checked={consent} onChange={(event) => updateConsent(event.target.checked)} /><span>我同意将输入的查询词、别名展开的检索词，以及选中的 ChEMBL 编号发送到 ChEMBL 官方服务。不会发送医案正文、上传文件或账号标识。每次查询后同意项会清除；查看活性需重新勾选。</span></label>}
-          {active === "herb" || active === "component" ? <p className="section-help">支持逗号、分号、顿号、竖线或换行分隔，每次最多 12 项。仅查询已导入并启用的数据库目录。</p> : active === "compare" ? <p className="section-help">每侧最多 100 项，按名称词表进行标准化；同家族只标候选，不计入精确交集。不会向外部服务发送名称。</p> : active === "pathway" ? <p className="section-help">检索已同步的本地目录；输入为空时展示按名称排序的前 100 项。</p> : active === "disease" ? <p className="section-help">按整词疾病别名检索已启用来源；同名来源记录分别保留，不自动扩大到疾病亚型。</p> : active === "catalogue" ? <p className="section-help">按名称或标识检索；常用成分支持中英文和拉丁文同义名。留空可浏览目录，疾病需输入名称。只展示已导入的来源证据。</p> : null}
+          {active === "chembl" && <label className="chembl-consent"><input type="checkbox" checked={consent} onChange={(event) => updateConsent(event.target.checked)} /><span>我同意将输入的查询词、main 内置别名展开的检索词，以及选中的 ChEMBL 编号发送到 ChEMBL 官方服务。不会发送医案正文、上传文件或账号标识。每次查询后同意项会清除；查看活性需重新勾选。</span></label>}
+          {active === "herb" || active === "component" ? <p className="section-help">{active === "component" ? "每行一个完整名称或带前缀的编号，每次最多 12 项。仅按明确映射展开别名，逗号、斜杠等标点按原文保留。" : "支持逗号、分号、顿号、竖线或换行分隔，每次最多 12 项。"}仅查询已导入且启用的目录，不连接旧电脑的 Excel / SQLite 文件。</p> : active === "compare" ? <p className="section-help">每侧最多 100 项，按 main 名称表进行标准化；同家族只标候选，不计入精确交集。不会向外部服务发送名称。</p> : active === "pathway" ? <p className="section-help">检索已同步的本地目录；输入为空时展示按名称排序的前 100 项。</p> : active === "disease" ? <p className="section-help">使用 main 疾病别名表扩展查询词，只返回已导入且当前启用来源中的实体与关联证据；别名不代表药理证据。</p> : active === "catalogue" ? <p className="section-help">只展示已导入目录和来源证据；未导入的名称会返回空结果，不生成推测记录。</p> : null}
           {error && <div className="notice-error" role="alert">{error}</div>}
           <button className="btn btn-primary" disabled={busy} type="submit"><Search size={17} />{busy ? "正在检索..." : "开始检索"}</button>
         </div>
@@ -244,7 +258,8 @@ export function ResearchToolTabs() {
             </div>
           </>}
         </>}
-        {!busy && !evidence && (active === "herb" || active === "component") && <CatalogEvidenceFigures evidence={evidence} />}
+        {!busy && (active === "herb" || active === "component") && <CatalogEvidenceFigures evidence={evidence} />}
+        {!busy && active === "disease" && <DiseaseEvidenceSnapshot evidence={diseaseEvidence} onRestoreQuery={setQuery} />}
       </section>
     </div>
   </div>;
@@ -276,7 +291,7 @@ function EvidenceResults({ data }: { data: HerbEvidenceSearch }) {
         <button type="button" onClick={() => csvDownload("herb-targets.csv", ["靶点", "稳定 ID", "来源", "版本"], targets.map((row) => [row.label, row.stableId, row.sourceSlug, row.sourceVersion]))}><Download size={15} />导出靶点清单</button>
         <button type="button" onClick={() => jsonDownload("herb-component-search.json", data)}><FileJson size={15} />导出完整 JSON</button>
       </div>
-      {data.results.map((item) => <article className="batch-evidence-item" key={item.query}><h4>{item.query}</h4>{item.searchedNames && item.searchedNames.length > 1 && <p className="notice-info">同义名检索：{item.searchedNames.join(" / ")}</p>}{item.ambiguous && <p className="notice-warning">{data.queryType === "herb" ? "匹配到多个中药来源记录，按标识分别展示，请核对目录来源。" : "匹配到多个来源目录记录，按标识分别保留；记录数不等于化合物种类数，请核对来源。"}</p>}<EvidenceEntityTables item={item} />{item.truncated && <p className="notice-warning">接口返回有截断：每类关系最多 1,200 条。导出同样只包含本次返回记录，请进一步拆分查询。</p>}</article>)}
+      {data.results.map((item) => <article className="batch-evidence-item" key={item.query}><h4>{item.query}</h4>{item.searchedNames && item.searchedNames.length > 1 && <p className="notice-info">同义名检索：{item.searchedNames.join(" / ")}</p>}{item.resolution && <CompoundResolution resolution={item.resolution} />}{item.ambiguous && <p className="notice-warning">{data.queryType === "herb" ? "匹配到多个中药来源记录，按标识分别展示，请核对目录来源。" : "匹配到多个来源目录记录，按标识分别保留；记录数不等于化合物种类数，请核对来源。"}</p>}<EvidenceEntityTables item={item} />{item.truncated && <p className="notice-warning">接口返回有截断：每类关系最多 1,200 条。导出同样只包含本次返回记录，请进一步拆分查询。</p>}</article>)}
     </div>
     {relations.length ? <PaginatedTable rows={relations} label="成分-靶点证据" headers={["检索词", "来源库", "版本", "主体", "关系", "客体", "原始记录号"]} rowKey={(row, index) => `${row.query}-${row.sourceSlug}-${row.sourceRecordId}-${index}`} renderCells={(row) => <><td>{row.query}</td><td>{row.sourceSlug}</td><td>{row.sourceVersion}</td><td>{row.subject}</td><td>{row.relationType}</td><td>{row.object}</td><td>{row.sourceRecordId}</td></>} /> : <div className="empty-state">当前名称没有已导入的关联证据，请更换关键词或确认来源目录已同步。</div>}
   </>;
@@ -302,6 +317,12 @@ function ChemblResults({ data, activities, busyId, consent, onActivities }: { da
   </>;
 }
 
+function CompoundResolution({ resolution }: { resolution: NonNullable<HerbEvidenceSearch["results"][number]["resolution"]> }) {
+  const methods: Record<string, string> = { name: "完整名称", explicit_main_alias: "旧版明确名称映射", source_identifier: "来源内成分编号", reference_identifier: "已登记或来源声明的外部编号", platform_entity_id: "平台实体编号", platform_stable_id: "平台稳定标识" };
+  const warnings = Array.isArray(resolution.warnings) ? resolution.warnings.filter((item): item is string => typeof item === "string") : [];
+  return <><p className="section-help">查询依据：{methods[resolution.strategy] ?? "未登记"}。结果沿用已有实体标识，不合并成分。</p>{warnings.map((warning, index) => <p className="section-help" key={index}>{warning}</p>)}</>;
+}
+
 function IntersectionResults({ data, onDiseaseSelect }: { data: NetworkPharmacologyResult; onDiseaseSelect: (label: string) => void }) {
   const strictRows = data.targets.filter((row) => row.matchType === "严格交集");
   const state = intersectionState(data);
@@ -311,14 +332,14 @@ function IntersectionResults({ data, onDiseaseSelect }: { data: NetworkPharmacol
       {data.dataQuality?.map((item) => <div className="notice-info" key={item.version}><p>{item.source.toUpperCase()}：已核验 {item.verifiedTargetIds.toLocaleString()} 个靶点编号，{item.quarantinedRows.toLocaleString()} 条来源记录待复核。</p><details><summary>数据范围与版本</summary><p>{item.message}</p><span style={{ overflowWrap: "anywhere" }}>{item.source} · {item.version}</span></details></div>)}
       <TargetIntersectionNotice result={data} onDiseaseSelect={onDiseaseSelect} />
       <TargetIntersectionFigure result={data} />
-      <div className="np-metrics"><div><span>已返回中药靶点</span><strong>{data.summary.herbTargetCount.toLocaleString()}</strong></div><div><span>已返回疾病靶点</span><strong>{data.summary.unmatchedDiseases.length ? "待匹配" : data.summary.diseaseTargetCount.toLocaleString()}</strong></div><div><span>已核验标准基因交集</span><strong>{data.targetIdentity?.available ? (data.targetIdentity.verifiedGeneIntersectionCount ?? 0).toLocaleString() : "待核验"}</strong></div><div><span>已返回关联成分</span><strong>{data.summary.componentCount.toLocaleString()}</strong></div></div>
-      <div className="download-panel"><button type="button" disabled={!strictRows.length} onClick={() => csvDownload("strict-intersection.csv", ["当前返回结果实体 ID 交集靶点", "相关成分", "对应通路", "中药证据", "疾病证据", "来源版本"], strictRows.map((row) => [row.target, row.components.join("; "), row.pathways.join("; "), row.herbEvidenceCount, row.diseaseEvidenceCount, row.sources.map((source) => `${source.sourceSlug}:${source.sourceVersion}`).join("; ")]))}><Table2 size={15} />导出当前结果中的实体 ID 交集表</button></div>
+      <div className="np-metrics"><div><span>已返回中药靶点</span><strong>{data.summary.herbTargetCount}</strong></div><div><span>已返回疾病靶点</span><strong>{data.summary.unmatchedDiseases.length ? "待匹配" : data.summary.diseaseTargetCount}</strong></div><div><span>原始实体交集</span><strong>{state.comparable ? data.summary.strictIntersectionCount : "待核验"}</strong></div><div><span>已返回关联成分</span><strong>{data.summary.componentCount}</strong></div></div>
+      <div className="download-panel"><button type="button" disabled={!strictRows.length} onClick={() => csvDownload("strict-intersection.csv", ["交集靶点", "相关成分", "对应通路", "中药证据", "疾病证据", "来源版本"], strictRows.map((row) => [row.target, row.components.join("; "), row.pathways.join("; "), row.herbEvidenceCount, row.diseaseEvidenceCount, row.sources.map((source) => `${source.sourceSlug}:${source.sourceVersion}`).join("; ")]))}><Table2 size={15} />导出原始实体交集表</button></div>
       <NetworkResultDownloads result={data} />
-      {(data.limits.targetsTruncated || data.limits.linksTruncated) && <p className="notice-warning">本次结果达到接口上限，展示和导出均只包含已返回的记录；请缩小检索范围。</p>}
-      <RAnalysisGallery taskId={data.taskId} />
+      {(data.limits.targetsTruncated || data.limits.linksTruncated) && <p className="notice-warning">本次结果达到接口上限，页面仅展示部分记录；完整证据以该任务的冻结导出为准。</p>}
+      <RAnalysisGallery key={`intersection-gallery-${data.taskId}`} taskId={data.taskId} additionalCharts={[{ key: "query-statistics", label: "查询统计", content: <NetworkPharmacologyCharts result={data} /> }]} />
       <Link className="btn btn-secondary" to="/network-pharmacology" state={{ herb: data.summary.herb, disease: data.summary.disease }}>继续网络药理分析</Link>
     </div>
-    {strictRows.length ? <PaginatedTable rows={strictRows} label="当前返回结果中的实体 ID 交集靶点" headers={["当前结果交集靶点", "相关成分", "对应通路", "中药证据", "疾病证据", "来源"]} rowKey={(row, index) => `${row.normalizedTarget}-${index}`} renderCells={(row) => <><td>{row.target}</td><td>{row.components.join("、") || "—"}</td><td>{row.pathways.join("、") || "待富集"}</td><td>{row.herbEvidenceCount}</td><td>{row.diseaseEvidenceCount}</td><td>{row.sources.map((source) => `${source.sourceSlug}:${source.sourceVersion}`).join("；")}</td></>} /> : <div className="empty-state">{data.targetIdentity?.entityIdComparison?.intersectionCount ? `当前返回结果子集未包含完整关系集中的交集行；完整交集 ${data.targetIdentity.entityIdComparison.intersectionCount} 项见上方“同一实体 ID 的完整交集”。` : state.message}</div>}
+    {strictRows.length ? <PaginatedTable rows={strictRows} label="严格交集靶点" headers={["交集靶点", "相关成分", "对应通路", "中药证据", "疾病证据", "来源"]} rowKey={(row, index) => `${row.normalizedTarget}-${index}`} renderCells={(row) => <><td>{row.target}</td><td>{row.components.join("、") || "—"}</td><td>{row.pathways.join("、") || "待富集"}</td><td>{row.herbEvidenceCount}</td><td>{row.diseaseEvidenceCount}</td><td>{row.sources.map((source) => `${source.sourceSlug}:${source.sourceVersion}`).join("；")}</td></>} /> : <div className="empty-state">{state.message}</div>}
   </>;
 }
 

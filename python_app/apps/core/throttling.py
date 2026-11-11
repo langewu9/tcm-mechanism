@@ -42,6 +42,7 @@ class ResearchSubmissionThrottle(PlatformUserThrottle):
         "/api/v1/analysis/network-pharmacology/", "/api/v1/analysis/pathway-enrichment/",
         "/api/v1/analysis/string-network/",
         "/api/v1/catalog/herb-evidence/batch/", "/api/v1/catalog/herb-evidence/analyses/",
+        "/api/v1/catalog/diseases/evidence-analyses/",
     }
 
     def get_cache_key(self, request, view):

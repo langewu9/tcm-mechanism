@@ -18,6 +18,7 @@ from django.utils import timezone
 
 from apps.core.models import AnalysisTask, VisualizationArtifact
 from apps.proteomics.models import ProteomicsRowResult
+from .task_recovery import lock_running_analysis
 
 
 logger = logging.getLogger(__name__)
@@ -133,7 +134,7 @@ def build_chart_payload(task: AnalysisTask, chart_key: str) -> dict:
         elif chart_key == "proteomics_summary":
             title = "蛋白组学分析概览"
             keys = ["selectedRowCount", "normalizedCount", "databaseMappedCount", "unmappedCount", "candidateOverlapCount", "pathwayCount"]
-            labels = ["筛选行", "标准化", "本地映射", "未映射", "候选交集", "通路"]
+            labels = ["筛选行", "规范化/格式候选", "本地映射", "未映射", "参考符号重叠", "通路"]
             data = [
                 {"label": label, "value": summary[key]}
                 for key, label in zip(keys, labels)
@@ -314,7 +315,8 @@ def execute_visualization_task(task: AnalysisTask) -> dict:
     manifests = []
     try:
         with transaction.atomic():
-            task.source_releases.set(parent.source_releases.all())
+            locked_task = lock_running_analysis(task.pk)
+            locked_task.source_releases.set(parent.source_releases.all())
             for file_format, mime_type in FORMAT_MIME_TYPES.items():
                 output = artifact_by_format[file_format]
                 if output.get("mimeType") != mime_type or not isinstance(output.get("bytesBase64"), str):
@@ -353,37 +355,58 @@ def execute_visualization_task(task: AnalysisTask) -> dict:
                     "rendererVersion": artifact.renderer_version,
                     "downloadUrl": f"/api/v1/research/analysis-artifacts/{artifact.pk}/download/",
                 })
+            published_result = {
+                "status": AnalysisTask.Status.SUCCEEDED,
+                "taskId": task.pk,
+                "parentTaskId": parent.pk,
+                "chartKey": chart_key,
+                "inputSha256": payload["inputSha256"],
+                "rendererVersion": result["rendererVersion"],
+                "artifacts": manifests,
+            }
+            locked_task.result = published_result
+            locked_task.status = AnalysisTask.Status.SUCCEEDED
+            locked_task.progress = 100
+            locked_task.finished_at = timezone.now()
+            locked_task.save(update_fields=["result", "status", "progress", "finished_at"])
     except Exception:
         for storage_key in saved_paths:
             default_storage.delete(storage_key)
         raise
 
-    return {
-        "status": AnalysisTask.Status.SUCCEEDED,
-        "taskId": task.pk,
-        "parentTaskId": parent.pk,
-        "chartKey": chart_key,
-        "inputSha256": payload["inputSha256"],
-        "rendererVersion": result["rendererVersion"],
-        "artifacts": manifests,
-    }
+    return published_result
 
 
 @transaction.atomic
-def queue_visualization(*, parent_task: AnalysisTask, user, chart_key: str) -> tuple[AnalysisTask, bool]:
+def queue_visualization(*, parent_task: AnalysisTask, user, chart_key: str, regenerate: bool = False) -> tuple[AnalysisTask, bool]:
     parent_task = AnalysisTask.objects.select_for_update().get(pk=parent_task.pk)
     payload = build_chart_payload(parent_task, chart_key)
-    existing = AnalysisTask.objects.filter(
+    chart_jobs = AnalysisTask.objects.filter(
         owner=parent_task.owner,
         parent_task=parent_task,
         task_type=AnalysisTask.TaskType.VISUALIZATION,
         input_parameters__parentTaskId=parent_task.pk,
         input_parameters__chartKey=chart_key,
-        input_parameters__inputSha256=payload["inputSha256"],
-        status__in=[AnalysisTask.Status.QUEUED, AnalysisTask.Status.RUNNING, AnalysisTask.Status.SUCCEEDED],
-    ).first()
-    if existing:
-        return existing, False
+    )
+    matching_input = chart_jobs.filter(input_parameters__inputSha256=payload["inputSha256"])
+    pending = matching_input.filter(status__in=[AnalysisTask.Status.QUEUED, AnalysisTask.Status.RUNNING]).first()
+    if pending:
+        return pending, False
+    if not regenerate:
+        existing = matching_input.filter(status=AnalysisTask.Status.SUCCEEDED).first()
+        if existing:
+            return existing, False
+    parameters = {
+        "analysisKind": "r_visualization",
+        "parentTaskId": parent_task.pk,
+        "chartKey": chart_key,
+        "inputSha256": payload["inputSha256"],
+    }
+    if regenerate:
+        # The previous chart remains readable even if an adapter changed its
+        # payload hash. A new request never edits its task, manifest or files.
+        previous = chart_jobs.filter(status=AnalysisTask.Status.SUCCEEDED).first()
+        parameters.update(regenerate=True, previousRenderTaskId=previous.pk if previous else None)
     with transaction.atomic():
         job = AnalysisTask.objects.create(
             owner=parent_task.owner,
@@ -393,12 +416,7 @@ def queue_visualization(*, parent_task: AnalysisTask, user, chart_key: str) -> t
             dataset=parent_task.dataset,
             medical_case=parent_task.medical_case,
             parent_task=parent_task,
-            input_parameters={
-                "analysisKind": "r_visualization",
-                "parentTaskId": parent_task.pk,
-                "chartKey": chart_key,
-                "inputSha256": payload["inputSha256"],
-            },
+            input_parameters=parameters,
         )
         job.source_releases.set(parent_task.source_releases.all())
     return job, True

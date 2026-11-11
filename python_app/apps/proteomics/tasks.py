@@ -4,9 +4,11 @@ from celery import shared_task
 from django.db import transaction
 from django.utils import timezone
 
+from config.background_tasks import RecoverableTask
 from config.runtime_logs import record_runtime_event
 
 from apps.core.models import AnalysisTask
+from apps.core.services.task_recovery import TaskExecutionStopped, lock_running_analysis
 from apps.proteomics.models import ProteomicsRowResult
 from apps.proteomics.integrations import (
     run_opt_in_gprofiler,
@@ -19,7 +21,12 @@ from apps.proteomics.services import ProteomicsInputError, run_proteomics_analys
 logger = logging.getLogger(__name__)
 
 
-@shared_task(name="proteomics.run_analysis")
+def _set_progress(task_id: int, progress: int) -> None:
+    if not AnalysisTask.objects.filter(pk=task_id, status=AnalysisTask.Status.RUNNING).update(progress=progress):
+        raise TaskExecutionStopped("任务已停止，本次执行不再发布结果。")
+
+
+@shared_task(name="proteomics.run_analysis", base=RecoverableTask)
 def run_proteomics_task(task_id: int) -> dict[str, str | int]:
     """Run a queued analysis once and persist every row's QC/mapping outcome."""
     claimed = AnalysisTask.objects.filter(
@@ -38,13 +45,13 @@ def run_proteomics_task(task_id: int) -> dict[str, str | int]:
     try:
         task = AnalysisTask.objects.select_related("dataset").get(pk=task_id)
         result, row_results, release_ids = run_proteomics_analysis(task)
-        AnalysisTask.objects.filter(pk=task_id).update(progress=60)
+        _set_progress(task_id, 60)
         if task.input_parameters.get("externalReactome"):
-            AnalysisTask.objects.filter(pk=task_id).update(progress=70)
+            _set_progress(task_id, 70)
             external_release_ids, external_warnings = run_opt_in_reactome(task, result, row_results)
             release_ids.extend(external_release_ids)
             result.setdefault("warnings", []).extend(external_warnings)
-            AnalysisTask.objects.filter(pk=task_id).update(progress=90)
+            _set_progress(task_id, 90)
             external = result.get("externalReactome", {})
             if external.get("status") in {"unavailable", "no_mapped_identifiers"}:
                 logger.warning(
@@ -53,11 +60,11 @@ def run_proteomics_task(task_id: int) -> dict[str, str | int]:
                     external.get("failureStage", external.get("status")),
                 )
         if task.input_parameters.get("externalGProfiler"):
-            AnalysisTask.objects.filter(pk=task_id).update(progress=91)
+            _set_progress(task_id, 91)
             external_release_ids, external_warnings = run_opt_in_gprofiler(task, result, row_results)
             release_ids.extend(external_release_ids)
             result.setdefault("warnings", []).extend(external_warnings)
-            AnalysisTask.objects.filter(pk=task_id).update(progress=94)
+            _set_progress(task_id, 94)
             external = result.get("externalGProfiler", {})
             if external.get("status") in {"unavailable", "disabled", "insufficient_identifiers", "input_limit_exceeded"}:
                 logger.warning(
@@ -66,7 +73,7 @@ def run_proteomics_task(task_id: int) -> dict[str, str | int]:
                     external.get("failureStage", external.get("status")),
                 )
         if task.input_parameters.get("externalString"):
-            AnalysisTask.objects.filter(pk=task_id).update(progress=95)
+            _set_progress(task_id, 95)
             external_release_ids, external_warnings = run_opt_in_string(
                 task,
                 result,
@@ -75,7 +82,7 @@ def run_proteomics_task(task_id: int) -> dict[str, str | int]:
             )
             release_ids.extend(external_release_ids)
             result.setdefault("warnings", []).extend(external_warnings)
-            AnalysisTask.objects.filter(pk=task_id).update(progress=98)
+            _set_progress(task_id, 98)
             external = result.get("externalString", {})
             if external.get("status") in {"unavailable", "disabled", "insufficient_identifiers"}:
                 logger.warning(
@@ -85,7 +92,7 @@ def run_proteomics_task(task_id: int) -> dict[str, str | int]:
                 )
         now = timezone.now()
         with transaction.atomic():
-            locked_task = AnalysisTask.objects.select_for_update().get(pk=task_id)
+            locked_task = lock_running_analysis(task_id)
             ProteomicsRowResult.objects.filter(task_id=task_id).delete()
             ProteomicsRowResult.objects.bulk_create(row_results, batch_size=1000)
             locked_task.result = result
@@ -100,6 +107,8 @@ def run_proteomics_task(task_id: int) -> dict[str, str | int]:
             )
             locked_task.source_releases.set(release_ids)
         return {"status": AnalysisTask.Status.SUCCEEDED, "taskId": task_id}
+    except TaskExecutionStopped:
+        return {"status": "skipped", "taskId": task_id}
     except ProteomicsInputError as exc:
         record_runtime_event("proteomics.rejected", task_id=task_id, exception=exc)
         public_message = str(exc)
@@ -111,10 +120,10 @@ def run_proteomics_task(task_id: int) -> dict[str, str | int]:
         public_message = "分析失败，请核对输入后重试，或联系平台管理员并提供任务编号。"
         status = AnalysisTask.Status.FAILED
 
-    AnalysisTask.objects.filter(pk=task_id).update(
+    updated = AnalysisTask.objects.filter(pk=task_id, status=AnalysisTask.Status.RUNNING).update(
         status=status,
         progress=100,
         error_summary=public_message,
         finished_at=timezone.now(),
     )
-    return {"status": status, "taskId": task_id}
+    return {"status": status if updated else "skipped", "taskId": task_id}

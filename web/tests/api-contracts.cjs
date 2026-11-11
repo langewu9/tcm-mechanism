@@ -8,7 +8,7 @@ const load = createRequire(path.join(webRoot, 'package.json'));
 const ts = load('typescript');
 require.extensions['.ts'] = (module, filename) => module._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText, filename);
 const {apiRequest, apiRequestBlob, ApiError} = load('./src/api/client.ts');
-const {runReactomeEnrichment, runStringNetwork} = load('./src/api/network.ts');
+const {runReactomeEnrichment, runStringNetwork, createVisualization} = load('./src/api/network.ts');
 const {getAnalysisTaskSummaries} = load('./src/api/datasets.ts');
 let replies = [], calls = [];
 global.fetch = async (url, options) => {
@@ -36,6 +36,9 @@ async function rejects(action, code, status) {
   for (const [action, endpoint, body] of [
     [() => runReactomeEnrichment(41), '/api/v1/analysis/pathway-enrichment/', {source_task_id:41,consent:true}],
     [() => runStringNetwork(41,700), '/api/v1/analysis/string-network/', {source_task_id:41,required_score:700,consent:true}],
+    [() => createVisualization(41,'proteomics_volcano'), '/api/v1/research/analysis-tasks/41/visualizations/', {chartKey:'proteomics_volcano'}],
+    [() => createVisualization(41,'proteomics_volcano',{regenerate:true}), '/api/v1/research/analysis-tasks/41/visualizations/', {chartKey:'proteomics_volcano',regenerate:true}],
+    [() => createVisualization(41,'proteomics_volcano',{regenerate:false}), '/api/v1/research/analysis-tasks/41/visualizations/', {chartKey:'proteomics_volcano',regenerate:false}],
   ]) {
     reset([csrf(), json({id:42,parent_task:41},202)]);
     assert.equal((await action()).parent_task,41);

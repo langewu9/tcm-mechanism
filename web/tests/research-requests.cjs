@@ -35,12 +35,13 @@ subject.require = name => {
   if (name === '../utils/downloads') return {...helpers.exports,downloadText:(...args)=>downloads.push(args)};
   if (name === './ReactomePathwayLookup') return {reactomeCatalogueCsv:()=>''};
   if (name === './CatalogEvidenceFigures') return {CatalogEvidenceFigures:'CatalogEvidenceFigures'};
+  if (name === './DiseaseEvidenceSnapshot') return {DiseaseEvidenceSnapshot:'DiseaseEvidenceSnapshot'};
   if (name === './TargetIntersectionFigure') {
     const file = path.join(webRoot,'src/components/TargetIntersectionFigure.tsx'), child = new Module(file);
     child.require = value => value === 'react/jsx-runtime' ? {jsx,jsxs:jsx,Fragment:'Fragment'} : value === './TargetIdentityResults' ? {TargetIdentityResults:'TargetIdentityResults'} : load(value);
     child._compile(compile(file),file); return child.exports;
   }
-  const child = {'./ComponentComparisonResults':'ComponentComparisonResults','./DiseaseEvidenceResults':'DiseaseEvidenceResults','./NetworkPharmacologyCharts':'NetworkPharmacologyCharts','./NetworkResultDownloads':'NetworkResultDownloads','./PaginatedTable':'PaginatedTable','./CatalogRVisualization':'CatalogRVisualization','./RAnalysisGallery':'RAnalysisGallery','./EvidenceEntityTables':'EvidenceEntityTables'}[name];
+  const child = {'./CatalogRVisualization':'CatalogRVisualization','./RAnalysisGallery':'RAnalysisGallery','./EvidenceEntityTables':'EvidenceEntityTables','./ComponentComparisonResults':'ComponentComparisonResults','./DiseaseEvidenceResults':'DiseaseEvidenceResults','./NetworkPharmacologyCharts':'NetworkPharmacologyCharts','./NetworkResultDownloads':'NetworkResultDownloads','./PaginatedTable':'PaginatedTable'}[name];
   if (child) return {[child]:child};
   throw new Error('Unexpected import '+name);
 };
@@ -72,7 +73,7 @@ evidence.results.push({query:'未导入中药',matches:[],herbs:[],compounds:[],
 (async()=>{
   render();
   // React development setup/cleanup/setup must leave usable event handlers.
-  for(const hook of hooks) if(hook?.callback) {hook.cleanup();hook.cleanup=hook.callback();}
+  for(const hook of hooks) if(hook?.callback) {hook.cleanup?.();hook.cleanup=hook.callback();}
   const oldSubmit=form();oldSubmit(event());oldSubmit(event());render();
   assert.equal(named('searchHerbComponentEvidence').length,1,'Duplicate local POST blocked synchronously');
   tab('disease');submit();
@@ -142,6 +143,32 @@ evidence.results.push({query:'未导入中药',matches:[],herbs:[],compounds:[],
   assert.equal(downloads[1][1].trim().split('\r\n').length,3,'Same label with distinct IDs remains separate');
   assert.ok(downloads[1][1].includes('fixture:21') && downloads[1][1].includes('fixture:22'));
   assert.deepEqual(JSON.parse(downloads[2][1]),evidence,'JSON retains per-query evidence and truncation');
+  // Real chemical names contain commas/slashes; only an explicit newline
+  // separates compounds. The existing herb separator behavior is retained.
+  tab('component');
+  const chemical='Peiminine,Simperialine';
+  const longChemical='(3S,5R,10S,13R,14R,17R)-17-[(1R)-1,5-dimethyl-4-methylenehexyl]-4,4,10,13,14-pentamethyl-2,3,5,6,7,11,12,15,16,17-decahydro-1H-cyclopenta[a]phenanthren-3-ol';
+  input('research-query',chemical);submit();
+  assert.deepEqual(named('searchHerbComponentEvidence').at(-1).args,['compound',[chemical]],'Comma in an original compound name is literal');
+  named('searchHerbComponentEvidence').at(-1).resolve({queryType:'compound',results:[{query:chemical,matches:[compound],herbs:[],compounds:[compound],targets:[],relations:[],truncated:false,
+    resolution:{strategy:'name',warnings:['本次逗号按原文检索；未据标点拆分、登记别名或合并成分。']}}]});await flush();
+  assert.ok(text(tree).includes('查询依据：完整名称'),'Lookup basis is visible beside the source result');
+  assert.ok(text(tree).includes('未据标点拆分、登记别名或合并成分'));
+  assert.equal(find(n=>n.props?.id==='research-query').type,'textarea','Compound batches need an explicit line delimiter');
+  input('research-query',`${longChemical}\n${chemical}\n${chemical}\nA/B;C|D`);submit();
+  assert.deepEqual(named('searchHerbComponentEvidence').at(-1).args,['compound',[longChemical,chemical,'A/B;C|D']]);
+  named('searchHerbComponentEvidence').at(-1).resolve({queryType:'compound',results:[]});await flush();
+  const beforeInvalid=named('searchHerbComponentEvidence').length;
+  input('research-query','X'.repeat(301));submit();
+  assert.equal(named('searchHerbComponentEvidence').length,beforeInvalid,'Compound length remains bounded');
+  input('research-query',Array.from({length:13},(_,i)=>`Compound-${i}`).join('\n'));submit();
+  assert.equal(named('searchHerbComponentEvidence').length,beforeInvalid,'Compound batch remains bounded at twelve');
+  input('research-query','HIT:C0671');submit();
+  assert.deepEqual(named('searchHerbComponentEvidence').at(-1).args,['compound',['HIT:C0671']],'Qualified identifier remains one query');
+  named('searchHerbComponentEvidence').at(-1).resolve({queryType:'compound',results:[]});await flush();
+  tab('herb');input('research-query','黄芩,甘草/人参');submit();
+  assert.deepEqual(named('searchHerbComponentEvidence').at(-1).args,['herb',['黄芩','甘草','人参']]);
+  named('searchHerbComponentEvidence').at(-1).resolve(evidence);await flush();
   tab('intersection');input('intersection-disease','间质性肺');submit();
   const missingDisease={taskId:30,summary:{herb:'黄芩',disease:'间质性肺',matchedHerbs:['黄芩'],matchedDiseases:[],unmatchedHerbs:[],unmatchedDiseases:['间质性肺'],herbTargetCount:10,diseaseTargetCount:0,strictIntersectionCount:0,componentCount:2,diseaseResolution:{status:'needs_selection',entitiesTruncated:false,candidates:[{label:'Pulmonary fibrosis',sourceSlugs:['fixture']}]}},targets:[],network:{nodes:[],links:[]},charts:{overlap:[],components:[],pathways:[]},limits:{targetsTruncated:false,linksTruncated:false}};
   named('runNetworkPharmacology')[1].resolve(missingDisease);await flush();

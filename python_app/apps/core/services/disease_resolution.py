@@ -18,7 +18,7 @@ ENTITY_LIMIT = 50
 
 
 def exact_disease_terms(query):
-    """Return the curated whole-term translations shared by disease readers."""
+    """Return validated, curated whole-term translations shared by readers."""
     original = str(query or "").strip()
     if not original:
         raise ValueError("请输入疾病名称。")
@@ -28,7 +28,7 @@ def exact_disease_terms(query):
     return list(dict.fromkeys([original, *translations]))
 
 
-def resolve_intersection_disease(query):
+def resolve_intersection_disease(query, *, entity_limit=ENTITY_LIMIT):
     requested_terms = exact_disease_terms(query)
     original = requested_terms[0]
     entities = {}
@@ -38,15 +38,15 @@ def resolve_intersection_disease(query):
     for term in requested_terms:
         rows = list(exact_entity_queryset("disease", term).select_related(
             "source_release", "source_release__source"
-        ).order_by("stable_id")[:ENTITY_LIMIT + 1])
+        ).order_by("stable_id")[:entity_limit + 1])
         if rows:
             resolved_terms.append(term)
             exact_found |= term == original
-        truncated |= len(rows) > ENTITY_LIMIT
-        for entity in rows[:ENTITY_LIMIT]:
+        truncated |= len(rows) > entity_limit
+        for entity in rows[:entity_limit]:
             entities[entity.pk] = entity
-    truncated |= len(entities) > ENTITY_LIMIT
-    selected = sorted(entities.values(), key=lambda entity: entity.stable_id)[:ENTITY_LIMIT]
+    truncated |= len(entities) > entity_limit
+    selected = sorted(entities.values(), key=lambda entity: entity.stable_id)[:entity_limit]
 
     # A missing translation must not fall back to a broader term or subtype.
     candidates = {}
@@ -54,7 +54,7 @@ def resolve_intersection_disease(query):
         for term in expand_disease_queries(original):
             for entity in exact_entity_queryset("disease", term).select_related(
                 "source_release", "source_release__source"
-            ).order_by("stable_id")[:ENTITY_LIMIT]:
+            ).order_by("stable_id")[:entity_limit]:
                 candidate = candidates.setdefault(entity.label, {"label": entity.label, "sourceSlugs": set()})
                 if entity.source_release:
                     candidate["sourceSlugs"].add(entity.source_release.source.slug)
@@ -69,6 +69,6 @@ def resolve_intersection_disease(query):
         "candidates": [
             {"label": label, "sourceSlugs": sorted(item["sourceSlugs"])}
             for label, item in sorted(candidates.items())
-        ][:ENTITY_LIMIT],
+        ][:entity_limit],
     }
     return selected, resolution

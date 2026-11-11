@@ -42,6 +42,8 @@ EVENTS = {
     "external.failed": ("error", "外部分析发生异常。"),
     "visualization.rejected": ("warning", "图表输入未通过检查。"),
     "visualization.failed": ("error", "图表生成发生异常。"),
+    "complete_evidence.rejected": ("warning", "完整本地分析输入未通过检查。"),
+    "complete_evidence.failed": ("error", "完整本地分析发生异常。"),
 }
 IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_.<>:-]{0,159}\Z")
 

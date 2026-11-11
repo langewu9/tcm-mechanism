@@ -79,6 +79,7 @@ export type NewMedicalCase = Pick<MedicalCase, "title" | "deidentified_text" | "
 };
 
 export const getMedicalCases = (page = 1, archived = false) => apiRequest<Page<MedicalCase>>(`/api/v1/research/cases/?page=${page}&archived=${archived}`);
+export const getMedicalCase = (id: number) => apiRequest<MedicalCase>(`/api/v1/research/cases/${id}/`);
 export const createMedicalCase = (data: NewMedicalCase) =>
   apiRequest<MedicalCase>("/api/v1/research/cases/", { method: "POST", body: data });
 export const restoreMedicalCase = (id: number) =>
@@ -87,8 +88,8 @@ export const deleteMedicalCase = (id: number) =>
   apiRequest<void>(`/api/v1/research/cases/${id}/`, { method: "DELETE" });
 export const getMedicalCaseAudit = (id: number) =>
   apiRequest<Page<CaseAuditEvent>>(`/api/v1/research/cases/${id}/audit/`);
-export const getMedicalCaseAnalysis = (id: number) =>
-  apiRequest<MedicalCaseAnalysis>(`/api/v1/research/cases/${id}/analysis/`);
+export const getMedicalCaseAnalysis = (id: number, taskId?: number) =>
+  apiRequest<MedicalCaseAnalysis>(`/api/v1/research/cases/${id}/analysis/${taskId === undefined ? "" : `?task_id=${taskId}`}`);
 export const startMedicalCaseAnalysis = (id: number) =>
   apiRequest<AnalysisTask>(`/api/v1/research/cases/${id}/analysis/`, { method: "POST", body: { confirmLocalModel: true } });
 export const reviewMedicalCaseCandidate = (caseId: number, candidateId: number, decision: "accept" | "reject") =>

@@ -5,6 +5,8 @@ import re
 
 
 SCHEMA = "legacy-source-identity-1"
+ROW_SCHEMA = "legacy-source-row-1"
+ROW_POLICY = "original-source-row-1"
 IDENTITY_POLICY = "source-identifier-namespace-1"
 IDENTITY_FIELDS = {"herbId", "compoundId", "targetId", "targetSymbol", "uniprot", "pubchem", "chembl"}
 
@@ -18,7 +20,7 @@ def read_identity_record(value, row_id):
         data = json.loads(value, parse_constant=invalid_constant)
     except (ValueError, TypeError, RecursionError) as exc:
         raise ValueError("来源身份元数据不是有效 JSON。") from exc
-    if not isinstance(data, dict) or data.get("schemaVersion") != SCHEMA:
+    if not isinstance(data, dict) or data.get("schemaVersion") not in {SCHEMA, ROW_SCHEMA}:
         raise ValueError("来源身份元数据版本不受支持。")
     pending = [data]
     while pending:
@@ -40,7 +42,9 @@ def read_identity_record(value, row_id):
         raise ValueError("来源身份字段不受支持。")
     if any(not isinstance(item, str) or len(item) > 160 for item in identity.values()):
         raise ValueError("来源身份字段必须是至多 160 字符的文本。")
-    if any(not identity.get(key, "").strip() for key in ("herbId", "compoundId", "targetId")):
+    if data["schemaVersion"] == ROW_SCHEMA and identity:
+        raise ValueError("仅来源行模式不能声明实体编号；原始编号应保留在原字段中。")
+    if data["schemaVersion"] == SCHEMA and any(not identity.get(key, "").strip() for key in ("herbId", "compoundId", "targetId")):
         raise ValueError("来源身份模式要求每行保留中药、成分和靶点的原始编号。")
     raw = data.get("rawFields")
     if (not isinstance(raw, dict) or len(raw) > 64

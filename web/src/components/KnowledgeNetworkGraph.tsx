@@ -88,7 +88,7 @@ export function KnowledgeNetworkGraph({ network, knownTruncated = false, synthet
       </label>)}</div>
       <div className="network-graph-zoom"><button type="button" className="btn btn-secondary" onClick={() => setZoom((value) => Math.max(0.7, Math.round((value - 0.15) * 100) / 100))} aria-label="缩小网络图">−</button><span>{Math.round(zoom * 100)}%</span><button type="button" className="btn btn-secondary" onClick={() => setZoom((value) => Math.min(1.6, Math.round((value + 0.15) * 100) / 100))} aria-label="放大网络图">+</button><button type="button" className="btn btn-secondary" onClick={() => setZoom(1)}>重置</button></div>
     </div>
-    {resultTruncated && <p className="notice-info">为保持图形可读，图中限制了每类节点和可见连线数量；下方的靶点证据表保留本次结果详情。</p>}
+    {resultTruncated && <p className="notice-info">为保持图形可读，图中只展示部分节点和连线；完整关系以本次任务的证据表和导出为准。</p>}
     {nodes.length ? <div className="network-graph-canvas">
       <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} role="img" aria-label="可筛选的中药—成分—靶点—通路—疾病关系网络">
         <rect width={WIDTH} height={HEIGHT} rx="12" fill="rgba(255,253,248,0.76)" />

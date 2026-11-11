@@ -8,10 +8,20 @@ from rest_framework.views import APIView
 
 from apps.core.services.disease_evidence import search_disease_evidence
 from apps.core.services.catalog_visualization import fingerprint_result
+from apps.core.models import AnalysisTask
+from apps.core.serializers.research import AnalysisTaskSerializer
 
 
 class DiseaseEvidenceQuerySerializer(serializers.Serializer):
     query = serializers.CharField(max_length=120, trim_whitespace=True)
+
+    def validate_query(self, value):
+        from apps.core.services.disease_resolution import exact_disease_terms
+        try:
+            exact_disease_terms(value)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc)) from exc
+        return value
 
 
 class DiseaseEvidenceEntitySerializer(serializers.Serializer):
@@ -23,6 +33,12 @@ class DiseaseEvidenceEntitySerializer(serializers.Serializer):
 
 
 class DiseaseEvidenceRelationSerializer(serializers.Serializer):
+    sourceRowId = serializers.JSONField(required=False, allow_null=True)
+    sourceChecksumSha256 = serializers.CharField(required=False, allow_blank=True)
+    sourceFile = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+    sourceDiseaseLabel = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+    sourceHerbLabel = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+    sourceTargetLabel = serializers.CharField(required=False, allow_null=True, allow_blank=True)
     relationId = serializers.IntegerField()
     subjectId = serializers.IntegerField()
     objectId = serializers.IntegerField()
@@ -40,9 +56,15 @@ class DiseaseEvidenceRelationSerializer(serializers.Serializer):
 
 
 class DiseaseEvidenceLinkSerializer(serializers.Serializer):
+    relationId = serializers.IntegerField()
     diseaseId = serializers.IntegerField()
     herbId = serializers.IntegerField(allow_null=True)
     targetId = serializers.IntegerField(allow_null=True)
+    sourceReleaseId = serializers.IntegerField()
+    sourceFile = serializers.CharField(allow_null=True, allow_blank=True)
+    sourceDiseaseLabel = serializers.CharField(allow_null=True, allow_blank=True)
+    sourceHerbLabel = serializers.CharField(allow_null=True, allow_blank=True)
+    sourceTargetLabel = serializers.CharField(allow_null=True, allow_blank=True)
     disease = serializers.CharField()
     herb = serializers.CharField(allow_blank=True)
     target = serializers.CharField(allow_blank=True)
@@ -63,12 +85,12 @@ class DiseaseEvidenceCountsSerializer(serializers.Serializer):
 class DiseaseEvidenceLimitsSerializer(serializers.Serializer):
     maxMatches = serializers.IntegerField()
     maxRelations = serializers.IntegerField()
-    returnedRelations = serializers.IntegerField()
 
 
 class DiseaseEvidenceResponseSerializer(serializers.Serializer):
     dataQuality = serializers.JSONField(required=False)
     evidenceSha256 = serializers.CharField()
+    resultSha256 = serializers.CharField()
     query = serializers.CharField()
     expandedQueries = serializers.ListField(child=serializers.CharField())
     aliasSource = serializers.CharField()
@@ -99,3 +121,26 @@ class DiseaseEvidenceSearchView(APIView):
         except ValueError as exc:
             raise ValidationError({"query": str(exc)}) from exc
         return Response(DiseaseEvidenceResponseSerializer(fingerprint_result(result)).data)
+
+
+class DiseaseEvidenceAnalysisRequestSerializer(DiseaseEvidenceQuerySerializer):
+    expectedResultSha256 = serializers.RegexField(r"^[a-f0-9]{64}$")
+
+
+class DiseaseEvidenceAnalysisView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(request=DiseaseEvidenceAnalysisRequestSerializer, responses={202: AnalysisTaskSerializer})
+    def post(self, request):
+        parameters = DiseaseEvidenceAnalysisRequestSerializer(data=request.data)
+        parameters.is_valid(raise_exception=True)
+        values = parameters.validated_data
+        from apps.core.services.complete_evidence import dispatch_complete_task
+        task = AnalysisTask.objects.create(owner=request.user, created_by=request.user,
+            task_type=AnalysisTask.TaskType.NETWORK, input_parameters={
+                "analysisKind": "disease_evidence", "algorithmVersion": "disease-evidence-2", "complete": True,
+                "name": f"疾病证据 · {values['query']}", "query": values["query"],
+                "expectedResultSha256": values["expectedResultSha256"],
+            })
+        dispatch_complete_task(task, request=request)
+        return Response(AnalysisTaskSerializer(task).data, status=202)

@@ -224,6 +224,7 @@ class CaseCandidateReviewRequestSerializer(serializers.Serializer):
 
 
 class VisualizationRequestSerializer(serializers.Serializer):
+    regenerate = serializers.BooleanField(required=False, default=False)
     chartKey = serializers.ChoiceField(choices=[
         "overlap", "components", "pathways", "proteomics_summary", "proteomics_top_nodes",
         "proteomics_go_kegg_enrichment", "proteomics_volcano",
@@ -234,16 +235,36 @@ class VisualizationRequestSerializer(serializers.Serializer):
 
 
 class ResearchAssistantRequestSerializer(serializers.Serializer):
+    mode = serializers.ChoiceField(choices=["evidence", "scientist_hypothesis"], default="evidence")
     question = serializers.CharField(max_length=2000, trim_whitespace=True)
     entityIds = serializers.ListField(
-        child=serializers.IntegerField(min_value=1), min_length=0, max_length=8
+        child=serializers.IntegerField(min_value=1), max_length=8, required=False, default=list
     )
+    disease = serializers.CharField(max_length=160, required=False, allow_blank=True, default="")
+    formula = serializers.CharField(max_length=2400, required=False, allow_blank=True, default="")
+    focus = serializers.CharField(max_length=300, required=False, default="本地来源证据核对")
     useModel = serializers.BooleanField(default=False)
     caseIds = serializers.ListField(child=serializers.IntegerField(min_value=1), max_length=4, required=False, default=list)
     caseCategory = serializers.ChoiceField(choices=["", "pulmonary", "stroke", "stomach", "pharyngitis", "general"], required=False, default="")
     confirmModelSharing = serializers.BooleanField(default=False)
 
     def validate(self, attrs):
+        for field in ("question", "disease", "formula", "focus"):
+            if any(ord(character) < 32 and character not in "\n\r\t" for character in attrs[field]):
+                raise serializers.ValidationError({field: "输入中包含不支持的控制字符。"})
+        if attrs["mode"] == "scientist_hypothesis":
+            from ..services.scientist_report import parse_formula
+            herbs = parse_formula(attrs["formula"])
+            if not attrs["disease"]:
+                raise serializers.ValidationError({"disease": "请明确填写疾病，不从问题中猜测。"})
+            if not herbs or len(herbs) > 12 or any(len(herb) > 300 for herb in herbs):
+                raise serializers.ValidationError({"formula": "请填写 1 至 12 项中药组成，每项至多 300 字符。"})
+            if attrs["useModel"] or attrs["confirmModelSharing"]:
+                raise serializers.ValidationError({"useModel": "本地研究计划报告不调用模型，请关闭模型选项。"})
+            if attrs["entityIds"]:
+                raise serializers.ValidationError({"entityIds": "报告按疾病与方药组成查询，不混入另外选择的问答实体。"})
+            attrs["formulaHerbs"] = herbs
+            return attrs
         if attrs["useModel"] and not attrs["confirmModelSharing"]:
             raise serializers.ValidationError({
                 "confirmModelSharing": "请先确认本次问题、所选知识记录及检索到的医案片段可以发送到已配置的本机/内网模型。"
@@ -254,6 +275,7 @@ class ResearchAssistantRequestSerializer(serializers.Serializer):
 
 
 class DashboardTaskSerializer(serializers.ModelSerializer):
+    analysis_kind = serializers.CharField(source="input_parameters.analysisKind", read_only=True, default="")
     title = serializers.SerializerMethodField()
     summary = serializers.SerializerMethodField()
     task_type = serializers.CharField(read_only=True)
@@ -261,7 +283,7 @@ class DashboardTaskSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = AnalysisTask
-        fields = ["id", "title", "summary", "task_type", "status", "created_at"]
+        fields = ["id", "title", "summary", "task_type", "status", "created_at", "analysis_kind"]
         read_only_fields = fields
 
     def get_title(self, obj) -> str:
@@ -350,6 +372,7 @@ class AnalysisTaskSummarySerializer(serializers.ModelSerializer):
 
 
 class NetworkPharmacologyRequestSerializer(serializers.Serializer):
+    complete = serializers.BooleanField(required=False, default=False)
     herb = serializers.CharField(max_length=1200)
     disease = serializers.CharField(max_length=300)
     limit = serializers.IntegerField(required=False, default=12000, min_value=500, max_value=30000)

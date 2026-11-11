@@ -7,15 +7,15 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "test:api": "node tests/api-contracts.cjs && node tests/admin-monitor.cjs",
-    "test:research": "node tests/research-requests.cjs && node tests/catalog-evidence-figures.cjs && node tests/task-restoration.cjs && node tests/workspace-feedback.cjs && node tests/evidence-entity-tables.cjs && node tests/target-intersection.cjs && node tests/target-identity.cjs",
-    "test:r": "node tests/r-analysis-catalog.cjs && node tests/r-widget-events.cjs && node tests/home-research-r.cjs",
+    "test:api": "node tests/api-contracts.cjs && node tests/admin-monitor.cjs && node tests/complete-evidence.cjs && node tests/snapshot-evidence.cjs",
+    "test:research": "node tests/research-requests.cjs && node tests/catalog-evidence-figures.cjs && node tests/task-restoration.cjs && node tests/workspace-feedback.cjs && node tests/evidence-entity-tables.cjs && node tests/target-intersection.cjs && node tests/target-identity.cjs && node tests/dashboard-task-links.cjs && node tests/existing-feature-audit.cjs && node tests/disease-evidence-snapshot.cjs && node tests/text-history-location.cjs && node tests/case-history-location.cjs && node tests/task-history-view.cjs && node tests/artifact-preview.cjs && node tests/proteomics-scientific-wording.cjs",
+    "test:r": "node tests/r-analysis-catalog.cjs && node tests/r-analysis-gallery-availability.cjs && node tests/r-widget-events.cjs && node tests/home-research-r.cjs && node tests/r-widget-loading.cjs",
     "test:demo": "node tests/demo-center.cjs",
     "check:delivery": "node tests/delivery-assets.cjs",
     "build:delivery": "node tests/delivery-assets.cjs && tsc -b && vite build && node tests/delivery-assets.cjs dist/r-demo",
     "test:sources": "node tests/source-management.cjs && node tests/source-page-requests.cjs",
     "test:typography": "node tests/typography.cjs",
-    "test:network": "node tests/reactome-results.cjs && node tests/network-requests.cjs && node tests/network-raw-exports.cjs && node tests/string-results.cjs && node tests/network-composition.cjs",
+    "test:network": "node tests/reactome-results.cjs && node tests/network-requests.cjs && node tests/network-raw-exports.cjs && node tests/string-results.cjs && node tests/network-composition.cjs && node tests/network-overlap-restoration.cjs && node tests/network-sibling-keys.cjs",
     "preview": "vite preview"
   },
   "dependencies": {

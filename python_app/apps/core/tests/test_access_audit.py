@@ -1,3 +1,4 @@
+import hashlib
 import json
 import tempfile
 from unittest.mock import patch
@@ -80,6 +81,23 @@ class SensitiveAccessAuditTests(TestCase):
         self.assertFalse(SensitiveAccessEvent.objects.exists())
 
     def test_original_file_artifact_and_export_are_audited(self):
+        # This test exercises access auditing on a valid published artifact.
+        parent = AnalysisTask.objects.create(owner=self.owner, task_type="network", status="succeeded")
+        render = AnalysisTask.objects.create(owner=self.owner, task_type="visualization", status="succeeded",
+            parent_task=parent, input_parameters={"analysisKind": "r_visualization", "chartKey": "evidence_network",
+                "parentTaskId": parent.pk, "inputSha256": "c" * 64})
+        self.artifact.task = parent
+        self.artifact.render_task = render
+        self.artifact.content_sha256 = hashlib.sha256(b"<svg/>").hexdigest()
+        self.artifact.save()
+        render.result = {"taskId": render.pk, "parentTaskId": parent.pk, "chartKey": "evidence_network",
+            "inputSha256": "c" * 64, "rendererVersion": "synthetic-v1", "artifacts": [{
+                "id": self.artifact.pk, "format": "svg", "filename": self.artifact.filename,
+                "mimeType": "image/svg+xml", "sha256": self.artifact.content_sha256, "byteSize": 6,
+                "rendererVersion": "synthetic-v1",
+                "downloadUrl": reverse("analysis-artifact-download", args=[self.artifact.pk]),
+            }]}
+        render.save(update_fields=["result"])
         requests = [
             (reverse("dataset-download", args=[self.dataset.pk]), "dataset.download", "download"),
             (reverse("analysis-artifact-download", args=[self.artifact.pk]), "artifact.download", "download"),

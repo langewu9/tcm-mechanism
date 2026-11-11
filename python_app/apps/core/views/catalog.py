@@ -14,7 +14,7 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.filters import SearchFilter
 from rest_framework.views import APIView
 
-from ..models import DataSource, EvidenceRelation, KnowledgeEntity, SourceEntityMapping
+from ..models import AnalysisTask, DataSource, EvidenceRelation, KnowledgeEntity, SourceEntityMapping
 from ..serializers import DataSourceSerializer, EvidenceRelationSerializer, KnowledgeEntitySerializer
 from ..serializers.research import AnalysisTaskSerializer
 from ..services.disease_names import ALIAS_DATA, disease_entity_queryset, expand_disease_queries, matched_disease_queries
@@ -161,15 +161,24 @@ class DiseaseAliasSearchView(APIView):
 class BatchHerbEvidenceRequestSerializer(serializers.Serializer):
     queryType = serializers.ChoiceField(choices=["herb", "compound"])
     queries = serializers.ListField(
-        child=serializers.CharField(max_length=120, trim_whitespace=True),
+        child=serializers.CharField(max_length=300, trim_whitespace=True),
         min_length=1,
         max_length=12,
     )
 
     def validate_queries(self, values):
+        if self.initial_data.get('queryType') == 'herb' and any(len(value) > 120 for value in values):
+            raise serializers.ValidationError('每个中药名称最多 120 个字符。')
         distinct = list(dict.fromkeys(value.strip() for value in values if value.strip()))
         if not distinct:
             raise serializers.ValidationError("请至少输入一个有效名称。")
+        if self.initial_data.get('queryType') == 'compound':
+            from ..services.compound_lookup import CompoundLookupInputError, validate_compound_query
+            try:
+                for query in distinct:
+                    validate_compound_query(query)
+            except CompoundLookupInputError as exc:
+                raise serializers.ValidationError(str(exc)) from exc
         return distinct
 
 
@@ -183,6 +192,12 @@ class BatchHerbEvidenceEntitySerializer(serializers.Serializer):
 
 
 class BatchHerbEvidenceRelationSerializer(serializers.Serializer):
+    sourceRowId = serializers.JSONField(required=False, allow_null=True)
+    sourceChecksumSha256 = serializers.CharField(required=False, allow_blank=True)
+    sourceFile = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+    sourceDiseaseLabel = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+    sourceHerbLabel = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+    sourceTargetLabel = serializers.CharField(required=False, allow_null=True, allow_blank=True)
     relationId = serializers.IntegerField()
     id = serializers.IntegerField()
     subjectId = serializers.IntegerField()
@@ -204,6 +219,7 @@ class BatchHerbEvidenceRelationSerializer(serializers.Serializer):
 class BatchHerbEvidenceItemSerializer(serializers.Serializer):
     query = serializers.CharField()
     searchedNames = serializers.ListField(child=serializers.CharField(), required=False)
+    resolution = serializers.JSONField(required=False)
     matches = BatchHerbEvidenceEntitySerializer(many=True)
     ambiguous = serializers.BooleanField()
     herbs = BatchHerbEvidenceEntitySerializer(many=True)
@@ -241,6 +257,7 @@ class BatchHerbEvidenceView(APIView):
 
 class CatalogAnalysisRequestSerializer(BatchHerbEvidenceRequestSerializer):
     expectedResultSha256 = serializers.RegexField(r"^[a-f0-9]{64}$")
+    complete = serializers.BooleanField(required=False, default=False)
 
 
 class CatalogResultConflict(APIException):
@@ -252,12 +269,24 @@ class CatalogResultConflict(APIException):
 class CatalogEvidenceAnalysisView(APIView):
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(request=CatalogAnalysisRequestSerializer, responses={201: AnalysisTaskSerializer})
+    @extend_schema(request=CatalogAnalysisRequestSerializer, responses={201: AnalysisTaskSerializer, 202: AnalysisTaskSerializer})
     def post(self, request):
         parameters = CatalogAnalysisRequestSerializer(data=request.data)
         parameters.is_valid(raise_exception=True)
         values = parameters.validated_data
         from ..services.catalog_analysis import CatalogSnapshotChanged, save_catalog_analysis
+        if values["complete"]:
+            # Validate the preview again inside the worker's consistent read.
+            from ..services.complete_evidence import VERSION, dispatch_complete_task
+            task = AnalysisTask.objects.create(owner=request.user, created_by=request.user,
+                task_type=AnalysisTask.TaskType.NETWORK, input_parameters={
+                    "analysisKind": "catalog_evidence", "algorithmVersion": VERSION,
+                    "complete": True, "queryType": values["queryType"], "queries": values["queries"],
+                    "expectedResultSha256": values["expectedResultSha256"],
+                    **({'lookupVersion': 'compound-lookup-1'} if values['queryType'] == 'compound' else {}),
+                })
+            dispatch_complete_task(task, request=request)
+            return Response(AnalysisTaskSerializer(task).data, status=202)
         try:
             task = save_catalog_analysis(user=request.user, query_type=values["queryType"],
                                          queries=values["queries"], expected_sha256=values["expectedResultSha256"])

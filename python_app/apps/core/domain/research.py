@@ -288,6 +288,18 @@ class AnalysisTask(models.Model):
         return f"{self.get_task_type_display()} · {self.status}"
 
 
+class AnalysisSnapshotRow(models.Model):
+    """Frozen rows; written by a running task, never edited through API/admin."""
+    task = models.ForeignKey(AnalysisTask, on_delete=models.PROTECT, related_name="snapshot_rows")
+    table = models.CharField(max_length=40)
+    ordinal = models.PositiveIntegerField()
+    payload = models.JSONField()
+
+    class Meta:
+        ordering = ["ordinal"]
+        constraints = [models.UniqueConstraint(fields=["task", "table", "ordinal"], name="snapshot_task_table_row_uniq")]
+
+
 class VisualizationArtifact(models.Model):
     task = models.ForeignKey(
         AnalysisTask, on_delete=models.PROTECT, related_name="visualization_artifacts"
@@ -313,8 +325,8 @@ class VisualizationArtifact(models.Model):
         ordering = ["file_format", "id"]
         constraints = [
             models.UniqueConstraint(
-                fields=["task", "chart_key", "file_format", "input_sha256"],
-                name="uniq_task_chart_artifact_input",
+                fields=["render_task", "file_format"],
+                name="uniq_render_artifact_format",
             )
         ]
         indexes = [models.Index(fields=["owner", "created_at"], name="viz_owner_created_idx")]

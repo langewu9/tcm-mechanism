@@ -22,11 +22,11 @@ def _exact_names(field, terms):
     return predicate
 
 
-def exact_entity_queryset(entity_type, label):
+def exact_entity_queryset(entity_type, label, *, names=None):
     # SQLite's iexact uses LIKE, which cannot use the ordinary label index.
     # Keep case folding on the database side for consistent backend semantics
     # and match the expression indexes used by both exact-name lookups.
-    terms = exact_entity_names(entity_type, label)
+    terms = exact_entity_names(entity_type, label) if names is None else names
     names = _exact_names("exact_name", terms)
     if entity_type == 'compound' and re.fullmatch(r'MOL\d{6}', label.upper()):
         names |= Q(namespace='tcmsp.mol_id', source_entity_id=label.upper())

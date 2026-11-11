@@ -15,8 +15,12 @@ const fakeReact={
 };
 const jsx=(type,props)=>({type,props});
 const viewerFile=path.join(root,'src/components/RChartViewer.tsx'),viewer=new Module(viewerFile);
+const previewFile=path.join(root,'src/components/ArtifactPreview.tsx'),preview=new Module(previewFile);
+preview.require=name=>name==='react'?fakeReact:name==='react/jsx-runtime'?{jsx,jsxs:jsx,Fragment:'Fragment'}:load(name);
+preview._compile(compile(previewFile),previewFile);
 viewer.require=name=>name==='react'?fakeReact:name==='react/jsx-runtime'?{jsx,jsxs:jsx,Fragment:'Fragment'}:
  name==='./SubviewTabs'?{useSubviewVisible:()=>true,SubviewTabs:({views,value,onChange})=>jsx('tabs',{onChange,children:views.find(v=>v.key===value)?.content})}:
+ name==='./ArtifactPreview'?preview.exports:
  name==='./rWidgetDocument'?{loadRWidgetDocument:(url,signal)=>new Promise((resolve,reject)=>pending.push({url,signal,resolve,reject}))}:load(name);
 viewer._compile(compile(viewerFile),viewerFile);
 const expand=v=>Array.isArray(v)?v.map(expand):v&&typeof v==='object'?typeof v.type==='function'?expand(v.type(v.props)):{...v,props:{...v.props,children:expand(v.props?.children)}}:v;
@@ -47,5 +51,15 @@ const flush=async()=>{for(let i=0;i<6;i++)await Promise.resolve();render();};
  assert.equal(pending.length,4,'Failed widget has a real retry action');
  for(const hook of hooks)hook.cleanup?.();const before=writes;
  pending[3].resolve('UNMOUNTED_WIDGET');await Promise.resolve();assert.equal(writes,before);
+ // The merged viewer must retain the existing GET-only image recovery instead
+ // of asking the researcher to generate a second analysis or chart.
+ hooks.length=0;pending.length=0;
+ render({title:'private saved chart',interactive:false,svgUrl:'/api/v1/research/analysis-artifacts/45/download/?inline=1'});
+ const staleImageError=find('img').props.onError;
+ staleImageError();render();assert.ok(nodes(tree).some(n=>n.props?.role==='alert'));
+ nodes(tree).find(n=>n.type==='button'&&n.props.children==='重新读取图表文件').props.onClick();render();
+ assert.equal(find('img').props.src,'/api/v1/research/analysis-artifacts/45/download/?inline=1&readAttempt=1');
+ const beforeStale=writes;staleImageError();assert.equal(writes,beforeStale);
+ assert.equal(pending.length,0,'Static image retries never load or generate an interactive widget');
  console.log('PASS: authenticated local widget loading; opaque CSP-protected srcdoc; URL/MIME/401 failures; stale response cancellation; retry and unmount guards.');
 })().catch(error=>{console.error(error.stack);process.exitCode=1;});

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 from collections import defaultdict
 
@@ -13,7 +14,7 @@ from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from apps.core.models import DataSource, EvidenceRelation, KnowledgeEntity, SourceRelease, SyncRun
-from apps.sources.legacy_identity import IDENTITY_POLICY, check_identity_consistency
+from apps.sources.legacy_identity import IDENTITY_POLICY, ROW_POLICY, check_identity_consistency
 from apps.sources.connectors.sqlite_tcm import (
     MAX_TARGETS_PER_ROW,
     SQLiteSourceError,
@@ -26,6 +27,8 @@ from apps.sources.connectors.sqlite_tcm import (
 
 SQLITE_CONNECTOR = "sqlite-herb-compound-target"
 EVIDENCE_TYPE = "curated_sqlite_database"
+logger = logging.getLogger(__name__)
+DISEASE_ROW_POLICY = "original-disease-labels-1"
 _SPACE = re.compile(r"\s+")
 _SYMBOL_CANDIDATE = re.compile(r"^[A-Z][A-Z0-9_.-]{0,63}$")
 
@@ -40,9 +43,11 @@ def _stable_id(source: DataSource, kind: str, label: str) -> str:
 
 
 def _configuration_sha256(configuration: dict) -> str:
-    if configuration.get("rowMetadataColumn"):
+    if configuration.get("rowMetadataColumn") or configuration.get("diseaseRowMetadataColumn"):
         # Identity policy changes must create a new release and retire old rows.
-        configuration = {**configuration, "identityPolicy": IDENTITY_POLICY}
+        configuration = {**configuration, "identityPolicy": IDENTITY_POLICY, "rowProvenancePolicy": ROW_POLICY}
+    if configuration.get("diseaseTargetTable") or configuration.get("diseaseHerbTargetTable"):
+        configuration = {**configuration, "diseaseRowPolicy": DISEASE_ROW_POLICY}
     encoded = json.dumps(configuration, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
 
@@ -152,6 +157,13 @@ def _row_entities_and_relations(source: DataSource, row):
             ("herb_disease_target", disease_herb_id, target_id, f"diseaseHerbTarget:{row_id}:herb-target:{target_id.rsplit(':', 1)[-1]}", row_id, {"diseaseStableId": disease_id, "diseaseLabel": disease})
             for target_id in target_ids
         )
+    if kind in {"diseaseTarget", "diseaseHerbTarget"}:
+        # Label keys are normalized for legacy lookup; each source row must also
+        # retain its exact original assertions, without asserting authority IDs.
+        original_labels = {"sourceDiseaseLabel": disease,
+                           "sourceHerbLabel": disease_herb if kind == "diseaseHerbTarget" else None,
+                           "sourceTargetLabel": clean_cell(raw_targets)}
+        relation_specs = [(*spec[:5], {**spec[5], **original_labels}) for spec in relation_specs]
     if source_record:
         provenance = {"sourceOrigin": {key: source_record[key] for key in ("workbookSha256", "sheet", "sourceRow")},
                       "sourceIdentity": identity, "rawFields": source_record["rawFields"]}
@@ -178,6 +190,8 @@ def preview_sqlite_sync(run: SyncRun) -> None:
             seen[entity["entity_type"]][entity["stable_id"]] = entity["label"]
         relation_count += len(relations)
         rows_seen += 1
+        if rows_seen % 25000 == 0:
+            logger.info("SQLite preview run=%s source=%s rows=%s", run.pk, source.pk, rows_seen)
         if rows_seen > settings.SQLITE_SOURCE_MAX_ROWS:
             raise ValidationError("SQLite 数据表超过配置的最大导入行数。")
     if rows_seen != snapshot.row_count:
@@ -208,7 +222,11 @@ def preview_sqlite_sync(run: SyncRun) -> None:
                 "databaseFile": source.configuration["databaseFile"],
                 "table": source.configuration["table"],
                 "rowMetadataColumn": source.configuration.get("rowMetadataColumn"),
-                "identityPolicy": IDENTITY_POLICY if source.configuration.get("rowMetadataColumn") else None,
+                "diseaseRowMetadataColumn": source.configuration.get("diseaseRowMetadataColumn"),
+                "identityPolicy": IDENTITY_POLICY if (source.configuration.get("rowMetadataColumn") or source.configuration.get("diseaseRowMetadataColumn")) else None,
+                "rowProvenancePolicy": ROW_POLICY if (source.configuration.get("rowMetadataColumn") or source.configuration.get("diseaseRowMetadataColumn")) else None,
+                "diseaseRowPolicy": DISEASE_ROW_POLICY if (
+                    source.configuration.get("diseaseTargetTable") or source.configuration.get("diseaseHerbTargetTable")) else None,
                 "diseaseTargetTable": source.configuration.get("diseaseTargetTable") or None,
                 "diseaseHerbTargetTable": source.configuration.get("diseaseHerbTargetTable") or None,
                 "configurationSha256": configuration_sha256,
@@ -279,7 +297,7 @@ def preview_sqlite_sync(run: SyncRun) -> None:
     run.save(update_fields=["release", "cursor", "records_seen", "preview_summary"])
 
 
-def _apply_sqlite_batch(source: DataSource, release: SourceRelease, rows: list, seen_ids: set[str], counters: dict):
+def _apply_sqlite_batch(source: DataSource, release: SourceRelease, rows: list, seen_ids: set[str], counters: dict, *, new_release=False):
     entity_payloads: dict[tuple[str, str], dict] = {}
     relation_payloads: list[tuple[str, str, str, str, int, dict]] = []
     for row in rows:
@@ -289,14 +307,18 @@ def _apply_sqlite_batch(source: DataSource, release: SourceRelease, rows: list, 
 
     entity_keys = list(entity_payloads)
     existing_entities = {
-        (entity_type, stable_id): (label, organism, synonyms, metadata, is_active, source_release_id)
-        for entity_type, stable_id, label, organism, synonyms, metadata, is_active, source_release_id in KnowledgeEntity.objects.filter(
+        (entity_type, stable_id): (pk, label, organism, synonyms, metadata, is_active, source_release_id)
+        for pk, entity_type, stable_id, label, organism, synonyms, metadata, is_active, source_release_id in KnowledgeEntity.objects.filter(
             entity_type__in={key[0] for key in entity_keys},
             stable_id__in={key[1] for key in entity_keys},
-        ).values_list(
-            "entity_type", "stable_id", "label", "organism", "synonyms", "metadata", "is_active", "source_release_id"
+        ).order_by().values_list(
+            "pk", "entity_type", "stable_id", "label", "organism", "synonyms", "metadata", "is_active", "source_release_id"
         )
     } if entity_keys else {}
+
+    def unchanged(previous, payload):
+        return previous is not None and previous[1:] == (payload["label"], "", [], payload["metadata"], True, release.pk)
+
     for entity_type, stable_id in entity_keys:
         if stable_id not in seen_ids:
             seen_ids.add(stable_id)
@@ -304,14 +326,7 @@ def _apply_sqlite_batch(source: DataSource, release: SourceRelease, rows: list, 
             payload = entity_payloads[(entity_type, stable_id)]
             if previous is None:
                 counters["created"] += 1
-            elif (
-                previous[0] != payload["label"]
-                or previous[1] != ""
-                or previous[2] != []
-                or previous[3] != payload["metadata"]
-                or not previous[4]
-                or previous[5] != release.pk
-            ):
+            elif not unchanged(previous, payload):
                 counters["updated"] += 1
             else:
                 counters["unchanged"] += 1
@@ -326,7 +341,7 @@ def _apply_sqlite_batch(source: DataSource, release: SourceRelease, rows: list, 
             source_release=release,
             updated_at=now,
         )
-        for payload in entity_payloads.values()
+        for key, payload in entity_payloads.items() if not unchanged(existing_entities.get(key), payload)
     ]
     if entity_objects:
         KnowledgeEntity.objects.bulk_create(
@@ -336,17 +351,19 @@ def _apply_sqlite_batch(source: DataSource, release: SourceRelease, rows: list, 
             unique_fields=["entity_type", "stable_id"],
             update_fields=["label", "organism", "synonyms", "is_active", "source_release", "metadata", "updated_at"],
         )
-    ids_by_stable = {
-        stable_id: pk
-        for pk, stable_id in KnowledgeEntity.objects.filter(
-            stable_id__in={key[1] for key in entity_keys}
-        ).values_list("pk", "stable_id")
-    } if entity_keys else {}
+    ids_by_stable = {key[1]: previous[0] for key, previous in existing_entities.items()}
+    ids_by_stable.update({item.stable_id: item.pk for item in entity_objects if item.pk is not None})
+    missing_ids = {key[1] for key in entity_keys} - ids_by_stable.keys()
+    if missing_ids:
+        # Fallback for a database backend that cannot RETURNING bulk upsert PKs.
+        ids_by_stable.update(KnowledgeEntity.objects.filter(
+            entity_type__in={key[0] for key in entity_keys}, stable_id__in=missing_ids,
+        ).order_by().values_list("stable_id", "pk"))
     record_ids = [spec[3] for spec in relation_payloads]
     existing_relation_ids = set(
         EvidenceRelation.objects.filter(source_release=release, source_record_id__in=record_ids)
-        .values_list("source_record_id", flat=True)
-    ) if record_ids else set()
+        .order_by().values_list("source_record_id", flat=True)
+    ) if record_ids and not new_release else set()
     counters["relationsCreated"] += sum(record_id not in existing_relation_ids for record_id in record_ids)
     counters["relationsUpdated"] += len(existing_relation_ids)
     relation_objects = [
@@ -389,6 +406,10 @@ def apply_sqlite_sync(run: SyncRun) -> None:
     identity_proofs = {}
 
     with transaction.atomic():
+        # Source row IDs are unique within each configured table; record IDs
+        # include table kind, row ID and target. A fresh release has no previous
+        # record IDs to compare. Keep DB upsert constraints for both paths.
+        new_release = not EvidenceRelation.objects.filter(source_release=run.release).exists()
         for row in _source_rows(source):
             for entity in _row_entities_and_relations(source, row)[0]:
                 try:
@@ -398,11 +419,13 @@ def apply_sqlite_sync(run: SyncRun) -> None:
             batch.append(row)
             if len(batch) < 250:
                 continue
-            _apply_sqlite_batch(source, run.release, batch, seen_ids, counters)
+            _apply_sqlite_batch(source, run.release, batch, seen_ids, counters, new_release=new_release)
             rows_seen += len(batch)
             batch.clear()
+            if rows_seen % 25000 == 0:
+                logger.info("SQLite apply run=%s source=%s rows=%s", run.pk, source.pk, rows_seen)
         if batch:
-            _apply_sqlite_batch(source, run.release, batch, seen_ids, counters)
+            _apply_sqlite_batch(source, run.release, batch, seen_ids, counters, new_release=new_release)
             rows_seen += len(batch)
         if rows_seen != run.records_seen:
             raise ValidationError("SQLite 文件读取行数与预览时记录数不一致，请重新预览。")
