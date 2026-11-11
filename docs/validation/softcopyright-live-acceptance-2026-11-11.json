@@ -1,0 +1,609 @@
+{
+  "scope": "local-softcopyright-integration; isolated restored PostgreSQL copy",
+  "codeCommit": "bc4fa6e",
+  "functionalGroupsPassed": 9,
+  "functionalGroupsTotal": 9,
+  "overallAcceptance": "needs-followup",
+  "unresolvedIssues": [
+    {
+      "priority": "P2",
+      "code": "CATALOG_QUERY_LATENCY",
+      "status": "open",
+      "description": "真实目录约498万条关系时查询较慢；单次HTTP检索粳米40.437秒，独立SQL采样22.728秒。尚未进行生产配置或并发验收。"
+    },
+    {
+      "priority": "P2",
+      "code": "VOLCANO_CAPTION_OMITS_FDR",
+      "status": "open",
+      "description": "图注仅标示P阈值，未说明存在FDR时按FDR优先筛选；逐点选中状态及数值核对正确。样例中37行通过log2FC/P但未通过FDR。"
+    }
+  ],
+  "externalModelsAndResearchProvidersTested": false,
+  "productionConcurrencyOrDeploymentTested": false,
+  "syntheticProteomicsIsExperiment": false,
+  "taskIds": {
+    "proteomics": 45,
+    "rRender": [
+      46,
+      47,
+      48
+    ],
+    "catalogue": 50,
+    "catalogueR": 51,
+    "network": 52,
+    "scientist": 53,
+    "rawMatrix": 54
+  },
+  "checks": [
+    {
+      "name": "real-R-artifacts-redraw",
+      "passed": true,
+      "seconds": 5.432,
+      "details": {
+        "newRExecutions": [
+          {
+            "taskId": 46,
+            "chartKey": "proteomics_volcano",
+            "parentTaskId": 45,
+            "inputSha256": "af1e69c016f0c3b01badd5062696705b763135b4ee45c35a1a3939fa45b05790",
+            "rendererVersion": "r-viz-0.4.3",
+            "artifacts": [
+              {
+                "id": 49,
+                "format": "svg",
+                "sha256": "83217b884488e963632b689e72b9798f003f817109f4401672e3bcb0573ac5fa",
+                "byteSize": 163095,
+                "filename": "task-45-proteomics_volcano-af1e69c016f0.svg",
+                "mimeType": "image/svg+xml",
+                "downloadUrl": "/api/v1/research/analysis-artifacts/49/download/",
+                "rendererVersion": "r-viz-0.4.3"
+              },
+              {
+                "id": 50,
+                "format": "pdf",
+                "sha256": "69b6a0efc33af351b807793baa5d10148ddfcdf2581b698c74c6a39ee2b4228e",
+                "byteSize": 997406,
+                "filename": "task-45-proteomics_volcano-af1e69c016f0.pdf",
+                "mimeType": "application/pdf",
+                "downloadUrl": "/api/v1/research/analysis-artifacts/50/download/",
+                "rendererVersion": "r-viz-0.4.3"
+              },
+              {
+                "id": 51,
+                "format": "png",
+                "sha256": "bcbd8fc0e2021ddc589301f35e633a2295097c996423e8e88bd91a9eab8d4fc6",
+                "byteSize": 312884,
+                "filename": "task-45-proteomics_volcano-af1e69c016f0.png",
+                "mimeType": "image/png",
+                "downloadUrl": "/api/v1/research/analysis-artifacts/51/download/",
+                "rendererVersion": "r-viz-0.4.3"
+              },
+              {
+                "id": 52,
+                "format": "html",
+                "sha256": "844303c731f60ddcbf42d388c807211cbee823e766ef55290249a5426c28efaa",
+                "byteSize": 1540826,
+                "filename": "task-45-proteomics_volcano-af1e69c016f0.html",
+                "mimeType": "text/html; charset=utf-8",
+                "downloadUrl": "/api/v1/research/analysis-artifacts/52/download/",
+                "rendererVersion": "r-viz-0.4.3"
+              }
+            ],
+            "privateDownloadsMatch": true
+          },
+          {
+            "taskId": 47,
+            "chartKey": "proteomics_summary",
+            "parentTaskId": 45,
+            "inputSha256": "d315c1b96bf80d658a0b26a23ed00f528ee840fa276445f69477a53b90b0be60",
+            "rendererVersion": "r-viz-0.4.3",
+            "artifacts": [
+              {
+                "id": 53,
+                "format": "svg",
+                "sha256": "32d113344cde2bba7ce83df59a78cdb780ac18eb8c9d436693aea4d3dabab352",
+                "byteSize": 5827,
+                "filename": "task-45-proteomics_summary-d315c1b96bf8.svg",
+                "mimeType": "image/svg+xml",
+                "downloadUrl": "/api/v1/research/analysis-artifacts/53/download/",
+                "rendererVersion": "r-viz-0.4.3"
+              },
+              {
+                "id": 54,
+                "format": "pdf",
+                "sha256": "356ea69363837da0d46ebd7624da80e048d7a820df811a11c413a3fe4df0c5db",
+                "byteSize": 117029,
+                "filename": "task-45-proteomics_summary-d315c1b96bf8.pdf",
+                "mimeType": "application/pdf",
+                "downloadUrl": "/api/v1/research/analysis-artifacts/54/download/",
+                "rendererVersion": "r-viz-0.4.3"
+              },
+              {
+                "id": 55,
+                "format": "png",
+                "sha256": "93fb5feb3f8e97f30b557090ea61ce973314daa9ccba4cd15e73f2f425e9f39a",
+                "byteSize": 104236,
+                "filename": "task-45-proteomics_summary-d315c1b96bf8.png",
+                "mimeType": "image/png",
+                "downloadUrl": "/api/v1/research/analysis-artifacts/55/download/",
+                "rendererVersion": "r-viz-0.4.3"
+              },
+              {
+                "id": 56,
+                "format": "html",
+                "sha256": "449d0006ed6e23997dee4484df6d16cb9fea988d6f302c3ad5be5c5eefe50c37",
+                "byteSize": 1201773,
+                "filename": "task-45-proteomics_summary-d315c1b96bf8.html",
+                "mimeType": "text/html; charset=utf-8",
+                "downloadUrl": "/api/v1/research/analysis-artifacts/56/download/",
+                "rendererVersion": "r-viz-0.4.3"
+              }
+            ],
+            "privateDownloadsMatch": true
+          },
+          {
+            "taskId": 48,
+            "chartKey": "proteomics_volcano",
+            "parentTaskId": 45,
+            "inputSha256": "af1e69c016f0c3b01badd5062696705b763135b4ee45c35a1a3939fa45b05790",
+            "rendererVersion": "r-viz-0.4.3",
+            "artifacts": [
+              {
+                "id": 57,
+                "format": "svg",
+                "sha256": "83217b884488e963632b689e72b9798f003f817109f4401672e3bcb0573ac5fa",
+                "byteSize": 163095,
+                "filename": "task-45-proteomics_volcano-af1e69c016f0.svg",
+                "mimeType": "image/svg+xml",
+                "downloadUrl": "/api/v1/research/analysis-artifacts/57/download/",
+                "rendererVersion": "r-viz-0.4.3"
+              },
+              {
+                "id": 58,
+                "format": "pdf",
+                "sha256": "0f1da2c25f3776b1cdc89752049aa9b173eb6bdfba3b46e32a986294439cf7f1",
+                "byteSize": 997404,
+                "filename": "task-45-proteomics_volcano-af1e69c016f0.pdf",
+                "mimeType": "application/pdf",
+                "downloadUrl": "/api/v1/research/analysis-artifacts/58/download/",
+                "rendererVersion": "r-viz-0.4.3"
+              },
+              {
+                "id": 59,
+                "format": "png",
+                "sha256": "bcbd8fc0e2021ddc589301f35e633a2295097c996423e8e88bd91a9eab8d4fc6",
+                "byteSize": 312884,
+                "filename": "task-45-proteomics_volcano-af1e69c016f0.png",
+                "mimeType": "image/png",
+                "downloadUrl": "/api/v1/research/analysis-artifacts/59/download/",
+                "rendererVersion": "r-viz-0.4.3"
+              },
+              {
+                "id": 60,
+                "format": "html",
+                "sha256": "1e1219bc5dc9f92ab8db0ebe4a62e89cc019c2c41f30cfbd5d9a863e9e06b8d1",
+                "byteSize": 1540826,
+                "filename": "task-45-proteomics_volcano-af1e69c016f0.html",
+                "mimeType": "text/html; charset=utf-8",
+                "downloadUrl": "/api/v1/research/analysis-artifacts/60/download/",
+                "rendererVersion": "r-viz-0.4.3"
+              }
+            ],
+            "privateDownloadsMatch": true
+          }
+        ],
+        "duplicateReused": 46,
+        "previousArtifactsRetained": true
+      }
+    },
+    {
+      "name": "invalid-row-archive-audit",
+      "passed": true,
+      "seconds": 5.756,
+      "details": {
+        "datasetId": 8,
+        "taskId": 49,
+        "qc": {
+          "inputRowCount": 4,
+          "excludedRowCount": 2,
+          "selectedRowCount": 2,
+          "rowsWithIdentifier": 4,
+          "unmappedLabelCount": 2,
+          "databaseMappedCount": 0,
+          "excludedReasonCounts": {
+            "invalid_log2fc": 1,
+            "fdr_above_threshold": 2,
+            "invalid_numeric_value": 1,
+            "log2fc_below_threshold": 1
+          },
+          "unverifiedSymbolCount": 0,
+          "missingIdentifierCount": 0,
+          "volcanoEligibleRowCount": 3,
+          "duplicateIdentifierCount": 0,
+          "invalidNumericValueRowCount": 1,
+          "ambiguousNumericFormatRowCount": 0
+        },
+        "archiveKeepsOriginal": true,
+        "restorePreservesOwner": true,
+        "auditActions": [
+          "created",
+          "archived",
+          "restored"
+        ]
+      }
+    },
+    {
+      "name": "real-catalogue-complete-snapshot-R",
+      "passed": true,
+      "seconds": 152.028,
+      "details": {
+        "herb": "粳米",
+        "realCatalogue": true,
+        "searchSeconds": 40.437,
+        "previewSha256": "1cb1b9dcb0ede56844e91be4b8c5a12666165a8e85730767b66861c4f1e10914",
+        "snapshot": {
+          "taskId": 50,
+          "counts": {
+            "queries": 1,
+            "entities": 378,
+            "evidenceRecords": 894
+          },
+          "sha256": "8115b59c56c7e5057bbbafea6811dfc134c7e6fc1a7e60bbfbc4fa6db960ae62",
+          "allTableHashesMatch": true,
+          "crossAccountDenied": true
+        },
+        "rGraph": {
+          "taskId": 51,
+          "chartKey": "evidence_network",
+          "parentTaskId": 50,
+          "inputSha256": "82a51e3202224874a9534dec511e939ebac2bb2fad8c60b946c3f3f9a227d104",
+          "rendererVersion": "r-viz-0.4.3",
+          "artifacts": [
+            {
+              "id": 61,
+              "format": "svg",
+              "sha256": "24d43bab975218dd382a400a5ecc43220513aeb851146e09b8976bb5c7757cde",
+              "byteSize": 37122,
+              "filename": "task-50-evidence_network-82a51e320222.svg",
+              "mimeType": "image/svg+xml",
+              "downloadUrl": "/api/v1/research/analysis-artifacts/61/download/",
+              "rendererVersion": "r-viz-0.4.3"
+            },
+            {
+              "id": 62,
+              "format": "pdf",
+              "sha256": "5072d41c9fa4ea2559b380d30e1549690cfaeeb235ab50b98356db1bcd689b06",
+              "byteSize": 971568,
+              "filename": "task-50-evidence_network-82a51e320222.pdf",
+              "mimeType": "application/pdf",
+              "downloadUrl": "/api/v1/research/analysis-artifacts/62/download/",
+              "rendererVersion": "r-viz-0.4.3"
+            },
+            {
+              "id": 63,
+              "format": "png",
+              "sha256": "db6e49d417918ad47a35a54beb84aa41458e7a00b5df2cfc4756d95053121c2a",
+              "byteSize": 665575,
+              "filename": "task-50-evidence_network-82a51e320222.png",
+              "mimeType": "image/png",
+              "downloadUrl": "/api/v1/research/analysis-artifacts/63/download/",
+              "rendererVersion": "r-viz-0.4.3"
+            },
+            {
+              "id": 64,
+              "format": "html",
+              "sha256": "6e11323b33a899aa6532224b7838f8fa1ed4224ad92cbd67908f2a2ab6cd00e8",
+              "byteSize": 1336372,
+              "filename": "task-50-evidence_network-82a51e320222.html",
+              "mimeType": "text/html; charset=utf-8",
+              "downloadUrl": "/api/v1/research/analysis-artifacts/64/download/",
+              "rendererVersion": "r-viz-0.4.3"
+            }
+          ],
+          "privateDownloadsMatch": true
+        },
+        "displayNodes": 80,
+        "displayEdges": 121,
+        "stalePreviewRejected": true
+      }
+    },
+    {
+      "name": "network-and-scientist-snapshots",
+      "passed": true,
+      "seconds": 135.985,
+      "details": {
+        "network": {
+          "taskId": 52,
+          "counts": {
+            "targets": 0,
+            "entities": 8704,
+            "herbLinks": 447,
+            "targetSources": 0,
+            "diseaseTargets": 8621,
+            "evidenceRecords": 18101,
+            "diseaseHerbLinks": 8586,
+            "directDiseaseHerbLinks": 0
+          },
+          "sha256": "6046269c730e92cd1510f5129b25af88cef9650a31a60b0bbb6c5b16a498fe2e",
+          "allTableHashesMatch": true,
+          "crossAccountDenied": true
+        },
+        "scientist": {
+          "taskId": 53,
+          "counts": {
+            "targets": 0,
+            "entities": 8704,
+            "herbLinks": 447,
+            "herbSummaries": 3,
+            "targetSources": 0,
+            "diseaseTargets": 8621,
+            "reportSections": 12,
+            "evidenceRecords": 18101,
+            "diseaseHerbLinks": 8586,
+            "directDiseaseHerbLinks": 0
+          },
+          "sha256": "2cb13d33b4a290aa19ffa87ef51ece85dc7beaad50bf76a5199a5394f9faa649",
+          "allTableHashesMatch": true,
+          "crossAccountDenied": true
+        },
+        "scientistCounts": {
+          "component_count": 35,
+          "intersection_count": 0,
+          "disease_target_count": 8325,
+          "formula_target_count": 340,
+          "direct_association_count": 0,
+          "top_intersection_records": [],
+          "top_intersection_targets": [],
+          "representative_components": [
+            "Vitamin D3",
+            "Lutein",
+            "D-Ascorbic Acid",
+            "Astaxanthin",
+            "Cholesterol",
+            "Estra-1,3,5(10)-Triene-3,17-Diol, (17-Alpha)-",
+            "QSPL 173",
+            "Squalene",
+            "STIGMASTEROL",
+            "(3S,8S,9S,14S,17R)-17-[(2R,5R)-5,6-Dimethylheptan-2-Yl]-10,13-Dimethyl-2,3,4,7,8,9,11,12,14,15,16,17-Dodecahydro-1H-Cyclopenta[A]Phenanthren-3-Ol",
+            "Beta-Carotene",
+            "L-Ascorbic Acid",
+            "Ferulic Acid",
+            "6-O-E-Feruloylajugol",
+            "Lutein",
+            "amylum",
+            "campesterol",
+            "squalene",
+            "stigmasterol",
+            "Squamatic acid",
+            "vitamin c",
+            "ferulic acid",
+            "Ferulic Acid",
+            "Sinapinate",
+            "Protocatechuic Acid",
+            "Chlorogenic Acid",
+            "Paraben",
+            "Coumaric Acid",
+            "Atrazine",
+            "Vanillic Acid"
+          ],
+          "intersection_display_truncated": false
+        },
+        "modelsDeferred": true
+      }
+    },
+    {
+      "name": "case-and-admin-boundaries",
+      "passed": true,
+      "seconds": 0.229,
+      "details": {
+        "caseId": 2,
+        "synthetic": true,
+        "auditActions": [
+          "created",
+          "archived",
+          "restored"
+        ],
+        "researcherAdminApiDenied": true,
+        "adminStatusReadable": true,
+        "caseModelInferenceDeferred": true
+      }
+    },
+    {
+      "name": "proteomics-upload-analysis-exports",
+      "passed": true,
+      "seconds": 1.111,
+      "details": {
+        "datasetId": 7,
+        "taskId": 45,
+        "synthetic": true,
+        "rows": 1200,
+        "selected": 306,
+        "originalRetained": true,
+        "crossAccountDenied": true,
+        "exports": {
+          "csv": {
+            "bytes": 191338,
+            "sha256": "cdcd4206675a46209f9aa91fc266c8b17193d68f82a64b1a1e012fa15e88a392"
+          },
+          "xlsx": {
+            "bytes": 95725,
+            "sha256": "f5d8757e50f16ab4ec442b4f69f415385b9d4d3afd30dbf27f92fb9aa64a0f85"
+          },
+          "pdf": {
+            "bytes": 43364,
+            "sha256": "46bd2613c273bc60026a3ce3b8b6ed31675477110ed5cf98356f164efccc7e7f"
+          }
+        }
+      }
+    },
+    {
+      "name": "raw-matrix-statistics-and-R",
+      "passed": true,
+      "seconds": 6.509,
+      "details": {
+        "synthetic": true,
+        "datasetId": 9,
+        "taskId": 54,
+        "inputRows": 5,
+        "testedRows": 3,
+        "selectedRows": 2,
+        "independentExpected": {
+          "SYN_UP": {
+            "log2fc": 2.0666666666666664,
+            "p": 0.00024542004458560056,
+            "fdr": 0.00036813006687840086
+          },
+          "SYN_DOWN": {
+            "log2fc": -2.9333333333333327,
+            "p": 1.9375834637426735e-05,
+            "fdr": 5.8127503912280204e-05
+          },
+          "SYN_UNCHANGED": {
+            "log2fc": 0.0,
+            "p": 1.0,
+            "fdr": 1.0
+          }
+        },
+        "missingAndAmbiguousRowsRetainedExcluded": true,
+        "missingDesignRejected": true,
+        "realR": {
+          "taskId": 55,
+          "chartKey": "proteomics_volcano",
+          "parentTaskId": 54,
+          "inputSha256": "3c7c76207d89fcf1184697539d3e8330341d2b252ab7ebf6c194135b8e2ad826",
+          "rendererVersion": "r-viz-0.4.3",
+          "artifacts": [
+            {
+              "id": 65,
+              "format": "svg",
+              "sha256": "c5492f2dc1f829a647e1e0ac47cf6c90357757b64aebd6b3b6af74a75b111097",
+              "byteSize": 8552,
+              "filename": "task-54-proteomics_volcano-3c7c76207d89.svg",
+              "mimeType": "image/svg+xml",
+              "downloadUrl": "/api/v1/research/analysis-artifacts/65/download/",
+              "rendererVersion": "r-viz-0.4.3"
+            },
+            {
+              "id": 66,
+              "format": "pdf",
+              "sha256": "b91305c04f669aa1fdeec93fc2259c6b77aa4fe95a7d64c7f50196e793f0972e",
+              "byteSize": 121449,
+              "filename": "task-54-proteomics_volcano-3c7c76207d89.pdf",
+              "mimeType": "application/pdf",
+              "downloadUrl": "/api/v1/research/analysis-artifacts/66/download/",
+              "rendererVersion": "r-viz-0.4.3"
+            },
+            {
+              "id": 67,
+              "format": "png",
+              "sha256": "64f1183073e2d5150f6c71fa9dd072c7711050a75a99702ea5d7e43511297fb1",
+              "byteSize": 133343,
+              "filename": "task-54-proteomics_volcano-3c7c76207d89.png",
+              "mimeType": "image/png",
+              "downloadUrl": "/api/v1/research/analysis-artifacts/67/download/",
+              "rendererVersion": "r-viz-0.4.3"
+            },
+            {
+              "id": 68,
+              "format": "html",
+              "sha256": "f78ea72bf6f1ccf3ef36c0a4cf89c2c1aef2aafac30394346a7f4df835ebedf2",
+              "byteSize": 1202919,
+              "filename": "task-54-proteomics_volcano-3c7c76207d89.html",
+              "mimeType": "text/html; charset=utf-8",
+              "downloadUrl": "/api/v1/research/analysis-artifacts/68/download/",
+              "rendererVersion": "r-viz-0.4.3"
+            }
+          ],
+          "privateDownloadsMatch": true
+        }
+      }
+    },
+    {
+      "name": "scientific-result-boundaries",
+      "passed": true,
+      "seconds": 2.35,
+      "details": {
+        "networkAndScientistCountsMatch": true,
+        "evidenceForeignKeys": {
+          "50": {
+            "rows": 894,
+            "allSourceEntityAndReleaseIdsMatch": true
+          },
+          "52": {
+            "rows": 18101,
+            "allSourceEntityAndReleaseIdsMatch": true
+          },
+          "53": {
+            "rows": 18101,
+            "allSourceEntityAndReleaseIdsMatch": true
+          }
+        },
+        "all1200RPointsMatchUploadAndSelection": true,
+        "missingExternalEvidenceNotFabricated": {
+          "proteomics_go_kegg_enrichment": "VALIDATION_ERROR",
+          "ppi_network": "VALIDATION_ERROR",
+          "reactome_enrichment": "VALIDATION_ERROR"
+        },
+        "captionIssue": {
+          "subtitle": "筛选阈值：|log2FC| ≥ 1，P ≤ 0.05；展示 1200/1200 条有效统计结果",
+          "actualFdrThreshold": 0.05,
+          "pPassButFdrFail": 37
+        }
+      }
+    },
+    {
+      "name": "historical-integrity",
+      "passed": true,
+      "seconds": 0.665,
+      "details": {
+        "historical": {
+          "core_analysistask": {
+            "historicalUnchanged": 44,
+            "newRecords": 11
+          },
+          "core_researchdataset": {
+            "historicalUnchanged": 6,
+            "newRecords": 3
+          },
+          "core_visualizationartifact": {
+            "historicalUnchanged": 48,
+            "newRecords": 20
+          }
+        },
+        "catalogueEntities": 77872,
+        "catalogueRelations": 4982774,
+        "catalogueWriteStats": [
+          [
+            "core_evidencerelation",
+            4982774,
+            0,
+            0
+          ],
+          [
+            "core_knowledgeentity",
+            77872,
+            77872,
+            0
+          ]
+        ]
+      }
+    }
+  ],
+  "browserPng": {
+    "sha256": "bcbd8fc0e2021ddc589301f35e633a2295097c996423e8e88bd91a9eab8d4fc6",
+    "matchesServerArtifact": true
+  },
+  "localEvidence": {
+    "verify_http.py": "5ee4710e27b01ba3c7eee22d4dab2e13fcfc3a8b76b687740fdf0e0b20e959e4",
+    "http-acceptance.json": "e818ce86dd6cdedbc16d23159afabf45cb2b9da4b79b496629ffd8a67ea7879f",
+    "http-acceptance-first-run.json": "6d78d0d3582e4282756fcfac14362550dfbba8cdb45adef5507edf289a68287a",
+    "http-acceptance.log": "b770fa956e4038ef65e855d6a2511f15fe27396a49d53e3b55f3f25167a7ba52",
+    "http-export-recheck.log": "e39eda658224a3e960e6662302106aa020277a0c9b85b0bf0c26fb7851c90905",
+    "http-supplemental.log": "0b33f7b54c0b4c739fa5ca47b3fb068e8d27bf2d1c1a52aded94b2f582d22211",
+    "catalog-query-profile.json": "22ada74bca4d09f9be94e0409412f241cd049c1ded12d399edda4e821e849b1c",
+    "synthetic-input-provenance.json": "e7848f772a8fce542a1b09cf4ecab7911819efdf20517df8dcaf490d95e1afdd",
+    "historical-before.json": "54f356702a11fa295872b316863026c381c0190fee603f94b09c1a4cd7c15e7c",
+    "ui-live-r-volcano-expanded.jpg": "05f553c8e8329e67c8faeebdc148f98bbd8c07412cefcf6858be5ce79a7e9d05",
+    "worker.log": "4e05bbb9235e3155bb32d226d97dc5109d244cfcbd109d0e4da3eee53b732010"
+  }
+}
