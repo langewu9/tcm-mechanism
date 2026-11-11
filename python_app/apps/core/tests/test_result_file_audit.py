@@ -7,15 +7,17 @@ import tempfile
 from unittest.mock import patch
 
 from django.core.management import call_command
+from django.core.management.base import CommandError
+from django.db import connection, transaction
 from django.test import override_settings
-from rest_framework.test import APITestCase
+from rest_framework.test import APITransactionTestCase
 
 from apps.core.models import AnalysisTask, ResearchDataset, VisualizationArtifact
 from apps.core.services.result_file_audit import audit_result_files
 from . import test_artifact_integrity as fixtures
 
 
-class ResultFileAuditTests(APITestCase):
+class ResultFileAuditTests(APITransactionTestCase):
     # Share only the synthetic setup, not the download tests themselves.
     setUp = fixtures.ArtifactIntegrityTests.setUp
     publish_manifest = fixtures.ArtifactIntegrityTests.publish_manifest
@@ -138,3 +140,11 @@ class ResultFileAuditTests(APITestCase):
         for kwargs in [{"max_records": 0}, {"max_bytes": -1}, {"max_findings": True}, {"max_files": 1000001}]:
             with self.assertRaises(ValueError):
                 audit_result_files(**kwargs)
+
+    def test_postgres_command_rejects_an_existing_transaction_explicitly(self):
+        if connection.vendor != "postgresql":
+            self.skipTest("PostgreSQL transaction isolation")
+        with transaction.atomic():
+            AnalysisTask.objects.exists()
+            with self.assertRaisesMessage(CommandError, "outside an existing transaction"):
+                call_command("audit_result_files", stdout=StringIO())

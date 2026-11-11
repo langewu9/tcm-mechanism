@@ -83,11 +83,14 @@ class CompleteEvidenceTests(TransactionTestCase):
         self.assertEqual(legacy.status_code, 400)
         catalog = self.queue()
         self.execute(catalog)
-        self.assertEqual(catalog.result["snapshot"]["tables"]["evidenceRecords"]["count"], 8010)
+        # The softcopyright catalogue also retains the linked disease layer.
+        expected_ids = {record.pk for record in records} | set(EvidenceRelation.objects.filter(
+            relation_type="disease_target").values_list("pk", flat=True))
+        self.assertEqual(catalog.result["snapshot"]["tables"]["evidenceRecords"]["count"], len(expected_ids))
         self.assertTrue(catalog.result["limits"]["graphTruncated"])
         self.assertFalse(catalog.result["limits"]["queryTruncated"])
         full_ids = set(catalog.snapshot_rows.filter(table="evidenceRecords").values_list("payload__id", flat=True))
-        self.assertEqual(full_ids, {record.pk for record in records})
+        self.assertEqual(full_ids, expected_ids)
         network = self.queue("network_pharmacology")
         self.execute(network)
         self.assertEqual(network.result["summary"]["herbTargetCount"], 4005)
@@ -117,11 +120,11 @@ class CompleteEvidenceTests(TransactionTestCase):
         for page in (1, 2, 3):
             response = self.client.get(self.base(task) + f"/snapshot-rows/?page={page}&page_size=20")
             self.assertEqual(response.status_code, 200)
-            self.assertEqual(response.data["count"], 50)
+            self.assertEqual(response.data["count"], 51)
             pages.extend(response.data["results"])
             ids.update(row["payload"]["id"] for row in response.data["results"])
-        self.assertEqual(len(ids), 50)
-        self.assertEqual([row["ordinal"] for row in pages], list(range(1, 51)))
+        self.assertEqual(ids, set(EvidenceRelation.objects.values_list("pk", flat=True)))
+        self.assertEqual([row["ordinal"] for row in pages], list(range(1, 52)))
         response = self.client.get(self.base(task) + "/snapshot-export/")
         lines = [json.loads(line) for line in b"".join(response.streaming_content).decode().splitlines()]
         manifest = lines[0]

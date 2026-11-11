@@ -8,7 +8,7 @@ import unicodedata
 from collections import defaultdict
 
 from django.db import transaction
-from django.db.models import Case, Count, Exists, IntegerField, OuterRef, Q, Value, When, Subquery
+from django.db.models import Case, Count, IntegerField, Q, Value, When, Subquery
 from django.utils import timezone
 
 from apps.core.models import AnalysisTask, EvidenceRelation, KnowledgeEntity, MedicalCase, MedicalCaseCandidate
@@ -140,17 +140,27 @@ def _bounded_network(nodes, links, focus_ids):
         ))
 
     selected_edges, selected_edge_ids = [], set()
+    def add_edge(edge):
+        identity = (edge['source'], edge['target'], edge.get('relation'), edge.get('relationId'),
+                    edge.get('sourceSlug'), edge.get('sourceVersion'), edge.get('sourceRecordId'))
+        if identity in selected_edge_ids or len(selected_edges) >= NETWORK_EDGE_LIMIT:
+            return False
+        selected_edge_ids.add(identity)
+        selected_edges.append(edge)
+        return True
     for group, limit in NETWORK_EDGE_GROUP_LIMITS.items():
         group_count = 0
         for edge in buckets[group]:
             if group_count >= limit or len(selected_edges) >= NETWORK_EDGE_LIMIT:
                 break
-            identity = (edge['source'], edge['target'], edge.get('relation'), edge.get('sourceSlug'), edge.get('sourceRecordId'))
-            if identity in selected_edge_ids:
-                continue
-            selected_edge_ids.add(identity)
-            selected_edges.append(edge)
-            group_count += 1
+            group_count += int(add_edge(edge))
+    # Group quotas reserve space for each layer; use spare capacity for real
+    # evidence from the remaining layers, just as the node projection does.
+    for edges in buckets.values():
+        for edge in edges:
+            if len(selected_edges) >= NETWORK_EDGE_LIMIT:
+                break
+            add_edge(edge)
     return list(shown_nodes.values()), selected_edges
 
 
@@ -187,6 +197,8 @@ def _evidence_record(relation: EvidenceRelation) -> dict:
         "evidenceType": relation.evidence_type,
         "sourceRecordId": relation.source_record_id,
         "relationType": relation.relation_type,
+        "relationId": relation.pk,
+        "sourceReleaseId": relation.source_release_id,
         "score": float(relation.score) if relation.score is not None else None,
     }
 
@@ -224,18 +236,7 @@ def _complete_identity_inputs(herb_ids, disease_ids, formula_ids, selected_herb_
     compound_ids = herb_rows.order_by().values('object_id').distinct()
     target_rows = visible.filter(subject_id__in=Subquery(compound_ids), relation_type__in=COMPOUND_TARGET_TYPES,
         object__entity_type__in=['gene', 'protein'])
-    matching_herb_row = herb_rows.filter(
-        source_release_id=OuterRef('source_release_id'),
-        object_id=OuterRef('subject_id'),
-        metadata__sourceRowId=OuterRef('metadata__sourceRowId'),
-    ).exclude(metadata__sourceRowId__isnull=True)
-    target_rows = target_rows.annotate(
-        _matching_legacy_herb_row=Exists(matching_herb_row),
-    ).filter(
-        Q(source_release__metadata__connector__isnull=True)
-        | ~Q(source_release__metadata__connector='sqlite-herb-compound-target')
-        | (Q(metadata__sourceRowId__isnull=False) & Q(_matching_legacy_herb_row=True))
-    )
+    target_rows = supported_target_queryset(target_rows, herb_queryset=herb_rows)
     disease_rows = visible.filter(subject_id__in=disease_ids, relation_type__in=DISEASE_TARGET_TYPES,
         object__entity_type__in=['gene', 'protein'])
     reviewed_disease_rows = _reviewed_disease_target_rows(disease_rows)
@@ -644,26 +645,32 @@ def build_network_pharmacology(
         for entity_id in entity_ids:
             herb_item = herb_evidence.get(entity_id, {})
             disease_item = disease_evidence.get(entity_id, {})
+            source_target = {"targetEntityId": entity_id, "targetStableId": target_entities[entity_id].stable_id}
             herb_data["herbs"].update(herb_item.get("herbs", set()))
             herb_data["compounds"].update(herb_item.get("compounds", set()))
-            herb_data["sources"].extend(herb_item.get("sources", []))
+            herb_data["sources"].extend({**source, **source_target} for source in herb_item.get("sources", []))
             herb_data["count"] += herb_item.get("count", 0)
             disease_data["diseases"].update(disease_item.get("diseases", set()))
             disease_data["herbs"].update(disease_item.get("herbs", set()))
-            disease_data["sources"].extend(disease_item.get("sources", []))
+            disease_data["sources"].extend({**source, **source_target} for source in disease_item.get("sources", []))
             disease_data["count"] += disease_item.get("count", 0)
             disease_data["directCount"] += disease_item.get("directCount", 0)
             pathways.update(pathway_by_target.get(entity_id, set()))
-            pathway_sources.extend(pathway_sources_by_target.get(entity_id, []))
+            pathway_sources.extend({**source, **source_target} for source in pathway_sources_by_target.get(entity_id, []))
         sources = herb_data["sources"] + disease_data["sources"] + pathway_sources
         first_target = entities[0]
         targets.append({
+            # Representative source identity for older consumers. Every
+            # original identity remains explicit when verified targets merge.
+            "entityId": first_target.pk,
+            "stableId": first_target.stable_id,
             "target": display_label,
             "normalizedTarget": display_label.strip().upper(),
             "matchType": "严格交集" if identity_key in strict_identity_keys else "疾病—中药直接关联",
             "canonicalTargetKey": identity["key"] if identity else None,
             "identityStatus": "verified" if identity else "source_record_only",
             "sourceEntityIds": entity_ids,
+            "sourceEntityStableIds": [entity.stable_id for entity in entities],
             "targetName": (first_target.metadata or {}).get("name", ""),
             "genes": display_label if identity else (first_target.metadata or {}).get("symbol", first_target.label),
             "pathways": sorted(pathways),
@@ -673,7 +680,7 @@ def build_network_pharmacology(
             "herbEvidenceCount": herb_data["count"],
             "diseaseEvidenceCount": disease_data["count"],
             "directEvidenceCount": disease_data["directCount"],
-            "sources": sources[:30],
+            "sources": sources if complete else sources[:30],
         })
 
     # Main builds both charts from candidates rather than every herb target.
@@ -720,6 +727,7 @@ def build_network_pharmacology(
         "matchedDiseases": [item.label for item in diseases],
         "unmatchedDiseases": [] if diseases else [disease_query.strip()],
         "diseaseResolution": disease_resolution,
+        "expandedDiseaseQueries": disease_resolution["resolvedTerms"],
         "diseaseTargetCount": len(set(disease_entities_by_identity) | direct_identity_keys),
         "herbTargetCount": len(herb_entities_by_identity),
         "strictIntersectionCount": len(strict_identity_keys),
@@ -791,6 +799,7 @@ def build_network_pharmacology(
         source_id = add_node(relation.subject)
         target_id = add_node(relation.object)
         links.append({
+            "relationId": relation.pk,
             "source": source_id,
             "target": target_id,
             "relation": relation.relation_type,
@@ -844,11 +853,13 @@ def build_network_pharmacology(
         if node.get('identityStatus') == 'verified':
             node['targetOverlap'] = node['id'] in displayed_shared_target_ids
 
-    raw_limit = min(row_limit, RAW_EXPORT_LIMIT)
+    raw_limit = row_limit if complete else min(row_limit, RAW_EXPORT_LIMIT)
     raw, raw_truncated = _raw_side_evidence(
         herb_compound_relations, compound_target_relations, raw_disease_target_relations,
         herbs_by_stable_id=selected_herbs_by_stable_id, limit=raw_limit,
     )
+    if complete and any(raw_truncated.values()):
+        raise NetworkPharmacologyInputError("完整证据超过后台保护额度，请拆分查询；本次不会保存部分分析结果。")
     result = {
         "dataQuality": data_quality_notices(),
         "summary": summary,
@@ -860,14 +871,16 @@ def build_network_pharmacology(
             "rowLimit": raw_limit,
             "tablesTruncated": raw_truncated,
             "inputRelationsTruncated": relation_limits,
-            "structuralEvidencePolicy": "workbook_structure_one_representative_per_source; all_target_rows_retained; full_original_rows_in_source_records",
-            "structuralRowsCollapsed": any(
+            "structuralEvidencePolicy": ("all_original_rows_retained" if complete else
+                "workbook_structure_one_representative_per_source; all_target_rows_retained; full_original_rows_in_source_records"),
+            "structuralRowsCollapsed": not complete and any(
                 relation.relation_type in {"contains", "disease_herb"}
                 and relation.source_release.source.configuration.get("connector") == "local-workbooks-master"
                 for relation in herb_compound_relations + disease_target_relations
             ),
         },
-        "network": {"nodes": graph_nodes, "links": graph_links},
+        "network": {"nodes": graph_nodes, "links": graph_links,
+                    "totalNodeCount": len(nodes), "totalLinkCount": len(links)},
         "charts": {
             "overlap": [
                 {"name": "中药靶点", "value": len(herb_entities_by_identity)},
@@ -888,6 +901,7 @@ def build_network_pharmacology(
             "targetsTruncated": (not complete) and len(targets) > 1000,
             "linksTruncated": len(graph_links) < len(links),
             "networkNodesTruncated": len(graph_nodes) < len(nodes),
+            "nodesTruncated": len(graph_nodes) < len(nodes),
         },
     }
     if not persist:

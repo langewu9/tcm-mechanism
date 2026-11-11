@@ -32,6 +32,9 @@ def build_report(parameters, network, tables):
     }
     strict = [row for row in tables["targets"] if row["matchType"] == "严格交集"]
     assert len(strict) == counts["intersection_count"]
+    identity_merged = any(len(row.get("sourceEntityIds", [])) > 1 for row in tables["targets"])
+    authority_verified = bool(tables["targets"]) and all(
+        row.get("identityStatus") == "verified" for row in tables["targets"])
     compounds, herb_targets = defaultdict(set), defaultdict(set)
     for row in tables["evidenceRecords"]:
         if row["subjectType"] == "herb" and row["objectType"] == "compound":
@@ -52,8 +55,8 @@ def build_report(parameters, network, tables):
                 "sourceReleaseId", "sourceSlug", "sourceVersion", "sourceChecksumSha256")}
     uncertainties = [
         "本报告为本地来源证据整理和研究计划模板，没有调用模型或执行实验。",
-        "计数按来源实体身份统计；同名跨源记录未合并，严格交集为零不能证明没有共同生物学靶点。",
-        "靶点物种和规范编号需独立核实；来源声明、名称匹配不等于权威身份确认。",
+        "已核实的人类规范编号按靶点身份统计，其余记录保持来源实体身份；同名不构成合并依据，严格交集为零不能证明没有共同生物学靶点。",
+        "尚未核实的靶点物种和规范编号仍需独立核实；来源声明、名称匹配不等于权威身份确认。",
     ]
     if summary["unmatchedHerbs"]:
         uncertainties.append("未命中的组成输入：" + "、".join(summary["unmatchedHerbs"]))
@@ -65,7 +68,7 @@ def build_report(parameters, network, tables):
         uncertainties.append("本次没有可用来源关系，不能据此形成有数据支持的机制结论。")
     methods = [
         {"step": "本地疾病与方药证据检索", "status": "completed", "detail": "已保存本次启用来源记录及版本，完整证据由快照提供。"},
-        {"step": "来源身份层面的靶点交集", "status": "completed", "detail": "仅计算同一实体身份的严格交集；直接关联单独列出。"},
+        {"step": "来源及规范身份层面的靶点交集", "status": "completed", "detail": "使用同一来源实体或已核实的人类规范编号计算严格交集；直接关联单独列出，原始来源记录保留。"},
         {"step": "物种与权威编号核实", "status": "pending", "detail": "需要可追溯的权威参考版本和人工核对。"},
         {"step": "ChEMBL 活性补强", "status": "not_run", "detail": "本次未请求外部活性数据。"},
         {"step": "GO/KEGG、Reactome 或 STRING 分析", "status": "not_run", "detail": "本次没有执行富集或 PPI。"},
@@ -74,8 +77,8 @@ def build_report(parameters, network, tables):
     disease, question = parameters["disease"], parameters["question"]
     title = f"{'、'.join(formula)}与{disease}的本地来源证据及研究计划"
     abstract = (
-        f"围绕“{question}”整理本地目录。疾病侧有 {counts['disease_target_count']} 个来源靶点记录，"
-        f"方药侧有 {counts['formula_target_count']} 个来源靶点记录、{counts['component_count']} 个来源成分记录；"
+        f"围绕“{question}”整理本地目录。疾病侧有 {counts['disease_target_count']} 个靶点身份，"
+        f"方药侧有 {counts['formula_target_count']} 个靶点身份、{counts['component_count']} 个来源成分记录；"
         f"同一实体身份严格交集 {counts['intersection_count']} 个，直接关联 {counts['direct_association_count']} 个。"
         "这些是目录记录统计，不是实验结果或机制验证；未执行模型、外部检索、富集或实验。"
     )
@@ -99,7 +102,9 @@ def build_report(parameters, network, tables):
         "evidence": {"herb_summaries": herb_summaries, "relationCount": len(tables["evidenceRecords"])},
         "references": [references[key] for key in sorted(references)],
         "uncertainties": uncertainties, "model": None, "externalCalls": False,
-        "identityMerged": False, "authorityIdentityVerified": False,
+        "identityMerged": identity_merged, "authorityIdentityVerified": authority_verified,
+        "identityVerificationScope": "candidate_targets",
+        "identityReferenceReleaseId": network.get("targetIdentity", {}).get("releaseId"),
         "summary": {"question": question, "disease": disease, **counts},
         "networkSummary": summary,
     }

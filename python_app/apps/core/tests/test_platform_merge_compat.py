@@ -87,7 +87,9 @@ class PlatformMergeCompatibilityTests(TestCase):
         self.edge(self.disease, other_target, "disease_target", "disease:2")
         with patch("apps.core.services.network_pharmacology.compare_target_identities", return_value={}) as compare:
             _complete_identity_inputs({self.herb.pk}, {self.disease.pk}, set())
-        compare.assert_called_once_with({self.target.pk}, {other_target.pk})
+        compare.assert_called_once()
+        self.assertEqual(compare.call_args.args, ({self.target.pk}, {other_target.pk}))
+        self.assertEqual(set(compare.call_args.kwargs["profiles"]), {self.target.pk, other_target.pk})
 
     def test_case_retrieval_and_scientist_report_request_modes_both_remain_valid(self):
         cases = ResearchAssistantRequestSerializer(data={"question": "Retrieve cases", "entityIds": [],

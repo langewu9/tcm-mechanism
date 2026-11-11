@@ -17,6 +17,8 @@ class Command(BaseCommand):
         parser.add_argument("--max-bytes", type=int, default=2 * 1024**3)
 
     def handle(self, *args, **options):
+        if connection.vendor == "postgresql" and connection.in_atomic_block:
+            raise CommandError("Run this audit outside an existing transaction so a read-only repeatable snapshot can start before any query.")
         try:
             with transaction.atomic():
                 if connection.vendor == "postgresql":

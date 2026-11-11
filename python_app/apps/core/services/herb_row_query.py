@@ -23,27 +23,32 @@ class _IntegerSourceRow(Func):
                 f"AND ({expression} ->> 'sourceRowId') ~ '^-?[0-9]+$')", params * 2)
 
 
-def supported_target_queryset(queryset, herb_relations):
+def supported_target_queryset(queryset, herb_relations=None, *, herb_queryset=None):
     """Keep generic compound annotations or a selected legacy original row.
 
     Selected herb edge IDs bound the correlated EXISTS to the already-read
     scope. EXISTS cannot multiply target rows when several herbs support one
     annotation. The caller retains its original visibility checks and cap.
     """
-    compounds = {relation.object_id for relation in herb_relations}
-    if not compounds:
-        return queryset.none()
+    if herb_queryset is not None:
+        compounds = herb_queryset.order_by().values("object_id")
+        row_support = herb_queryset.alias(
+            _integer_source_row=_IntegerSourceRow(F("metadata")),
+        ).filter(_integer_source_row=True)
+    else:
+        herb_relations = list(herb_relations)
+        compounds = {relation.object_id for relation in herb_relations}
+        if not compounds:
+            return queryset.none()
+        selected_ids = [relation.pk for relation in herb_relations if _legacy_row(relation)[1] is not None]
+        row_support = queryset.model.objects.filter(pk__in=selected_ids)
     queryset = queryset.filter(subject_id__in=compounds).alias(
         _legacy_triple=Case(
             When(source_release__metadata__connector="sqlite-herb-compound-target", then=Value(True)),
             default=Value(False), output_field=BooleanField(),
         ),
     )
-    selected_ids = [relation.pk for relation in herb_relations if _legacy_row(relation)[1] is not None]
-    if not selected_ids:
-        return queryset.filter(_legacy_triple=False)
-    row_support = queryset.model.objects.filter(
-        pk__in=selected_ids,
+    row_support = row_support.filter(
         object_id=OuterRef("subject_id"),
         source_release_id=OuterRef("source_release_id"),
         metadata__sourceRowId=OuterRef("metadata__sourceRowId"),

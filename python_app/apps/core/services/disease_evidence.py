@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from django.db.models import Q
+from django.db.models import Count, Q, Subquery
 
 from apps.core.models import EvidenceRelation, KnowledgeEntity
 from .catalog_identity import exact_entity_queryset, structural_representatives
@@ -61,7 +61,7 @@ def _relation_record(relation: EvidenceRelation) -> dict:
     }
 
 
-def _visible_relations(disease_ids: set[int], *, limit=MAX_RELATIONS, complete=False) -> tuple[list[EvidenceRelation], bool]:
+def _visible_relation_queryset(disease_ids):
     queryset = EvidenceRelation.objects.filter(
         is_active=True,
         subject__is_active=True,
@@ -82,6 +82,24 @@ def _visible_relations(disease_ids: set[int], *, limit=MAX_RELATIONS, complete=F
         "object", "object__source_release", "object__source_release__source",
         "source_release", "source_release__source",
     )
+    return queryset
+
+
+def _full_preview_counts(disease_ids):
+    rows = structural_representatives(_visible_relation_queryset(disease_ids))
+    counts = rows.aggregate(relations=Count("pk"), targets=Count(
+        "object_id", distinct=True, filter=Q(relation_type__in=DISEASE_TARGET_TYPES)))
+    stable_ids = {value for value in rows.filter(relation_type="disease_herb_target").order_by().values_list(
+        "metadata__herbStableId", flat=True).distinct() if isinstance(value, str) and value}
+    herb_ids = rows.filter(relation_type=DISEASE_HERB_TYPE).order_by().values("object_id")
+    herbs = KnowledgeEntity.objects.filter(entity_type="herb", is_active=True).filter(
+        Q(pk__in=Subquery(herb_ids)) | Q(stable_id__in=stable_ids),
+    ).filter(Q(source_release__isnull=True) | Q(source_release__source__enabled=True)).count()
+    return {**counts, "links": counts["relations"], "herbs": herbs}
+
+
+def _visible_relations(disease_ids: set[int], *, limit=MAX_RELATIONS, complete=False) -> tuple[list[EvidenceRelation], bool]:
+    queryset = _visible_relation_queryset(disease_ids)
 
     ordering = (
         "subject__label", "subject__stable_id", "object__label", "object__stable_id",
@@ -244,8 +262,10 @@ def search_disease_evidence(query: str, *, relation_limit=None, match_limit=None
             "relations": len(relations),
         },
         "truncated": truncated,
-        "limits": {"maxMatches": match_limit, "maxRelations": relation_limit},
+        "limits": {"maxMatches": match_limit, "maxRelations": relation_limit, "returnedRelations": len(relations)},
     }
+    if relations_truncated and not complete:
+        result["counts"].update(_full_preview_counts({entity.pk for entity in matches}))
     # Bind the preview not only to display strings but also to real row/entity
     # identities and their source assertions. No live catalogue lookup on export.
     entities = {item.pk: item for item in [*matches, *herbs_by_id.values(), *targets_by_id.values()]}

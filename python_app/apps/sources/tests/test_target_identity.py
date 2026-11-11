@@ -237,6 +237,34 @@ class TargetIdentityIntegrationTests(TestCase):
         self.gene.label='new label';self.gene.save();self.apply();task.refresh_from_db()
         self.assertEqual(task.result,saved)
 
+    def test_complete_snapshot_keeps_original_ids_when_verified_targets_merge(self):
+        from apps.core.models import AnalysisTask
+        from apps.core.services.complete_evidence import _network_data
+        from apps.core.services.scientist_report import build_report
+        self.apply()
+        herb=self.entity('herb','snapshot-herb','snapshot-herb')
+        compound=self.entity('compound','snapshot-compound','snapshot-compound')
+        disease=self.entity('disease','snapshot-disease','snapshot-disease')
+        expected={}
+        for index,(subject,obj,kind,target) in enumerate([
+            (herb,compound,'contains',self.gene),
+            (compound,self.gene,'targets',self.gene),
+            (disease,self.protein,'disease_target',self.protein),
+        ]):
+            edge=EvidenceRelation.objects.create(source_release=self.release,source_record_id=f'snapshot:{index}',
+                subject=subject,object=obj,relation_type=kind,evidence_type='fixture')
+            expected[edge.pk]=(target.pk,target.stable_id)
+        parameters={'herb':herb.label,'disease':disease.label,'formulaHerbs':[herb.label],
+                    'question':'Synthetic identity provenance','focus':'source identities'}
+        result,tables=_network_data(AnalysisTask(owner=self.user,input_parameters=parameters),100)
+        sources=list(tables['targetSources'])
+        self.assertEqual({row['relationId']:(row['targetEntityId'],row['targetStableId']) for row in sources},expected)
+        self.assertEqual(set(tables['targets'][0]['sourceEntityIds']),{self.gene.pk,self.protein.pk})
+        report,_=build_report(parameters,result,tables)
+        self.assertTrue(report['identityMerged'])
+        self.assertTrue(report['authorityIdentityVerified'])
+        self.assertEqual(report['results']['intersection_count'],1)
+
     def test_complete_entity_intersection_is_not_lost_to_relation_row_limit(self):
         self.apply(); herb=self.entity('herb','limited-herb','limited-herb')
         compound=self.entity('compound','limited-compound','limited-compound')

@@ -99,9 +99,11 @@ class LegacyHerbRowSupportTests(TestCase):
         for value in (True, False, "2", 2.0, None, [], {}):
             with self.subTest(value=value):
                 relation = self.edge(self.compound, self.t2, "targets", 100, metadata={"sourceRowId": value})
-                self.assertEqual([row["label"] for row in self.search()["results"][0]["targets"]], ["TARGET1"])
-                self.assertEqual([row["target"] for row in self.network()["targets"]], ["TARGET1"])
-                relation.delete()
+                try:
+                    self.assertEqual([row["label"] for row in self.search()["results"][0]["targets"]], ["TARGET1"])
+                    self.assertEqual([row["target"] for row in self.network()["targets"]], ["TARGET1"])
+                finally:
+                    relation.delete()
 
     def test_missing_herb_row_id_does_not_claim_a_target_with_the_same_compound(self):
         EvidenceRelation.objects.filter(subject=self.a, relation_type="contains").update(metadata={})
@@ -216,7 +218,10 @@ class LegacyHerbRowSupportTests(TestCase):
         self.edge(self.compound, self.t2, "targets", 700, release=generic, metadata={})
         result = build_network_pharmacology(user=self.user, herb_query="Herb A", disease_query="Test disease",
                                             row_limit=1, persist=False)
-        self.assertEqual(result["summary"]["herbTargetCount"], 1)
+        # Both valid target identities count, even when only one raw evidence
+        # row fits the preview. Invalid legacy rows remain excluded above.
+        self.assertEqual(result["summary"]["herbTargetCount"], 2)
+        self.assertEqual(len(result["raw"]["herbLinks"]), 1)
         self.assertTrue(result["rawLimits"]["inputRelationsTruncated"]["compoundTargets"])
 
     def test_generic_annotations_work_without_any_valid_legacy_herb_rows(self):

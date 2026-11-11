@@ -52,10 +52,9 @@ def _visible_relations(
     # Filter row support before the cap; hydrate only the bounded primary keys.
     ids = candidates.order_by("id").values("pk")[:limit + 1]
     queryset = EvidenceRelation.objects.filter(pk__in=Subquery(ids)).select_related(
-        "subject", "object", "source_release", "source_release__source",
-    ).order_by("id").prefetch_related(
         "subject__source_release__source", "object__source_release__source",
-    )
+        "source_release__source",
+    ).order_by("id")
     records = list(queryset)
     return records[:limit], len(records) > limit
 

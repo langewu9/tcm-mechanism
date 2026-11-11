@@ -85,6 +85,7 @@ class DiseaseEvidenceCountsSerializer(serializers.Serializer):
 class DiseaseEvidenceLimitsSerializer(serializers.Serializer):
     maxMatches = serializers.IntegerField()
     maxRelations = serializers.IntegerField()
+    returnedRelations = serializers.IntegerField()
 
 
 class DiseaseEvidenceResponseSerializer(serializers.Serializer):

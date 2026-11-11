@@ -63,7 +63,7 @@ class ScientistReportTests(TransactionTestCase):
     def test_local_report_matches_frozen_main_factual_counts_for_shared_identity_fixture(self):
         # Execute only the two frozen pure definitions, with the SAME fixture
         # projected as legacy search results. Never import/run legacy servers.
-        path = Path(__file__).resolve().parents[4] / "backend/data_service.py"
+        path = Path(__file__).resolve().parent / "fixtures/scientist_main_reference.py"
         tree = ast.parse(path.read_text())
         definitions = [item for item in tree.body if isinstance(item, ast.FunctionDef)
                        and item.name in {"_parse_formula", "scientist_hypothesis"}]
