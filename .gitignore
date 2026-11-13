@@ -1,13 +1,9 @@
-.next/
 node_modules/
-.npm-cache/
 .deps/
 .env
 .env.production
 .env.production.*
 !.env.production.example
-prisma/dev.db
-prisma/dev.db-journal
 runtime/*.db
 runtime/*.db-journal
 uploads/

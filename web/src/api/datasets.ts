@@ -37,6 +37,7 @@ export type ProteomicsResult = {
     excludedRowCount: number;
     excludedReasonCounts: Record<string, number>;
     selectedRowCount: number;
+    volcanoEligibleRowCount?: number;
     databaseMappedCount: number;
     unverifiedSymbolCount: number;
     unmappedLabelCount: number;

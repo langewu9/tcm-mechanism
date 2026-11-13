@@ -100,13 +100,14 @@ def _review(group,index):
     if len(group['names'])!=1 or len(group['entries'])!=1 or len(group['genes'])>1:return 'conflict','source_target_has_conflicting_annotations'
     entry=next(iter(group['entries']));label=next(iter(group['names']))
     if not ACCESSION.fullmatch(entry):return 'unmapped','missing_or_invalid_uniprot'
-    if entry not in index.proteins:return 'outside_scope','outside_reviewed_human_reference'
-    candidates=index.names['protein'].get(name_key(label),set())
     key=f'uniprot:9606:{entry}'
+    protein=index.proteins_by_key.get(key)
+    if protein is None:return 'outside_scope','outside_reviewed_human_reference'
+    candidates=index.names['protein'].get(name_key(label),set())
     if key not in candidates:return 'conflict','target_name_identifier_mismatch'
     if candidates!={key}:return 'ambiguous','non_unique_protein_name'
     provided=next(iter(group['genes']),'')
-    symbols={name_key(v) for v in index.proteins[entry]['symbol'].split(';') if clean(v)}
+    symbols={name_key(v) for v in protein['symbol'].split(';') if clean(v)}
     if provided and name_key(provided) not in symbols:return 'conflict','provided_gene_disagrees'
     return 'verified','exact_source_id_and_unique_reviewed_human_name'
 

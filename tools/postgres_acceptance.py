@@ -31,6 +31,11 @@ def environment():
         MEDIA_ROOT=str(VAR / "media"), SQLITE_SOURCE_ROOT=str(VAR / "source-databases"),
         CELERY_BROKER_URL="redis://127.0.0.1:6389/4", CACHE_URL="redis://127.0.0.1:6389/5",
         SOURCE_SCHEDULED_PREVIEWS_ENABLED="false", CASE_MODEL_BASE_URL="", CASE_MODEL_API_KEY="",
+        # The provided HERB workbook has 869,380 rows. Keep this local profile
+        # bounded at one million; production settings retain their own limit.
+        SQLITE_SOURCE_MAX_ROWS="1000000",
+        # Explicit local lookup scope for the previously verified HIT source.
+        COMPOUND_SOURCE_ALIASES='{"HIT":["sqlite-9576c61feff9"]}',
         EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
         DJANGO_ALLOWED_HOSTS="127.0.0.1,localhost,testserver",
         CSRF_TRUSTED_ORIGINS="http://127.0.0.1:5174,http://127.0.0.1:8021",
@@ -56,10 +61,15 @@ def main():
         execute([PG_BIN / "postgres", "-D", VAR / "data", "-h", "127.0.0.1", "-p", "55439",
                  "-k", profile["socket"], "-c", "max_connections=40", "-c", "shared_buffers=32MB", "-c", "jit=off"])
     elif args.service == "api":
+        # runserver creates request threads; keeping their DB connections alive
+        # can exhaust this isolated profile's 40 slots during browser acceptance.
+        # Leave persistent-connection policy for workers/production unchanged.
+        os.environ["DATABASE_CONN_MAX_AGE"] = "0"
         execute([sys.executable, APP / "manage.py", "runserver", "127.0.0.1:8021", "--noreload"])
     elif args.service == "worker":
-        execute([APP / ".venv/bin/celery", "-A", "config", "worker", "--loglevel=INFO", "--pool=solo",
-                 "--concurrency=1", "--hostname=pg-acceptance@%h"], APP)
+        # Keep a parent process for interruption and hard-timeout callbacks.
+        execute([APP / ".venv/bin/celery", "-A", "config", "worker", "--loglevel=INFO", "--pool=prefork",
+                 "--concurrency=1", "--queues=celery,r_visualization", "--hostname=pg-acceptance@%h"], APP)
     elif args.service == "web":
         node = Path.home() / ".cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node"
         execute([node, ROOT / "web/node_modules/vite/bin/vite.js", "--host", "127.0.0.1", "--port", "5174", "--strictPort"], ROOT / "web")

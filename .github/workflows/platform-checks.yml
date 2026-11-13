@@ -49,9 +49,13 @@ jobs:
       - run: python manage.py check
       - run: python ../tools/test_backup_scripts.py
         if: matrix.database == 'sqlite'
+      - run: python ../tools/test_worker_queues.py
+        if: matrix.database == 'sqlite'
       - run: python ../r_viz/test_demo_fixtures.py
       - run: python manage.py makemigrations --check --dry-run
-      - run: python manage.py test apps.core apps.proteomics apps.sources apps.case_rag --noinput
+      - name: Run backend tests with stall diagnostics
+        timeout-minutes: 20
+        run: python -X faulthandler manage.py test apps.core apps.proteomics apps.sources apps.case_rag --noinput --verbosity=2
       - run: python manage.py spectacular --file "$RUNNER_TEMP/schema.yml" --validate --fail-on-warn
   frontend:
     runs-on: ubuntu-latest

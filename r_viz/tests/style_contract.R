@@ -1,7 +1,7 @@
 # Run from r_viz: Rscript tests/style_contract.R
 if (.Platform$OS.type == "windows") Sys.setlocale("LC_CTYPE", "Chinese (Simplified)_China.utf8")
 source("plumber.R", encoding = "UTF-8")
-stopifnot(RENDERER_VERSION == "r-viz-0.4.2")
+stopifnot(RENDERER_VERSION == "r-viz-0.4.3")
 
 counts <- list(title = "合成测试计数", data = list(list(label = "DEMO_A", value = 3), list(label = "DEMO_B", value = 7)))
 before <- serialize(counts, NULL)

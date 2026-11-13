@@ -116,7 +116,13 @@ class VisualizationWorkflowTests(APITestCase):
 
         self.assertEqual(payload["chartType"], "volcano")
         self.assertEqual(payload["thresholds"], {"log2FoldChange": 1.0, "pValue": 0.01})
+        self.assertIn("FDR ≤ 0.05", payload["subtitle"])
+        self.assertIn("无 FDR 时按 P ≤ 0.01", payload["subtitle"])
+        self.assertIn("横线仅为 P ≤ 0.01 参考线", payload["subtitle"])
+        self.assertIn("已保存的入选状态", payload["subtitle"])
+        self.assertEqual(payload["subtitle"].count("\n"), 2)
         self.assertEqual(len(payload["data"]), 2)
+        self.assertEqual({point["label"]: point["selected"] for point in payload["data"]}, {"TP53": True, "IL6": False})
         self.assertEqual(payload["data"][0]["label"], "TP53")
         self.assertEqual(payload["data"][0]["pValue"], 0.0)
         serialized = json.dumps(payload, ensure_ascii=False)
@@ -179,12 +185,15 @@ class VisualizationWorkflowTests(APITestCase):
             for index in range(3)
         ])
 
-        with patch("apps.core.services.visualization.MAX_R_VIZ_REQUEST_BYTES", 700):
+        # Include the expanded scientific legend while still forcing row trimming.
+        with patch("apps.core.services.visualization.MAX_R_VIZ_REQUEST_BYTES", 1000):
             payload = build_chart_payload(task, "proteomics_volcano")
 
         self.assertLess(len(payload["data"]), 3)
         self.assertIn("受请求大小限制绘制", payload["subtitle"])
-        self.assertLessEqual(len(json.dumps(payload, ensure_ascii=False).encode("utf-8")), 700)
+        self.assertIn(f"绘制 {len(payload['data'])}/3 条", payload["subtitle"])
+        self.assertNotIn("展示 3/3", payload["subtitle"])
+        self.assertLessEqual(len(json.dumps(payload, ensure_ascii=False).encode("utf-8")), 1000)
 
     def test_proteomics_volcano_payload_rejects_missing_statistical_rows(self):
         task = AnalysisTask.objects.create(

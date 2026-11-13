@@ -13,13 +13,30 @@ def target_identity_summary():
     if not release: return {'available': False}
     qs = TargetIdentityMapping.objects.filter(reference_release=release)
     sources = {}
-    for row in qs.values('entity__source_release__source__slug', 'status').annotate(n=Count('id')):
-        source = row['entity__source_release__source__slug'] or 'global'
-        sources.setdefault(source, {})[row['status']] = row['n']
+    for row in qs.values('entity__source_release__source__slug', 'entity__metadata', 'status'):
+        source = row['entity__source_release__source__slug'] or (row['entity__metadata'] or {}).get('source') or 'global'
+        source_statuses = sources.setdefault(source, {})
+        source_statuses[row['status']] = source_statuses.get(row['status'], 0) + 1
+    taxa_by_source = {}
+    for row in qs.values('entity__source_release__source__slug', 'entity__metadata', 'master__taxon_key', 'evidence'):
+        source = row['entity__source_release__source__slug'] or (row['entity__metadata'] or {}).get('source') or 'global'
+        evidence = row['evidence'] or {}
+        public_match = evidence.get('matchedPublicReference') or {}
+        taxon = row['master__taxon_key'] or public_match.get('taxon') or evidence.get('resolvedTaxon') or evidence.get('resolutionTaxon') or evidence.get('originalTaxon') or 'unknown'
+        source_taxa = taxa_by_source.setdefault(source, {})
+        source_taxa[taxon] = source_taxa.get(taxon, 0) + 1
+    mapped_master_count = qs.exclude(master=None).values('master_id').distinct().count()
+    standard_master_count = release.metadata.get('standardTargets')
+    if not isinstance(standard_master_count, int):
+        standard_master_count = TargetMaster.objects.count()
     return {'available': True, 'releaseId': release.pk, 'version': release.version,
-        'referenceSha256': release.checksum_sha256, 'masterCount': TargetMaster.objects.count(),
+        'referenceSha256': release.checksum_sha256,
+        'masterCount': standard_master_count, 'mappedMasterCount': mapped_master_count,
         'statuses': dict(qs.order_by().values('status').annotate(n=Count('id')).values_list('status','n')),
         'sourceStatuses': sources, 'reference': release.metadata.get('reference', {}),
+        'referenceCatalogs': release.metadata.get('referenceCatalogs', {}),
+        'sourceSpeciesAssertions': release.metadata.get('sourceSpeciesAssertions', {}),
+        'publicTaxa': release.metadata.get('publicTaxa', {}), 'taxaBySource': taxa_by_source,
         'comparisonUnit': 'Gene and protein identities are compared separately; species is part of every key.'}
 
 
@@ -47,5 +64,10 @@ class TargetIdentityListView(APIView):
             'results': [{'entityId': row.entity_id, 'label': row.entity.label, 'originalTaxon': row.entity.taxon_key,
                 'source': row.entity.source_release.source.slug if row.entity.source_release_id else 'global',
                 'status': row.status, 'method': row.match_method, 'masterKey': row.master_id,
+                'masterIdentifier': row.master.identifier if row.master_id else None,
+                'masterLabel': row.master.label if row.master_id else None,
+                'resolvedTaxon': row.master.taxon_key if row.master_id else ((row.evidence or {}).get('matchedPublicReference') or {}).get('taxon') or (row.evidence or {}).get('resolvedTaxon') or (row.evidence or {}).get('resolutionTaxon'),
+                'resolvedOrganism': ((row.evidence or {}).get('matchedPublicReference') or {}).get('organism') or
+                    ((row.evidence or {}).get('taxonEvidence') or {}).get('organism', ''),
                 'geneKey': row.gene_id, 'candidateCount': row.candidate_count, 'candidates': row.candidates,
                 'evidence': row.evidence} for row in qs[(page-1)*50:page*50]]})

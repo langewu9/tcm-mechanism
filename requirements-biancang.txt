@@ -1,4 +1,0 @@
-modelscope
-torch
-transformers
-accelerate

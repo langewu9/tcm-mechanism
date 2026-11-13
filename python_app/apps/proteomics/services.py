@@ -5,6 +5,7 @@ The result contract follows the reusable ``src/lib/proteomics.ts`` logic on
 row-level QC trail in relational storage.
 """
 
+import codecs
 import csv
 import io
 import math
@@ -28,7 +29,7 @@ from apps.proteomics.models import ProteomicsRowResult
 from apps.proteomics.raw_matrix import analyze_raw_matrix
 
 
-ALGORITHM_VERSION = "proteomics-py-1.9"
+ALGORITHM_VERSION = "proteomics-py-1.11"
 MAX_CELL_CHARACTERS = 50_000
 MAX_XLSX_EXPANDED_BYTES = 512 * 1024 * 1024
 PATHWAY_RELATION_TYPES = {
@@ -133,12 +134,19 @@ def _cell_text(value: Any) -> str:
 
 
 def _unique_headers(values: list[Any]) -> list[str]:
+    bases = [_cell_text(value) or f"column_{index}" for index, value in enumerate(values, start=1)]
+    reserved = set(bases)
     headers: list[str] = []
-    counts: Counter[str] = Counter()
-    for index, value in enumerate(values, start=1):
-        base = _cell_text(value) or f"column_{index}"
-        counts[base] += 1
-        headers.append(base if counts[base] == 1 else f"{base}_{counts[base]}")
+    used: set[str] = set()
+    for base in bases:
+        candidate, suffix = base, 2
+        if candidate in used:
+            candidate = f"{base}_{suffix}"
+            while candidate in used or candidate in reserved:
+                suffix += 1
+                candidate = f"{base}_{suffix}"
+        headers.append(candidate)
+        used.add(candidate)
     return headers
 
 
@@ -172,15 +180,19 @@ def _parse_delimited(payload: bytes, extension: str) -> ParsedTable:
             raise ProteomicsInputError("无法识别文本编码，请将文件另存为 UTF-8 CSV/TSV。") from exc
     if "\x00" in text:
         raise ProteomicsInputError("文本文件包含非法二进制内容。")
+    return _read_delimited_rows(io.StringIO(text, newline=""), extension, text[:8192])
+
+
+def _read_delimited_rows(text, extension: str, sample: str) -> ParsedTable:
     if extension == ".tsv":
         delimiter = "\t"
     else:
         try:
-            delimiter = csv.Sniffer().sniff(text[:8192], delimiters=",;\t|").delimiter
+            delimiter = csv.Sniffer().sniff(sample, delimiters=",;\t|").delimiter
         except csv.Error:
             delimiter = ","
     try:
-        reader = csv.reader(io.StringIO(text, newline=""), delimiter=delimiter)
+        reader = csv.reader(text, delimiter=delimiter)
         header_row = next(reader, [])
     except csv.Error as exc:
         raise ProteomicsInputError("CSV/TSV 格式无法解析，请检查引号和分隔符。") from exc
@@ -194,6 +206,44 @@ def _parse_delimited(payload: bytes, extension: str) -> ParsedTable:
     except csv.Error as exc:
         raise ProteomicsInputError("CSV/TSV 格式无法解析，请检查引号和分隔符。") from exc
     return ParsedTable(headers, records, "")
+
+
+def _parse_delimited_stream(uploaded, extension: str) -> ParsedTable:
+    """Bound raw reads without duplicating the entire decoded CSV in StringIO.
+
+    Check the whole byte stream first to preserve the existing UTF-8/GB18030
+    choice even when the first non-UTF-8 byte is far beyond the delimiter sample.
+    Parsed rows remain subject to the existing row/cell/field limits.
+    """
+    decoder = codecs.getincrementaldecoder("utf-8-sig")()
+    utf8, total = True, 0
+    while chunk := uploaded.read(64 * 1024):
+        total += len(chunk)
+        if total > settings.DATASET_UPLOAD_MAX_BYTES:
+            raise ProteomicsInputError("原始文件超过当前配置的分析大小限制。")
+        if b"\x00" in chunk:
+            raise ProteomicsInputError("文本文件包含非法二进制内容。")
+        if utf8:
+            try:
+                decoder.decode(chunk)
+            except UnicodeDecodeError:
+                utf8 = False
+    if utf8:
+        try:
+            decoder.decode(b"", final=True)
+        except UnicodeDecodeError:
+            utf8 = False
+    uploaded.seek(0)
+    text = io.TextIOWrapper(uploaded, encoding="utf-8-sig" if utf8 else "gb18030", newline="")
+    try:
+        sample = text.read(8192)
+        text.seek(0)
+        return _read_delimited_rows(text, extension, sample)
+    except UnicodeDecodeError as exc:
+        raise ProteomicsInputError("无法识别文本编码，请将文件另存为 UTF-8 CSV/TSV。") from exc
+    finally:
+        # The storage context owns this file, including S3's temporary spool.
+        text.detach()
 
 
 def _parse_xlsx(payload: bytes) -> ParsedTable:
@@ -258,38 +308,50 @@ def parse_dataset_table(storage_key: str, filename: str) -> ParsedTable:
         raise ProteomicsInputError("仅支持 CSV、TSV、XLS 和 XLSX 文件。")
     try:
         with default_storage.open(storage_key, "rb") as uploaded:
-            payload = uploaded.read(settings.DATASET_UPLOAD_MAX_BYTES + 1)
+            if extension in {".csv", ".tsv"}:
+                table = _parse_delimited_stream(uploaded, extension)
+            else:
+                payload = uploaded.read(settings.DATASET_UPLOAD_MAX_BYTES + 1)
     except OSError as exc:
         raise ProteomicsInputError("服务器原始文件暂不可用。") from exc
-    if len(payload) > settings.DATASET_UPLOAD_MAX_BYTES:
-        raise ProteomicsInputError("原始文件超过当前配置的分析大小限制。")
-    if extension in {".csv", ".tsv"}:
-        table = _parse_delimited(payload, extension)
-    elif extension == ".xlsx":
-        table = _parse_xlsx(payload)
-    else:
-        table = _parse_xls(payload)
+    if extension not in {".csv", ".tsv"}:
+        if len(payload) > settings.DATASET_UPLOAD_MAX_BYTES:
+            raise ProteomicsInputError("原始文件超过当前配置的分析大小限制。")
+        table = _parse_xlsx(payload) if extension == ".xlsx" else _parse_xls(payload)
     if not table.columns or not table.rows:
         raise ProteomicsInputError("上传文件没有可分析的数据行。")
     return table
 
 
 def resolve_mapping(columns: list[str], requested: dict[str, str]) -> ColumnMapping:
-    normalized: dict[str, str] = {}
+    normalized: dict[str, list[str]] = defaultdict(list)
     for column in columns:
-        normalized.setdefault(_normalize_column(column), column)
+        normalized[_normalize_column(column)].append(column)
+
+    def normalized_match(candidate: str) -> str:
+        matches = normalized.get(_normalize_column(candidate), [])
+        if len(matches) > 1:
+            raise ProteomicsInputError(
+                f"字段名规范化后对应多列：{'、'.join(matches)}；请准确选择完整列名。"
+            )
+        return matches[0] if matches else ""
 
     def find(field: str) -> str:
-        candidate = str(requested.get(field, "") or "").strip()
+        api_fields = {
+            'gene_column': 'geneColumn', 'protein_column': 'proteinColumn', 'log2fc_column': 'log2FcColumn',
+            'p_value_column': 'pValueColumn', 'fdr_column': 'fdrColumn', 'direction_column': 'directionColumn',
+        }
+        candidate = str(requested.get(api_fields[field], requested.get(field, "")) or "").strip()
         if candidate:
-            resolved = normalized.get(_normalize_column(candidate))
+            # Explicitly selected headers take precedence over loose aliases.
+            resolved = candidate if candidate in columns else normalized_match(candidate)
             if not resolved:
                 raise ProteomicsInputError(
                     f"找不到字段“{candidate}”，当前文件字段为：{'、'.join(columns)}"
                 )
             return resolved
         for alias in ALIASES[field]:
-            resolved = normalized.get(_normalize_column(alias))
+            resolved = normalized_match(alias)
             if resolved:
                 return resolved
         return ""
@@ -310,9 +372,13 @@ def resolve_mapping(columns: list[str], requested: dict[str, str]) -> ColumnMapp
 
 
 def _number(value: str) -> tuple[float | None, str | None]:
-    text = value.strip().replace(",", "")
+    text = value.strip()
     if text.lower() in MISSING_VALUES:
         return None, None
+    # No numeric locale has been declared. A comma may be a decimal or
+    # thousands separator; removing it would silently change the measurement.
+    if "," in text:
+        return None, "ambiguous_numeric_format"
     is_percent = text.endswith("%")
     try:
         parsed = float(text[:-1] if is_percent else text)
@@ -340,6 +406,7 @@ def _parse_rows(
     duplicate_labels: Counter[str] = Counter()
     missing_identifier_count = 0
     invalid_numeric_row_count = 0
+    ambiguous_numeric_row_count = 0
     reason_counts: Counter[str] = Counter()
 
     for row_index, raw in enumerate(rows):
@@ -366,6 +433,9 @@ def _parse_rows(
         if invalid_numeric:
             invalid_numeric_row_count += 1
             reasons.append("invalid_numeric_value")
+        if "ambiguous_numeric_format" in (log2fc_error, p_error, fdr_error):
+            ambiguous_numeric_row_count += 1
+            reasons.append("ambiguous_numeric_format")
         for field_name, field_error in (
             ("log2fc", log2fc_error),
             ("p_value", p_error),
@@ -373,6 +443,8 @@ def _parse_rows(
         ):
             if field_error:
                 qc_warnings.append(f"invalid_{field_name}")
+                if field_error == "ambiguous_numeric_format":
+                    qc_warnings.append(f"ambiguous_{field_name}_numeric_format")
 
         if label:
             duplicate_labels[_canonical_label(label)] += 1
@@ -422,6 +494,7 @@ def _parse_rows(
         "missingIdentifierCount": missing_identifier_count,
         "duplicateIdentifierCount": duplicate_count,
         "invalidNumericValueRowCount": invalid_numeric_row_count,
+        "ambiguousNumericFormatRowCount": ambiguous_numeric_row_count,
         "excludedRowCount": sum(not row.selected for row in output),
         "excludedReasonCounts": dict(sorted(reason_counts.items())),
         "selectedRowCount": sum(row.selected for row in output),
@@ -751,6 +824,13 @@ def _build_result(
     qc.update(
         {
             "selectedRowCount": len(selected_rows),
+            # Volcano plots also use rows that did not pass the selection rules.
+            "volcanoEligibleRowCount": sum(
+                row.log2_fold_change is not None and math.isfinite(row.log2_fold_change)
+                and row.p_value is not None and math.isfinite(row.p_value)
+                and 0 <= row.p_value <= 1
+                for row in rows
+            ),
             "databaseMappedCount": len(database_mapped),
             "unverifiedSymbolCount": len(heuristic_mapped),
             "unmappedLabelCount": len(unmapped),
@@ -763,6 +843,11 @@ def _build_result(
         warnings.append("未配置 FDR/P 值列，本次没有按统计显著性筛选。")
     if qc["duplicateIdentifierCount"]:
         warnings.append("文件中存在重复标识；重复行已保留并分别计入结果。")
+    if qc["ambiguousNumericFormatRowCount"]:
+        warnings.append(
+            "数值字段中的逗号含义未声明，未按小数点或千分位猜测转换；"
+            "相关行已排除，请核对行级质量说明及原文件。"
+        )
     if heuristic_mapped:
         warnings.append("部分标识仅符合基因符号格式，未在本地知识库核实，请人工确认。")
     if any("local_target_name_only" in row.qc_warnings for row in selected_rows):
@@ -870,6 +955,7 @@ def run_proteomics_analysis(task: AnalysisTask) -> tuple[dict[str, Any], list[Pr
         qc["excludedRowCount"] = sum(not row.selected for row in rows)
         qc["selectedRowCount"] = sum(row.selected for row in rows)
         qc["invalidNumericValueRowCount"] += matrix_details["qc"]["rowsWithInvalidSampleValues"]
+        qc["ambiguousNumericFormatRowCount"] += matrix_details["qc"]["rowsWithAmbiguousNumericFormat"]
         qc["rawMatrix"] = matrix_details["qc"]
         qc["testedRowCount"] = matrix_details["qc"]["rowsTested"]
         parameters["mapping"] = {

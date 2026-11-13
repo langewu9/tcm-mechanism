@@ -1,10 +1,4 @@
-import hashlib
-import ast
-import sqlite3
-import tempfile
-from contextlib import closing
 from collections import Counter
-from pathlib import Path
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -20,7 +14,7 @@ from apps.core.models import (
     SourceRelease,
     SyncRun,
 )
-from apps.core.services.disease_names import expand_disease_queries
+from apps.core.services.disease_resolution import exact_disease_terms
 
 
 BASELINE_DISEASE_HERB_TARGET_ROWS = [
@@ -39,7 +33,6 @@ BASELINE_DISEASE_TARGET_ROWS = [
     {"disease": "肺纤维化", "target": "TP53", "targetStableId": "gene:one", "sourceRecordId": "target:one"},
     {"disease": "肺纤维化", "target": "TP53", "targetStableId": "protein:two", "sourceRecordId": "target:two"},
 ]
-MAIN_DATA_SERVICE_SHA256 = "7fae7384a64b236d787696fbe1288c583d680df59054e8592cd93f60897aa6f9"
 
 
 class DiseaseEvidenceSearchTests(APITestCase):
@@ -63,6 +56,10 @@ class DiseaseEvidenceSearchTests(APITestCase):
         )
         cls.same_label_disease = cls.entity(
             "disease", "DOID:0000001", "肺纤维化", source_release=cls.disease_release,
+        )
+        cls.subtype_disease = cls.entity(
+            "disease", "EFO:idiopathic-pf", "Idiopathic pulmonary fibrosis",
+            source_release=cls.disease_release,
         )
         cls.isolated_disease = cls.entity(
             "disease", "EFO:isolated", "孤立疾病", source_release=cls.disease_release,
@@ -104,6 +101,7 @@ class DiseaseEvidenceSearchTests(APITestCase):
         for row in BASELINE_DISEASE_TARGET_ROWS:
             target = cls.target_one if row["targetStableId"] == cls.target_one.stable_id else cls.target_two
             cls.relation(cls.disease, target, "disease_target", row["sourceRecordId"])
+        cls.relation(cls.subtype_disease, cls.target_one, "disease_target", "subtype:target")
 
     @classmethod
     def source_release(cls, slug, version, enabled=True):
@@ -149,12 +147,14 @@ class DiseaseEvidenceSearchTests(APITestCase):
         data = response.data
 
         self.assertEqual(data["query"], "肺纤维化")
-        self.assertEqual(data["expandedQueries"], expand_disease_queries("肺纤维化"))
+        self.assertEqual(data["expandedQueries"], exact_disease_terms("肺纤维化"))
         self.assertEqual(data["aliasSourceCommit"], "078d374")
         self.assertEqual(len(data["matches"]), 2)
         self.assertTrue(data["ambiguous"])
         self.assertEqual({row["id"] for row in data["matches"]}, {self.disease.pk, self.same_label_disease.pk})
         self.assertNotIn(self.disabled_disease.pk, {row["id"] for row in data["matches"]})
+        self.assertNotIn(self.subtype_disease.pk, {row["id"] for row in data["matches"]})
+        self.assertNotIn("Idiopathic pulmonary fibrosis", data["expandedQueries"])
 
         self.assertEqual([row["id"] for row in data["herbs"]], [self.herb_one.pk, self.herb_two.pk])
         self.assertEqual({row["id"] for row in data["targets"]}, {self.target_one.pk, self.target_two.pk})
@@ -162,7 +162,7 @@ class DiseaseEvidenceSearchTests(APITestCase):
         self.assertEqual(data["counts"], {
             "diseases": 2, "herbs": 2, "targets": 2, "links": 6, "relations": 6,
         })
-        self.assertEqual(data["limits"], {"maxMatches": 20, "maxRelations": 1200})
+        self.assertEqual(data["limits"], {"maxMatches": 20, "maxRelations": 1200, "returnedRelations": 6})
         self.assertFalse(data["truncated"])
 
         direct_rows = [row for row in data["links"] if row["relationType"] == "disease_herb_target"]
@@ -269,85 +269,26 @@ class DiseaseEvidenceSearchTests(APITestCase):
             "diseases": 1, "herbs": 0, "targets": 0, "links": 0, "relations": 0,
         })
 
-    def test_search_is_read_only_and_matches_main_sqlite_sample_projection(self):
+    def test_search_is_read_only_and_returns_all_sample_projection_records(self):
         self.authenticate()
         before = (AnalysisTask.objects.count(), SyncRun.objects.count(), MedicalCaseAuditEvent.objects.count())
         response = self.search()
         after = (AnalysisTask.objects.count(), SyncRun.objects.count(), MedicalCaseAuditEvent.objects.count())
         self.assertEqual(response.status_code, 200)
         self.assertEqual(after, before)
-
-        # Execute main's original search_disease function against its cache schema,
-        # using synthetic rows rather than treating the migrated result as a golden.
-        repository_root = Path(__file__).resolve().parents[4]
-        source_path = repository_root / "backend" / "data_service.py"
-        # Git may check out CRLF on Windows; compare canonical source bytes.
-        source_bytes = source_path.read_bytes().replace(b"\r\n", b"\n")
-        self.assertEqual(hashlib.sha256(source_bytes).hexdigest(), MAIN_DATA_SERVICE_SHA256)
-        module = ast.parse(source_bytes.decode("utf-8"), filename=str(source_path))
-        original_function = next(
-            node for node in module.body
-            if isinstance(node, ast.FunctionDef) and node.name == "search_disease"
-        )
-        namespace = {
-            "sqlite3": sqlite3,
-            "_like": lambda value: f"%{value.strip()}%",
-        }
-        exec(compile(ast.Module(body=[original_function], type_ignores=[]), str(source_path), "exec"), namespace)
-
-        synthetic_disease_herb_target_rows = [
-            (row["disease"], row["herb"], row["target"])
-            for row in BASELINE_DISEASE_HERB_TARGET_ROWS
-        ]
-        synthetic_disease_target_rows = [
-            (row["disease"], row["target"])
-            for row in BASELINE_DISEASE_TARGET_ROWS
-        ]
-        with tempfile.TemporaryDirectory() as directory:
-            database = Path(directory) / "synthetic-main-cache.sqlite"
-            with closing(sqlite3.connect(database)) as connection, connection:
-                connection.execute("CREATE TABLE disease_herb_target (disease TEXT, herb TEXT, target TEXT)")
-                connection.execute("CREATE TABLE disease_target (disease TEXT, target TEXT)")
-                connection.executemany(
-                    "INSERT INTO disease_herb_target VALUES (?, ?, ?)",
-                    synthetic_disease_herb_target_rows,
-                )
-                connection.executemany(
-                    "INSERT INTO disease_target VALUES (?, ?)", synthetic_disease_target_rows
-                )
-
-            opened_connections = []
-
-            def open_synthetic_cache():
-                connection = sqlite3.connect(database)
-                connection.row_factory = sqlite3.Row
-                opened_connections.append(connection)
-                return connection
-
-            namespace["_cache"] = open_synthetic_cache
-            try:
-                legacy = namespace["search_disease"]("肺纤维化")
-            finally:
-                for connection in opened_connections:
-                    connection.close()
-
         direct_rows = [row for row in response.data["links"] if row["relationType"] == "disease_herb_target"]
         projected_rows = [
             (row["disease"], row["herb"], row["target"])
             for row in direct_rows
         ]
-        self.assertEqual(set(legacy["links"][0]), {"疾病", "中药", "靶点基因"})
-        self.assertEqual(
-            Counter((row["疾病"], row["中药"], row["靶点基因"]) for row in legacy["links"]),
-            Counter(synthetic_disease_herb_target_rows),
-        )
-        self.assertEqual(Counter(projected_rows), Counter(synthetic_disease_herb_target_rows))
-        self.assertEqual(legacy["herbs"], ["甘草"])
-        self.assertEqual(legacy["targets"], ["TP53"])
-        self.assertEqual(legacy["counts"]["links"], len(BASELINE_DISEASE_HERB_TARGET_ROWS))
-        self.assertEqual(response.data["counts"]["links"], len(BASELINE_DISEASE_HERB_TARGET_ROWS) + 4)
-        self.assertEqual(response.data["counts"]["herbs"], 2)  # same legacy herb label, two canonical IDs
-        self.assertEqual(response.data["counts"]["targets"], 2)  # same legacy target label, two canonical IDs
+        expected_rows = [
+            (row["disease"], row["herb"], row["target"])
+            for row in BASELINE_DISEASE_HERB_TARGET_ROWS
+        ]
+        self.assertEqual(Counter(projected_rows), Counter(expected_rows))
+        self.assertEqual(response.data["counts"]["links"], 6)
+        self.assertEqual(response.data["counts"]["herbs"], 2)  # same herb label, two canonical IDs
+        self.assertEqual(response.data["counts"]["targets"], 2)  # same target label, two canonical IDs
 
     def test_plus_one_truncation_checks_match_and_relation_limits(self):
         self.authenticate()
@@ -361,7 +302,10 @@ class DiseaseEvidenceSearchTests(APITestCase):
         with patch("apps.core.services.disease_evidence.MAX_RELATIONS", 1):
             relation_data = self.search().data
         self.assertEqual(len(relation_data["relations"]), 1)
-        self.assertEqual(relation_data["counts"]["relations"], 1)
-        self.assertEqual(relation_data["counts"]["links"], 1)
+        self.assertEqual(relation_data["relations"][0]["relationType"], "disease_target")
+        self.assertEqual(relation_data["counts"]["targets"], 2)
+        self.assertEqual(relation_data["counts"]["relations"], 6)
+        self.assertEqual(relation_data["counts"]["links"], 6)
         self.assertTrue(relation_data["truncated"])
         self.assertEqual(relation_data["limits"]["maxRelations"], 1)
+        self.assertEqual(relation_data["limits"]["returnedRelations"], 1)

@@ -58,6 +58,30 @@ class NetworkPharmacologyApiTests(APITestCase):
         )
         self.assertEqual(too_many.status_code, 400)
 
+    def test_legacy_chinese_alias_resolves_exact_english_disease_without_partial_names(self):
+        self.disease.label = 'Pulmonary fibrosis'
+        self.disease.save(update_fields=['label'])
+        partial = self.entity(KnowledgeEntity.EntityType.DISEASE, 'disease:unrelated-partial', 'Pulmonary fibrosis unrelated subtype')
+        self.relation('disease_target', partial, self.akt1, 'unrelated:partial')
+        english = build_network_pharmacology(user=None, herb_query='黄芩', disease_query='Pulmonary fibrosis', persist=False)
+        chinese = build_network_pharmacology(user=None, herb_query='黄芩', disease_query='肺纤维化', persist=False)
+        for key in ('herbTargetCount', 'diseaseTargetCount', 'strictIntersectionCount', 'directAssociationTargetCount'):
+            self.assertEqual(chinese['summary'][key], english['summary'][key])
+        self.assertEqual(chinese['summary']['matchedDiseases'], ['Pulmonary fibrosis'])
+        self.assertEqual(chinese['summary']['unmatchedDiseases'], [])
+        self.assertEqual(chinese['summary']['strictIntersectionCount'], 1)
+        self.assertFalse(AnalysisTask.objects.exists())
+
+    def test_alias_matching_keeps_different_source_target_identities_separate(self):
+        self.disease.label = 'Pulmonary fibrosis'
+        self.disease.save(update_fields=['label'])
+        same_name = self.entity(KnowledgeEntity.EntityType.PROTEIN, 'other-source:tp53', 'TP53')
+        EvidenceRelation.objects.filter(subject=self.disease, relation_type='disease_target').delete()
+        self.relation('disease_target', self.disease, same_name, 'other-source:disease-target')
+        result = build_network_pharmacology(user=None, herb_query='黄芩', disease_query='肺纤维化', persist=False)
+        self.assertEqual(result['summary']['matchedDiseases'], ['Pulmonary fibrosis'])
+        self.assertEqual(result['summary']['strictIntersectionCount'], 0)
+
     def test_entity_neighborhood_returns_both_directions_with_source_versions(self):
         url = reverse("entity-neighborhood", args=[self.tp53.pk])
         self.assertEqual(self.client.get(url).status_code, 401)
@@ -229,9 +253,9 @@ class NetworkPharmacologyApiTests(APITestCase):
         )
         self.assertTrue(result["rawLimits"]["inputRelationsTruncated"]["diseaseTargets"])
         self.assertEqual(result["summary"]["diseaseTargetCount"], 2)
-        self.assertEqual(result["summary"]["directAssociationTargetCount"], 0)
+        self.assertEqual(result["summary"]["directAssociationTargetCount"], 1)
         self.assertEqual({row["sourceRecordId"] for row in result["raw"]["diseaseTargets"]}, {"dt:1", "dt:2"})
-        self.assertEqual(result["raw"]["directDiseaseHerbLinks"], [])
+        self.assertEqual([row["sourceRecordId"] for row in result["raw"]["directDiseaseHerbLinks"]], ["dht:1"])
         self.assertFalse(AnalysisTask.objects.exists())
 
     def test_network_search_hides_entities_from_disabled_sources(self):

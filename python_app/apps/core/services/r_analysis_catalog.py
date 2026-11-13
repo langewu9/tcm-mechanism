@@ -34,7 +34,18 @@ def evidence_graph(network, *, physical=False, required_score=0):
             continue
         label = text(node.get('label'))
         if label:
-            nodes[key] = {'id': key, 'label': label, 'type': text(node.get('type'), 40) or 'target'}
+            node_type = text(node.get('type'), 40) or 'target'
+            nodes[key] = {'id': key, 'label': label, 'type': node_type}
+            if number(node.get('sourceEntityCount'), 1, 50000):
+                nodes[key]['sourceEntityCount'] = int(node['sourceEntityCount'])
+            if node_type == 'target' and isinstance(node.get('canonicalTargetKey'), str):
+                nodes[key].update({
+                    'canonicalTargetKey': text(node['canonicalTargetKey'], 120),
+                    'canonicalTargetNamespace': text(node.get('canonicalTargetNamespace'), 24),
+                    'identityStatus': text(node.get('identityStatus'), 24),
+                    'taxonKey': text(node.get('taxonKey'), 32),
+                    'targetOverlap': node.get('targetOverlap') is True,
+                })
     edges = {}
     for edge in raw_edges:
         if not isinstance(edge, dict):
@@ -67,6 +78,116 @@ def neighbors(nodes, edges):
     return adjacent
 
 
+def _node_group(node_type):
+    if node_type == 'disease': return 'disease'
+    if node_type in {'herb', 'formula', 'drug', 'medicine'}: return 'herb'
+    if node_type in {'compound', 'ingredient'}: return 'compound'
+    if node_type in {'target', 'gene', 'protein'}: return 'target'
+    if node_type == 'pathway': return 'pathway'
+    return node_type
+
+
+def _balanced_graph_subset(nodes, edges, ranked, focus_ids=(), node_limit=80, edge_limit=500):
+    """Keep the searched medicine/disease and each evidence layer visible."""
+    rank_index = {key: index for index, key in enumerate(ranked)}
+    groups = {}
+    for key in ranked:
+        groups.setdefault(_node_group(nodes[key]['type']), []).append(key)
+    selected, selected_set = [], set()
+
+    def add(key):
+        if key in nodes and key not in selected_set and len(selected) < node_limit:
+            selected.append(key)
+            selected_set.add(key)
+
+    # Search terms stay visible even when they are less connected than source hubs.
+    for key in sorted((item for item in focus_ids if item in nodes), key=lambda item: rank_index[item]):
+        add(key)
+    # Reserve room for every available biological layer before filling by degree.
+    for group in ('disease', 'herb', 'compound', 'target', 'pathway'):
+        for key in groups.get(group, [])[:8]:
+            add(key)
+
+    adjacency = neighbors(nodes, edges)
+
+    # Build a few complete pharmacology paths first so the small chart preview
+    # cannot spend its node budget on the disease's high-degree target star.
+    # Each selected path retains disease → shared target ← compound ← herb.
+    focus_herbs = {key for key in focus_ids if key in nodes and _node_group(nodes[key]['type']) == 'herb'}
+    focus_diseases = {key for key in focus_ids if key in nodes and _node_group(nodes[key]['type']) == 'disease'}
+    target_candidates = [key for key in ranked if _node_group(nodes[key]['type']) == 'target']
+    target_candidates.sort(key=lambda key: (not nodes[key].get('targetOverlap', False), -len(adjacency[key]), rank_index[key]))
+    complete_paths = 0
+    for target in target_candidates:
+        diseases = [key for key in adjacency[target] if _node_group(nodes[key]['type']) == 'disease']
+        compounds = [key for key in adjacency[target] if _node_group(nodes[key]['type']) == 'compound']
+        if not diseases or not compounds:
+            continue
+        diseases.sort(key=lambda key: (key not in focus_diseases, rank_index.get(key, len(ranked))))
+        viable = []
+        for compound in compounds:
+            herbs = [key for key in adjacency[compound] if _node_group(nodes[key]['type']) == 'herb']
+            if herbs:
+                herbs.sort(key=lambda key: (key not in focus_herbs, rank_index.get(key, len(ranked))))
+                viable.append((compound, herbs))
+        viable.sort(key=lambda item: (not any(key in focus_herbs for key in item[1]), rank_index.get(item[0], len(ranked))))
+        if not viable:
+            continue
+        compound, herbs = viable[0]
+        path = [diseases[0], target, compound, herbs[0]]
+        if sum(key not in selected_set for key in path) > node_limit - len(selected):
+            break
+        for key in path:
+            add(key)
+        complete_paths += 1
+        if complete_paths >= 12 or len(selected) >= node_limit:
+            break
+
+    for key in list(selected):
+        adjacent = sorted(adjacency[key], key=lambda item: rank_index.get(item, len(ranked)))
+        for neighbor in adjacent:
+            if len(selected) >= node_limit: break
+            add(neighbor)
+        if len(selected) >= node_limit: break
+    for key in ranked:
+        if len(selected) >= node_limit: break
+        add(key)
+
+    eligible = [edge for edge in edges if edge['source'] in selected_set and edge['target'] in selected_set]
+    def pair_rank(edge):
+        pair = frozenset((_node_group(nodes[edge['source']]['type']), _node_group(nodes[edge['target']]['type'])))
+        order = [
+            frozenset(('disease', 'herb')), frozenset(('disease', 'target')),
+            frozenset(('herb', 'compound')), frozenset(('compound', 'target')),
+            frozenset(('herb', 'target')), frozenset(('herb', 'herb')),
+            frozenset(('target', 'pathway')),
+        ]
+        return order.index(pair) if pair in order else len(order)
+
+    eligible.sort(key=lambda edge: (
+        pair_rank(edge),
+        not any(nodes[key].get('targetOverlap', False) for key in (edge['source'], edge['target'])),
+        -edge['score'], edge['source'], edge['target'],
+    ))
+    selected_edges, edge_pairs = [], set()
+    pair_counts = {}
+    for edge in eligible:
+        pair = pair_rank(edge)
+        if pair_counts.get(pair, 0) >= 70: continue
+        selected_edges.append(edge)
+        edge_pairs.add((edge['source'], edge['target']))
+        pair_counts[pair] = pair_counts.get(pair, 0) + 1
+        if len(selected_edges) >= edge_limit: break
+    if len(selected_edges) < edge_limit:
+        for edge in eligible:
+            pair = (edge['source'], edge['target'])
+            if pair in edge_pairs: continue
+            selected_edges.append(edge)
+            edge_pairs.add(pair)
+            if len(selected_edges) >= edge_limit: break
+    return selected, selected_edges
+
+
 def build_catalog_payload(task, chart_key):
     result = task.result or {}
     def finish(payload):
@@ -82,6 +203,9 @@ def build_catalog_payload(task, chart_key):
             raise ValueError('当前任务不是已保存的目录检索快照。')
         if chart_key == 'catalog_summary':
             data = result.get('catalogSummary') or []
+            if not data and result.get('queryType') in {'herb', 'compound'}:
+                from .catalog_analysis import frozen_catalog_summary
+                data = frozen_catalog_summary(task)
             title, axis = '检索实体与证据概览', '按本地主键去重的实体 / 关系数量'
             if result.get('queryType') == 'comparison': title, axis = '名称对照数量概览', '规范化名称数量（非化学鉴定）'
         elif result.get('queryType') == 'pathway':
@@ -126,7 +250,10 @@ def build_catalog_payload(task, chart_key):
             used = {endpoint for edge in edges for endpoint in (edge['source'], edge['target'])}
             nodes = {key: value for key, value in nodes.items() if key in used}
         title = {'evidence_network': '中药—成分—靶点—疾病证据网络', 'gene_pathway_network': '基因—通路证据网络', 'gene_pathway_distribution': '通路关联基因分布（非富集检验）'}[chart_key]
-        subtitle = f'本地登记关系 · 来源版本数 {task.source_releases.count()} · 不推测缺失关系'
+        subtitle = f'本地登记关系 · 来源版本数 {task.source_releases.count()} · 同名检索实体合并展示、证据仍保留来源记录 · 不推测缺失关系'
+        limits = result.get('limits') or {}
+        if limits.get('nodesTruncated') or limits.get('networkNodesTruncated') or limits.get('linksTruncated'):
+            subtitle += ' · 原任务网络已裁剪，完整证据见任务导出'
         if result.get('analysisKind') == 'catalog_evidence' and chart_key == 'evidence_network':
             title = '中药—成分—靶点目录关系图'
             subtitle = f'旧表登记关系 · 来源版本数 {task.source_releases.count()} · 非实验验证，靶点名称未必已标准化'
@@ -176,14 +303,35 @@ def build_catalog_payload(task, chart_key):
         data.sort(key=lambda item: (-item['value'], item['label']))
         return finish({'chartType': 'bar', 'title': title, 'subtitle': subtitle, 'yLabel': '唯一关联基因数', 'data': data[:30]})
 
-    ranked = sorted(nodes, key=lambda key: (-len(adjacent[key]), key))
-    shown = set(ranked[:80])
-    selected = sorted((edge for edge in edges if edge['source'] in shown and edge['target'] in shown), key=lambda edge: (-edge['score'], edge['source'], edge['target']))[:500]
+    ranked = sorted(nodes, key=lambda key: (
+        not nodes[key].get('targetOverlap', False), -len(adjacent[key]), key,
+    ))
+    focus_ids = set(result.get('focusNodeIds') or [])
+    if not focus_ids and chart_key == 'evidence_network':
+        summary = result.get('summary') or {}
+        focus_labels = set(summary.get('matchedHerbs') or []) | set(summary.get('matchedFormulas') or []) | set(summary.get('matchedDiseases') or [])
+        focus_ids = {key for key, node in nodes.items() if node['label'] in focus_labels}
+    selected_nodes, selected = _balanced_graph_subset(nodes, edges, ranked, focus_ids)
     if not selected:
         raise ValueError('受绘图上限限制，展示子图没有有效边。')
     active = {endpoint for edge in selected for endpoint in (edge['source'], edge['target'])}
     displayed = neighbors(nodes, selected)
-    data = [{**nodes[key], 'degree': len(displayed[key])} for key in ranked if key in active]
+    data = [{**nodes[key], 'degree': len(displayed[key])} for key in selected_nodes if key in active or key in focus_ids]
+    if chart_key == 'evidence_network':
+        present = {_node_group(row['type']) for row in data}
+        labels = [('herb', '中药'), ('compound', '成分'), ('target', '靶点'), ('disease', '疾病'), ('pathway', '通路')]
+        layers = [label for key, label in labels if key in present]
+        if layers: title = '—'.join(layers) + '证据网络'
+        missing = []
+        if 'herb' not in present: missing.append('中药')
+        if 'disease' not in present: missing.append('疾病')
+        layer_note = '；当前登记关系未覆盖' + '、'.join(missing) + '侧' if missing else ''
+        subtitle += ' · 当前图层：' + '、'.join(layers) + layer_note
+        identity = result.get('targetIdentity') or {}
+        if identity.get('available'):
+            overlap_count = (identity.get('verifiedGeneIntersectionCount') or 0) + (identity.get('verifiedProteinIntersectionCount') or 0)
+            if overlap_count:
+                subtitle += f' · 已核验人类标准靶点共享 {overlap_count} 个（图中显示本次证据快照覆盖部分）'
     return finish({'chartType': 'network', 'title': title, 'subtitle': f'{subtitle} · 展示 {len(data)}/{len(nodes)} 节点、{len(selected)}/{len(edges)} 边；节点大小为展示子图 degree', 'layout': 'circular' if chart_key == 'ppi_network' else 'layered', 'data': data, 'edges': selected})
 
 

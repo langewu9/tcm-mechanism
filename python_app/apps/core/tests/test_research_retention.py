@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 from django.contrib import admin
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db.models.deletion import ProtectedError
@@ -16,6 +17,7 @@ from apps.core.models import AnalysisTask, MedicalCase, MedicalCaseAuditEvent, R
 
 class ResearchRetentionTests(APITestCase):
     def setUp(self):
+        cache.clear()
         media = tempfile.TemporaryDirectory()
         self.addCleanup(media.cleanup)
         settings = override_settings(MEDIA_ROOT=media.name)

@@ -12,10 +12,12 @@ from django.utils import timezone
 from apps.core.models import AnalysisTask, EvidenceRelation, KnowledgeEntity, MedicalCaseAuditEvent
 from .case_analysis import case_input_sha256
 from .case_audit import create_case_audit_event
+from .herb_evidence import _relation_record
+from .herb_row_query import supported_target_queryset
 from .network_pharmacology import COMPOUND_TARGET_TYPES, FORMULA_HERB_TYPES, HERB_COMPOUND_TYPES, PATHWAY_TYPES
 
 
-ALGORITHM_VERSION = "text-analysis-main-1.0"
+ALGORITHM_VERSION = "text-analysis-main-1.1"
 RULE_SOURCE = "origin/main@078d374:src/lib/analysis.ts"
 SYNDROME_RULES = (
     ("气虚血瘀", ("乏力", "偏瘫", "舌暗", "脉涩", "中风")),
@@ -96,7 +98,7 @@ def build_text_analysis(query, *, relation_limit=MAX_RELATIONS):
 
     remember_entity(syndrome)
 
-    def traverse(frontier, object_types, relation_types, *, reverse=False, graph=True):
+    def traverse(frontier, object_types, relation_types, *, reverse=False, graph=True, herb_relations=None, capture=None):
         if not frontier:
             return []
         remaining = max(0, relation_limit - len(relations))
@@ -112,11 +114,17 @@ def build_text_analysis(query, *, relation_limit=MAX_RELATIONS):
         ).select_related(
             "subject__source_release__source", "object__source_release__source", "source_release__source",
         ).order_by("pk")
+        if herb_relations is not None:
+            # Imported triples belong to their original herb/release/row.
+            # Apply the existing support rule before the global result cap.
+            queryset = supported_target_queryset(queryset, herb_relations)
         records = list(queryset[:remaining + 1])
         if len(records) > remaining:
             result["limits"]["relationsTruncated"] = True
         found = {}
         for relation in records[:remaining]:
+            if capture is not None:
+                capture.append(relation)
             endpoint = relation.subject if reverse else relation.object
             found[endpoint.pk] = endpoint
             remember_entity(relation.subject, graph=graph)
@@ -124,13 +132,14 @@ def build_text_analysis(query, *, relation_limit=MAX_RELATIONS):
             release = relation.source_release
             release_by_id[release.pk] = release
             relations[relation.pk] = {
+                **_relation_record(relation),
                 "refId": f"relation:{relation.pk}",
+                "subjectStableId": relation.subject.stable_id, "objectStableId": relation.object.stable_id,
                 "subject": _node(relation.subject)["id"], "subjectLabel": relation.subject.label,
                 "object": _node(relation.object)["id"], "objectLabel": relation.object.label,
                 "relationType": relation.relation_type, "evidenceType": relation.evidence_type,
                 "source": release.source.name, "sourceSlug": release.source.slug,
                 "sourceVersion": release.version, "sourceRecordId": relation.source_record_id,
-                "score": float(relation.score) if relation.score is not None else None,
             }
             if graph:
                 result["network"]["links"].append({
@@ -142,8 +151,10 @@ def build_text_analysis(query, *, relation_limit=MAX_RELATIONS):
 
     formulas = traverse([syndrome], ["formula"], {"syndrome_formula"})
     herbs = traverse(formulas, ["herb"], FORMULA_HERB_TYPES)
-    compounds = traverse(herbs, ["compound"], HERB_COMPOUND_TYPES)
-    targets = traverse(compounds, ["protein", "gene"], COMPOUND_TARGET_TYPES | {"compound_gene", "compound_protein"})
+    herb_relations = []
+    compounds = traverse(herbs, ["compound"], HERB_COMPOUND_TYPES, capture=herb_relations)
+    targets = traverse(compounds, ["protein", "gene"], COMPOUND_TARGET_TYPES | {"compound_gene", "compound_protein"},
+                       herb_relations=herb_relations)
     pathways = traverse(targets, ["pathway"], PATHWAY_TYPES)
     proteins = [target for target in targets if target.entity_type == "protein"]
     genes = {target.pk: target for target in targets if target.entity_type == "gene"}

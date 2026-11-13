@@ -4,6 +4,7 @@ import tempfile
 from urllib.parse import parse_qs, urlsplit
 
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.core import mail
 from django.core.files.storage import default_storage
 from django.db.models.deletion import ProtectedError
@@ -19,6 +20,7 @@ from config.api_errors import ApiErrorEnvelopeMiddleware
 
 class PrivateWorkspaceApiTests(APITestCase):
     def setUp(self):
+        cache.clear()
         self.email_settings = override_settings(
             EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
             DEFAULT_FROM_EMAIL="noreply@example.test",

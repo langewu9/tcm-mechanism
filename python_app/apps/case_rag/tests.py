@@ -15,7 +15,7 @@ from apps.case_rag.management.commands.extend_case_rag import make_general_docum
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from apps.case_rag.services import active_release, serialize_document
-from apps.core.models import AnalysisTask, MedicalCase
+from apps.core.models import AnalysisTask, MedicalCase, SensitiveAccessEvent
 from apps.core.services.case_analysis import case_input_sha256, run_case_analysis
 from apps.core.services.research_assistant import _validated_model_text, build_evidence_snapshot, run_research_assistant
 from django.test import override_settings
@@ -60,6 +60,15 @@ class CaseCorpusTests(APITestCase):
         self.assertEqual(sum(row["count"] for row in response.data["summary"]["categories"]), len(CaseCorpusDocument.Category.choices))
         self.assertNotIn("originalText", response.data["results"][0])
         self.assertNotIn("search_text", response.data["results"][0])
+        event = SensitiveAccessEvent.objects.get(operation="case_corpus.list")
+        self.assertEqual(event.actor, self.user)
+        self.assertEqual(event.action, "list")
+        self.assertEqual(event.resources, [
+            {"type": "case_corpus_document", "id": row["id"],
+             "ownerId": None, "releaseId": self.release.pk}
+            for row in response.data["results"]
+        ])
+        self.assertNotIn("originalText", str(event.resources))
 
     def test_category_and_query_filter_and_empty_page(self):
         self.authenticate()
@@ -92,6 +101,14 @@ class CaseCorpusTests(APITestCase):
         self.assertEqual(response.data["sourceVersion"], "test-v1")
         self.assertEqual(response.data["contentSha256"], "b" * 64)
         self.assertNotIn(private.deidentified_text, json.dumps(response.data, ensure_ascii=False))
+        event = SensitiveAccessEvent.objects.get(operation="case_corpus.detail")
+        self.assertEqual(event.actor, self.user)
+        self.assertEqual(event.action, "view")
+        self.assertEqual(event.resources, [{
+            "type": "case_corpus_document", "id": self.documents[0].pk,
+            "ownerId": None, "releaseId": self.release.pk,
+        }])
+        self.assertNotIn(self.documents[0].original_text, json.dumps(event.resources, ensure_ascii=False))
 
     def test_inactive_release_not_browsable_or_selectable(self):
         self.release.is_active = False
@@ -173,7 +190,9 @@ class CaseCorpusTests(APITestCase):
     def test_personal_case_rag_uses_frozen_reference_and_verbatim_patient_evidence(self, model):
         case = MedicalCase.objects.create(owner=self.user, title="合成测试", deidentified_text="患者咳嗽。")
         snapshot = build_case_snapshot("咳嗽", [self.documents[0].pk])
+        # Direct service execution simulates a task already claimed by a worker.
         task = AnalysisTask.objects.create(owner=self.user, task_type="case_link", medical_case=case,
+            status=AnalysisTask.Status.RUNNING,
             input_parameters={"caseContentSha256": case_input_sha256(case), "caseCorpusSnapshot": snapshot})
         self.release.is_active = False
         self.release.save(using="case_rag")

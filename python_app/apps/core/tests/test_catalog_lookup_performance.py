@@ -96,6 +96,23 @@ class CatalogLookupPerformanceTests(TestCase):
         self.assertEqual(len(result["relations"]), 1201)
         self.assertEqual(result["relations"][-1]["sourceRecordId"], "target:1199")
 
+    def test_provenance_hydration_has_explicit_bounded_ids(self):
+        from apps.core.services.herb_evidence import _visible_relations
+        compound = self.entity("compound", "compound:bounded", "合成成分")
+        first = self.edge(self.herb, compound, "contains", "bounded:first")
+        self.edge(self.herb, compound, "has_compound", "bounded:second")
+        with CaptureQueriesContext(connection) as captured:
+            rows, truncated = _visible_relations(
+                relation_types={"contains", "has_compound"}, subject_ids=[self.herb.pk], complete=True, limit=1,
+            )
+        self.assertEqual([row.pk for row in rows], [first.pk])
+        self.assertTrue(truncated)
+        # The final select_related read must not fold the ID limit into a
+        # semi-join that hydrates the entire table before filtering.
+        hydration = captured[-1]["sql"]
+        self.assertIn('"core_evidencerelation"."id" IN (', hydration)
+        self.assertNotIn('"core_evidencerelation"."id" IN (SELECT', hydration)
+
     def test_planner_maintenance_preserves_records_and_restores_connection_options(self):
         if connection.vendor != "sqlite":
             self.skipTest("SQLite-specific planner maintenance")

@@ -15,6 +15,10 @@ for (const summary of [{strictIntersectionCount:4,directAssociationTargetCount:2
 const truncated = {...result,limits:{targetsTruncated:true}};
 assert.equal(candidateComposition(truncated),null);
 assert.ok(render(truncated).includes('暂不绘制构成比例'));
+const partialInput = {...result,rawLimits:{inputRelationsTruncated:{diseaseTargets:true}}};
+assert.equal(candidateComposition(partialInput),null);
+assert.ok(render(partialInput).includes('暂不绘制构成比例'));
+assert.deepEqual(candidateComposition({...result,limits:{targetsTruncated:false,nodesTruncated:true,linksTruncated:true}}),{strict:2,directOnly:1,overlap:1,total:3});
 const empty = {...result,summary:{strictIntersectionCount:0,directAssociationTargetCount:0,candidateTargetCount:0}};
 assert.ok(render(empty).includes('没有候选靶点') && !render(empty).includes('去重候选靶点</text>'));
 assert.deepEqual(candidateComposition({...result,summary:{strictIntersectionCount:2,directAssociationTargetCount:1,candidateTargetCount:3}}),{strict:2,directOnly:1,overlap:0,total:3});

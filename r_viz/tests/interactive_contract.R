@@ -1,6 +1,6 @@
 if (.Platform$OS.type == "windows") Sys.setlocale("LC_CTYPE", "Chinese (Simplified)_China.utf8")
 source("plumber.R", encoding = "UTF-8")
-stopifnot(RENDERER_VERSION == "r-viz-0.4.2")
+stopifnot(RENDERER_VERSION == "r-viz-0.4.3")
 files <- unlist(lapply(c("../public/r-demo", "../public/r-public-demo"), function(directory) list.files(directory, pattern = "\\.json$", full.names = TRUE)))
 for (file in files) {
   if (grepl("manifest\\.json$", file)) next

@@ -7,20 +7,26 @@ const side={records:10,verifiedRecords:4,pendingRecords:6,genes:3,proteins:2,sta
 const record={entityId:3,label:'Interleukin-6',source:'source-a',originalTaxon:'unknown',status:'candidate',method:'exact_name_candidate',masterKey:null,geneKey:null};
 const row={key:'entrez:9606:3569',label:'IL6',taxon:'9606',herbRecords:[record],diseaseRecords:[{...record,entityId:4,source:'source-b'}],recordCounts:{herb:1,disease:1}};
 const identity={available:true,version:'target-identity-v1',referenceVersion:'test-v1',referenceSha256:'abc',herb:side,disease:side,
+ entityIdComparison:{herbTargetCount:12,diseaseTargetCount:12,intersectionCount:1,intersectionEntities:[{id:3,label:'Interleukin-6',entity_type:'protein',stable_id:'protein:shared'}],rowsTruncated:false,scope:'all_active_relations_for_matched_entities'},
  verifiedGeneIntersectionCount:0,verifiedProteinIntersectionCount:0,pendingGeneOverlapCount:1,geneIntersections:[],proteinIntersections:[],pendingCandidates:[row]};
-const render=value=>renderToStaticMarkup(React.createElement(TargetIdentityResults,{result:{targetIdentity:value,rawLimits:{inputRelationsTruncated:{diseaseTargets:true}}}}));
+const render=value=>renderToStaticMarkup(React.createElement(TargetIdentityResults,{result:{summary:{strictIntersectionCount:0},targetIdentity:value,rawLimits:{inputRelationsTruncated:{diseaseTargets:true}}}}));
 let html=render(identity);
 assert.ok(html.includes('已核验基因交集')&&html.includes('已核验蛋白交集'));
-assert.ok(html.includes('待核验共同候选（1，不计入交集）'));
-assert.ok(html.includes('原物种 未提供'));
-assert.ok(html.includes('当前返回子集')&&html.includes('不代表没有生物学关联'));
+assert.ok(html.includes('尚未确证的候选基因重叠（1）'));
+assert.ok(html.includes('靶点实体（去重）')&&html.includes('身份解析明细'));
+assert.ok(html.includes('原始实体 ID 明细（本库诊断：1）')&&html.includes('导出完整关系集实体 ID 交集'));
+assert.ok(html.includes('原始物种 未提供'));
+assert.ok(html.includes('当前返回子集')&&html.includes('可能重叠的基因候选尚未确证'));
 assert.ok(/<button[^>]*disabled[^>]*>导出已核验基因交集/.test(html));
 const verified={...identity,verifiedGeneIntersectionCount:1,geneIntersections:[{...row,herbRecords:[{...record,status:'verified',masterKey:'entrez:9606:3569'}]}]};
 html=render(verified);
 assert.ok(!/<button[^>]*disabled[^>]*>导出已核验基因交集/.test(html));
 assert.ok(html.includes('已核验基因交集（1）')&&html.includes('已核验蛋白交集（0）'));
+assert.ok(html.includes('已核验基因交集（1）')&&!html.includes('候选基因重叠尚未确证'));
 html=render({...verified,coverage:{scope:'all_active_relations_for_matched_entities',rawRowLimitsApplied:false}});
 assert.ok(html.includes('全部已启用靶点关系')&&!html.includes('上述统计仅覆盖当前返回子集'));
+const historical={...verified};delete historical.entityIdComparison;
+assert.ok(render(historical).includes('该历史任务没有保存完整关系集的原始实体 ID 交集'));
 html=render({...identity,pendingCandidates:[{...row,label:'<script>bad()</script>'}]});
 assert.ok(!html.includes('<script>')&&html.includes('&lt;script&gt;'));
 assert.ok(render({available:false,version:'v1',reason:'尚未发布映射'}).includes('尚未发布映射'));

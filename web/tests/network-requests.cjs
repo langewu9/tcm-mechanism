@@ -22,9 +22,11 @@ const enqueue = list => (...args) => {const value = deferred(); list.push({...va
 const filename = path.join(webRoot, 'src/pages/NetworkPharmacologyPage.tsx');
 const moduleUnderTest = new Module(filename);
 moduleUnderTest.require = name => {
+  if (name === '../components/ArtifactPreview') return {ArtifactPreview:props=>jsx('img',props)};
   if (name === 'react/jsx-runtime') return {jsx,jsxs:jsx,Fragment:'Fragment'};
   if (name === 'react') return fakeReact;
-  if (name === 'react-router-dom') return {Link:'Link', useLocation:()=>({key:'current',state:null})};
+  if (name === 'react-router-dom') return {Link:'Link', useLocation:()=>({key:'current',state:null}), useSearchParams:()=>[new URLSearchParams(),()=>{}]};
+  if (name === '../api/complete-evidence') return {waitForCompleteTask:async task=>task};
   if (name === 'lucide-react') return {Activity:'Activity',ArrowLeft:'ArrowLeft',Network:'Network',RefreshCw:'RefreshCw'};
   if (name === '../api/client') return {ApiError:class extends Error {}};
   if (name === '../api/datasets') return {getAnalysisTask:enqueue(pollCalls)};
@@ -63,7 +65,8 @@ const tick = () => {const callbacks=[...timers.values()]; timers.clear(); for(co
   const firstSubmit = find(node=>node.type==='form').props.onSubmit;
   firstSubmit({preventDefault(){}}); firstSubmit({preventDefault(){}}); render();
   assert.equal(localCalls.length,1,'Synchronous duplicate local task blocked');
-  localCalls[0].resolve(source(1)); await flush();
+  localCalls[0].resolve({...source(1),limits:{...source(1).limits,nodesTruncated:true}}); await flush();
+  assert.equal(find(node=>node.type==='Graph').props.knownTruncated,true,'Node-only clipping is disclosed to the existing graph');
   consent(); const firstClick = button('Reactome 通路富集').props.onClick; firstClick(); firstClick(); render();
   assert.equal(externalCalls.length,1,'Synchronous duplicate POST blocked');
   assert.deepEqual(externalCalls[0].args,[1],'External task uses the persisted query ID, not page target labels');

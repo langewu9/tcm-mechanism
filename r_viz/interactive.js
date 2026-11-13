@@ -1,5 +1,7 @@
 function(el, x) {
   'use strict';
+  var status = document.getElementById('chart-status');
+  try {
   var chart = echarts.getInstanceByDom(el);
   // Preserve a full-height circular canvas, including when a running worker has old metadata.
   if (x.chartType === 'network' && el.style) { el.style.height = '960px'; chart.resize(); }
@@ -9,13 +11,12 @@ function(el, x) {
   var originalCategories = x.chartType === 'network' ? initial.series[0].categories : [];
   var activeTypes = new Set(originalCategories.map(function(c) { return c.name; }));
   var search = document.getElementById('chart-search');
-  var status = document.getElementById('chart-status');
   var details = document.getElementById('chart-details');
   var layout = document.getElementById('chart-layout');
   var score = document.getElementById('chart-score');
   var labels = document.getElementById('chart-labels');
   var isolates = document.getElementById('chart-isolates');
-  var defaultLayout = 'circular';
+  var defaultLayout = x.defaultLayout || x.layout || 'layered';
   var defaultLabels = originalNodes.length <= 80 && (chart.getWidth() >= 520 || originalNodes.length <= 30);
   var typeLabels = {protein:'蛋白 / 基因',gene:'基因',target:'靶点',pathway:'通路',herb:'中药',ingredient:'成分',compound:'化合物',disease:'疾病',formula:'方剂',syndrome:'证候'};
   function announce(text) { status.textContent = text; }
@@ -37,16 +38,27 @@ function(el, x) {
     var leftMargin = layout.value === 'layered' ? (compact ? 155 : 190) : layout.value === 'circular' ? (labels.checked ? (chart.getWidth() < 520 ? 130 : 170) : 30) : 100;
     var rightMargin = layout.value === 'layered' ? (compact ? 175 : 240) : layout.value === 'circular' ? leftMargin : 100;
     var circleDiameter = Math.max(120,Math.min(chart.getWidth()-leftMargin-rightMargin,chart.getHeight()-360));
+    function layoutGroup(type) {
+      if (type === 'formula' || type === 'herb' || type === 'drug' || type === 'medicine') return 'herb';
+      if (type === 'compound' || type === 'ingredient') return 'compound';
+      if (type === 'gene' || type === 'protein' || type === 'target') return 'target';
+      if (type === 'disease' || type === 'syndrome') return 'disease';
+      return type;
+    }
+    var layerOrder = new Map([['herb',0],['compound',1],['target',2],['disease',3],['pathway',4]]);
     nodes.forEach(function(n) {
       n.displayLabel = labelOf(n);
-      if (!groups.has(n.nodeType)) groups.set(n.nodeType, []);
-      groups.get(n.nodeType).push(n);
+      var groupKey = layoutGroup(n.nodeType);
+      if (!groups.has(groupKey)) groups.set(groupKey, []);
+      groups.get(groupKey).push(n);
       n.value = neighbors.get(n.id).size;
       n.symbolSize = chart.getWidth() < 520 && layout.value === 'circular' ? 5 + 1.4 * Math.sqrt(n.value) : 9 + 3 * Math.sqrt(n.value);
     });
     if (layout.value === 'layered') {
-      // Always keep pathway annotations on the right, independent of payload row order.
-      groups = new Map(Array.from(groups.entries()).sort(function(a,b) { return Number(a[0] === 'pathway') - Number(b[0] === 'pathway'); }));
+      // Standard network-pharmacology layers: herb → compound → target ← disease.
+      groups = new Map(Array.from(groups.entries()).sort(function(a,b) {
+        return (layerOrder.has(a[0]) ? layerOrder.get(a[0]) : 5) - (layerOrder.has(b[0]) ? layerOrder.get(b[0]) : 5);
+      }));
       groups.forEach(function(group) { group.sort(function(a,b) { return labelOf(a).localeCompare(labelOf(b), 'zh-CN', {numeric:true}); }); });
       // Stable barycentric passes reduce crossings without inventing or dropping edges.
       for (var pass = 0; pass < 6; pass++) {
@@ -83,9 +95,25 @@ function(el, x) {
           width:chart.getWidth() < 520 ? 100 : 140,overflow:'truncate',color:'#30343B'};
       });
     }
-    links = links.map(function(l) { return Object.assign({},l,{lineStyle:Object.assign({},l.lineStyle,{color:'#AEB8C7',opacity:layout.value === 'layered' ? 0.65 : layout.value === 'circular' ? 0.45 : 0.3,curveness:layout.value === 'layered' ? 0 : 0.32})}); });
+    var nodeById = new Map(nodes.map(function(n) { return [n.id, n]; }));
+    function edgeStyle(link) {
+      var source = nodeById.get(link.source), target = nodeById.get(link.target);
+      if (!source || !target) return {color:'#AEB8C7', opacity:0.35, curveness:0};
+      var pair = [layoutGroup(source.nodeType), layoutGroup(target.nodeType)].sort().join(':');
+      var styles = {
+        'disease:target': {color:'#B65A50', opacity:0.7},
+        'compound:target': {color:'#4E6D9C', opacity:0.48},
+        'compound:herb': {color:'#A28A62', opacity:0.62},
+        'disease:herb': {color:'#70578B', opacity:0.62},
+        'pathway:target': {color:'#8A709B', opacity:0.56}
+      };
+      var style = styles[pair] || {color:'#AEB8C7', opacity:0.35};
+      if (source.targetOverlap || target.targetOverlap) style = Object.assign({}, style, {opacity:Math.min(0.82, style.opacity + 0.14), width:1.6});
+      return Object.assign({}, style, {curveness:layout.value === 'layered' ? 0 : 0.32});
+    }
+    links = links.map(function(l) { return Object.assign({},l,{lineStyle:edgeStyle(l)}); });
     var selectedTypes = {}; originalCategories.forEach(function(c) { selectedTypes[c.name] = activeTypes.has(c.name); });
-    chart.setOption({title:{text:(layout.value === 'circular' ? 'Circular network' : layout.value === 'layered' ? 'Layered network' : 'Force-directed network')+' · 节点大小表示当前连接度',
+    chart.setOption({title:{text:(layout.value === 'circular' ? '环形关系图' : layout.value === 'layered' ? '网络药理学证据链' : '力导关系图')+' · 节点大小表示当前连接度',
       top:layout.value === 'circular' ? 180+circleDiameter+155 : null,bottom:layout.value === 'circular' ? null : 10},legend:{selected:selectedTypes},series:[{layout:layout.value === 'layered' ? 'none' : layout.value, data:nodes, links:links,
       left:layout.value === 'circular' ? (chart.getWidth()-circleDiameter)/2 : leftMargin, right:layout.value === 'circular' ? null : rightMargin,
       width:layout.value === 'circular' ? circleDiameter : null,height:layout.value === 'circular' ? circleDiameter : null,
@@ -151,7 +179,9 @@ function(el, x) {
       var links = chart.getOption().series[0].links;
       var neighbors = new Set(); links.forEach(function(l) { if (l.source === d.id) neighbors.add(l.target); if (l.target === d.id) neighbors.add(l.source); });
       var lookup = new Map(originalNodes.map(function(n) { return [n.id, labelOf(n)]; }));
-      return labelOf(d) + ' · ' + (typeLabels[d.nodeType] || d.nodeType) + '\n显示连接度: ' + d.value + ' · 原始输入连接度: ' + d.originalDegree + '\n邻居: ' + Array.from(neighbors).map(function(id) { return lookup.get(id) || id; }).join('、');
+      var identityDetail = d.canonicalTargetKey ? '\n人类标准靶点: ' + d.canonicalTargetKey + ' · 已核验' + (d.targetOverlap ? '\n中药侧与疾病侧的共享靶点' : '') : '';
+      var sourceDetail = d.sourceEntityCount > 1 ? '\n合并展示的同名来源实体: ' + d.sourceEntityCount + ' 条（关系证据按来源保留）' : '';
+      return labelOf(d) + ' · ' + (typeLabels[d.nodeType] || d.nodeType) + '\n显示连接度: ' + d.value + ' · 原始输入连接度: ' + d.originalDegree + sourceDetail + identityDetail + '\n邻居: ' + Array.from(neighbors).map(function(id) { return lookup.get(id) || id; }).join('、');
     }
     if (x.chartType === 'volcano') return d.label + '\nlog2FC: ' + d.value[0] + ' · P: ' + d.pValue + ' · FDR: ' + (d.fdr == null ? '未提供' : d.fdr) + '\n保存的筛选状态: ' + (d.selected ? '通过' : '未通过');
     if (x.chartType === 'enrichment_bubble') return d.label + '\n' + d.source + ' · GeneRatio: ' + d.value[0] + ' · 命中数: ' + d.value[3] + ' · FDR: ' + d.fdr;
@@ -195,4 +225,9 @@ function(el, x) {
     if (x.chartType === 'network' && width !== lastWidth) updateGraph();
     lastWidth = width;
   }).observe(el);
+  } catch (error) {
+    var message = error && error.message ? error.message : String(error || '未知错误');
+    if (status) status.textContent = '交互图表初始化失败：' + message.slice(0, 180) + '。请切换静态预览或重新生成图表。';
+    if (window.console && typeof window.console.error === 'function') window.console.error('R interactive chart initialization failed', error);
+  }
 }

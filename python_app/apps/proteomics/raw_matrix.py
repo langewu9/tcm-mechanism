@@ -18,9 +18,11 @@ MAX_FACTORS = 10
 
 
 def _matrix_value(value: str, *, values_are_log2: bool) -> tuple[float | None, str | None]:
-    text = str("" if value is None else value).strip().replace(",", "")
+    text = str("" if value is None else value).strip()
     if text.casefold() in MISSING_VALUES:
         return None, None
+    if "," in text:
+        return None, "ambiguous_numeric_format"
     try:
         parsed = float(text)
     except ValueError:
@@ -265,10 +267,20 @@ def analyze_raw_matrix(rows: list[dict[str, str]], design: dict) -> tuple[list[d
         parsed_matrix.append(parsed_row)
         error_matrix.append(error_row)
 
+    # Locale-ambiguous measurements reject the whole row, irrespective of the
+    # ordinary missing-value policy. Other cells in that row must not influence
+    # normalization of valid rows either.
+    ambiguous_rows = {
+        row_index for row_index, errors in enumerate(error_matrix)
+        if "ambiguous_numeric_format" in errors
+    }
     sample_offsets = [0.0] * len(sample_columns)
     if normalization == "median_center":
         for column_index, column in enumerate(sample_columns):
-            available = [row[column_index] for row in parsed_matrix if row[column_index] is not None]
+            available = [
+                row[column_index] for row_index, row in enumerate(parsed_matrix)
+                if row_index not in ambiguous_rows and row[column_index] is not None
+            ]
             if not available:
                 raise ProteomicsInputError(f"样本列「{column}」没有有效数值，无法执行样本中位数中心化。")
             sample_offsets[column_index] = median(available)
@@ -289,6 +301,7 @@ def analyze_raw_matrix(rows: list[dict[str, str]], design: dict) -> tuple[list[d
     missing_cell_count = 0
     invalid_cell_count = 0
     invalid_row_count = 0
+    ambiguous_cell_count = 0
     tested_indices: list[int] = []
     raw_p_values: list[float] = []
     raw_p_by_row: dict[int, float] = {}
@@ -298,6 +311,11 @@ def analyze_raw_matrix(rows: list[dict[str, str]], design: dict) -> tuple[list[d
         values = parsed_matrix[row_index]
         errors = [error for error in error_matrix[row_index] if error]
         invalid_cell_count += len(errors)
+        ambiguous_columns = [
+            column for column, error in zip(sample_columns, error_matrix[row_index])
+            if error == "ambiguous_numeric_format"
+        ]
+        ambiguous_cell_count += len(ambiguous_columns)
         missing_cell_count += sum(
             value is None and error is None
             for value, error in zip(values, error_matrix[row_index])
@@ -305,9 +323,19 @@ def analyze_raw_matrix(rows: list[dict[str, str]], design: dict) -> tuple[list[d
         if errors:
             invalid_row_count += 1
             row_warnings[row_index] = ["invalid_sample_values"]
+            if ambiguous_columns:
+                row_warnings[row_index].extend([
+                    "ambiguous_sample_numeric_format",
+                    *[f"ambiguous_sample_numeric_format:{column}" for column in ambiguous_columns],
+                ])
         elif any(value is None for value in values):
             row_warnings[row_index] = ["missing_sample_values"]
 
+        if ambiguous_columns:
+            row_reasons[row_index] = ["invalid_sample_values", "ambiguous_numeric_format"]
+            if not str(row.get(identifier_column, "") or "").strip():
+                row_reasons[row_index].append("missing_identifier")
+            continue
         if not str(row.get(identifier_column, "") or "").strip():
             row_reasons[row_index] = ["missing_identifier"]
             continue
@@ -406,6 +434,11 @@ def analyze_raw_matrix(rows: list[dict[str, str]], design: dict) -> tuple[list[d
         ]
     if not values_are_log2:
         warnings.append("已对正值强度执行 log2 转换。")
+    if ambiguous_rows:
+        warnings.append(
+            "数值字段中的逗号含义未声明，未按小数点或千分位猜测转换；"
+            "含此类字段的整行已排除检验及归一化，不受可用样本策略影响。请核对原文件对应行和样本列。"
+        )
     if normalization == "median_center":
         warnings.append("已在选定样本中进行样本中位数中心化；归一化方法由研究者显式选择。")
     else:
@@ -431,6 +464,8 @@ def analyze_raw_matrix(rows: list[dict[str, str]], design: dict) -> tuple[list[d
         "rowsTested": len(tested_indices),
         "rowsWithInvalidSampleValues": invalid_row_count,
         "invalidSampleValueCount": invalid_cell_count,
+        "rowsWithAmbiguousNumericFormat": len(ambiguous_rows),
+        "ambiguousNumericFormatValueCount": ambiguous_cell_count,
         "missingSampleValueCount": missing_cell_count,
         "rowsExcludedByMatrixDesign": len(row_reasons),
     }

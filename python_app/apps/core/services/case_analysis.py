@@ -19,6 +19,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from apps.core.models import AnalysisTask, EvidenceRelation, KnowledgeEntity, MedicalCaseCandidate
+from .task_recovery import lock_running_analysis
 
 
 logger = logging.getLogger(__name__)
@@ -29,6 +30,7 @@ MAX_RAG_ENTITIES = 12
 MAX_RAG_RELATIONS = 40
 MAX_RAG_CITATIONS_PER_CANDIDATE = 8
 MAX_EVIDENCE_CHAIN_RELATIONS = 1000
+CONFIRMED_CHAIN_VERSION = "case-confirmed-evidence-2"
 MODEL_VERSION_PLACEHOLDERS = {"", "未配置", "configure-the-installed-model-version"}
 EVIDENCE_FIELDS = {
     "deidentified_text": "deidentified_text",
@@ -36,14 +38,6 @@ EVIDENCE_FIELDS = {
     "structured_data.diagnosis": "diagnosis",
 }
 ALLOWED_OBSERVATION_TYPES = {"symptom", "tongue", "pulse", "course", "diagnosis"}
-EVIDENCE_CHAIN_TYPES = {
-    KnowledgeEntity.EntityType.SYNDROME: {KnowledgeEntity.EntityType.FORMULA},
-    KnowledgeEntity.EntityType.FORMULA: {KnowledgeEntity.EntityType.HERB},
-    KnowledgeEntity.EntityType.HERB: {KnowledgeEntity.EntityType.COMPOUND},
-    KnowledgeEntity.EntityType.COMPOUND: {KnowledgeEntity.EntityType.GENE, KnowledgeEntity.EntityType.PROTEIN},
-    KnowledgeEntity.EntityType.GENE: {KnowledgeEntity.EntityType.PATHWAY},
-    KnowledgeEntity.EntityType.PROTEIN: {KnowledgeEntity.EntityType.PATHWAY},
-}
 RAG_ENTITY_TYPES = {
     KnowledgeEntity.EntityType.SYNDROME,
     KnowledgeEntity.EntityType.FORMULA,
@@ -570,6 +564,9 @@ def run_case_analysis(task: AnalysisTask) -> dict:
         case = type(case).objects.select_for_update().get(pk=case.pk)
         if expected_hash != case_input_sha256(case):
             raise CaseAnalysisError("模型分析期间医案内容已修改，本次结果未保存；请重新创建分析任务。")
+        # Keep the established case -> task lock order. Candidate rows and the
+        # successful result are published together, or not published at all.
+        locked_task = lock_running_analysis(task.pk)
         for candidate_type, values in [
             (MedicalCaseCandidate.CandidateType.SYNDROME, syndrome_candidates),
             (MedicalCaseCandidate.CandidateType.FORMULA, formula_candidates),
@@ -590,85 +587,108 @@ def run_case_analysis(task: AnalysisTask) -> dict:
                 candidate_rows.append(candidate)
                 if candidate.entity_id and candidate.entity.source_release_id:
                     source_release_ids.add(candidate.entity.source_release_id)
-        task.source_releases.set(sorted(source_release_ids))
+        locked_task.source_releases.set(sorted(source_release_ids))
 
-    warnings = [
-        "模型输出仅为研究假设，置信度未经校准；只有逐条人工确认后才会进入下游证据链。",
-        "系统只按本地知识库规范名称或同义词精确关联实体；未匹配和重名候选不会自动合并。",
-    ]
-    return {
-        "analysisKind": "case_analysis",
-        "caseId": case.pk,
-        "caseContentSha256": expected_hash,
-        "model": {
-            "provider": "configured_local_openai_compatible",
-            "name": settings.CASE_MODEL_NAME,
-            "version": settings.CASE_MODEL_VERSION,
-        },
-        "observations": observations,
-        "candidates": [candidate_payload(candidate) for candidate in candidate_rows],
-        "retrievalContext": knowledge_context,
-        "evidenceChain": {"nodes": [], "links": [], "sources": [], "truncated": False},
-        "warnings": warnings,
-    }
+        warnings = [
+            "模型输出仅为研究假设，置信度未经校准；只有逐条人工确认后才会进入下游证据链。",
+            "系统只按本地知识库规范名称或同义词精确关联实体；未匹配和重名候选不会自动合并。",
+        ]
+        result = {
+            "analysisKind": "case_analysis",
+            "caseId": case.pk,
+            "caseContentSha256": expected_hash,
+            "model": {
+                "provider": "configured_local_openai_compatible",
+                "name": settings.CASE_MODEL_NAME,
+                "version": settings.CASE_MODEL_VERSION,
+            },
+            "observations": observations,
+            "candidates": [candidate_payload(candidate) for candidate in candidate_rows],
+            "retrievalContext": knowledge_context,
+            "evidenceChain": {"nodes": [], "links": [], "sources": [], "truncated": False},
+            "warnings": warnings,
+        }
+        locked_task.result = result
+        locked_task.status = AnalysisTask.Status.SUCCEEDED
+        locked_task.progress = 100
+        locked_task.finished_at = timezone.now()
+        locked_task.save(update_fields=["result", "status", "progress", "finished_at"])
+    return result
+
+
+def candidate_entity_available(candidate) -> bool:
+    entity = candidate.entity
+    return bool(entity and entity.is_active and entity.entity_type == candidate.candidate_type
+                and (not entity.source_release_id or entity.source_release.source.enabled))
 
 
 def build_confirmed_evidence_chain(candidates) -> tuple[dict, list[int]]:
+    from .herb_evidence import _entity_record, _relation_record
+    from .herb_row_query import supported_target_queryset
+    from .network_pharmacology import COMPOUND_TARGET_TYPES, FORMULA_HERB_TYPES, HERB_COMPOUND_TYPES, PATHWAY_TYPES
+
     accepted = [candidate for candidate in candidates if candidate.review_status == MedicalCaseCandidate.ReviewStatus.ACCEPTED and candidate.entity_id]
     nodes: dict[int, dict] = {}
     links = []
     source_release_ids = set()
-    frontier: set[int] = set()
+    excluded = []
 
     def add_entity(entity):
-        nodes[entity.pk] = {
-            "id": entity.pk,
-            "entityType": entity.entity_type,
-            "stableId": entity.stable_id,
-            "label": entity.label,
-        }
+        nodes[entity.pk] = _entity_record(entity)
         if entity.source_release_id:
             source_release_ids.add(entity.source_release_id)
 
     for candidate in accepted:
+        if not candidate_entity_available(candidate):
+            excluded.append(candidate.pk)
+            continue
         add_entity(candidate.entity)
-        frontier.add(candidate.entity_id)
 
-    visited_entities = set(frontier)
     truncated = False
-    while frontier:
-        frontier_entities = list(
-            KnowledgeEntity.objects.filter(pk__in=frontier, is_active=True).order_by("pk")
-        )
-        source_types = {entity.entity_type for entity in frontier_entities}
-        allowed_relations = Q(pk__in=[])
-        for entity_type in source_types:
-            next_types = EVIDENCE_CHAIN_TYPES.get(entity_type, set())
-            if next_types:
-                allowed_relations |= Q(subject__entity_type=entity_type, object__entity_type__in=next_types)
+    herb_relations = []
+    # Resolve each typed level before expanding the next. A syndrome and its
+    # formula can both be confirmed roots; mixed BFS levels must not visit a
+    # shared compound before all selected herbs' original rows are known.
+    steps = [
+        ({"syndrome"}, {"formula"}, {"syndrome_formula"}),
+        ({"formula"}, {"herb"}, FORMULA_HERB_TYPES),
+        ({"herb"}, {"compound"}, HERB_COMPOUND_TYPES),
+        ({"compound"}, {"gene", "protein"}, COMPOUND_TARGET_TYPES | {"compound_gene", "compound_protein"}),
+        ({"gene", "protein"}, {"pathway"}, PATHWAY_TYPES),
+    ]
+    for source_types, target_types, relation_types in steps:
+        frontier = [pk for pk, node in nodes.items() if node["entityType"] in source_types]
+        if not frontier:
+            continue
         remaining = MAX_EVIDENCE_CHAIN_RELATIONS - len(links)
-        if remaining <= 0:
-            truncated = True
-            break
         relations = EvidenceRelation.objects.filter(
             subject_id__in=frontier,
             subject__is_active=True,
             object__is_active=True,
+            object__entity_type__in=target_types,
+            relation_type__in=relation_types,
+            source_release__source__enabled=True,
             is_active=True,
-        ).filter(allowed_relations).select_related(
-            "subject", "object", "source_release", "source_release__source"
+        ).filter(
+            (Q(subject__source_release__isnull=True) | Q(subject__source_release__source__enabled=True))
+            & (Q(object__source_release__isnull=True) | Q(object__source_release__source__enabled=True))
+        ).select_related(
+            "subject__source_release__source", "object__source_release__source", "source_release__source"
         ).order_by("pk")
+        if source_types == {"compound"}:
+            relations = supported_target_queryset(relations, herb_relations)
         batch = list(relations[: remaining + 1])
         if len(batch) > remaining:
             truncated = True
             batch = batch[:remaining]
-        next_frontier = set()
         for relation in batch:
+            if source_types == {"herb"}:
+                herb_relations.append(relation)
             add_entity(relation.object)
-            next_frontier.add(relation.object_id)
             source = relation.source_release.source
             source_release_ids.add(relation.source_release_id)
             links.append({
+                **_relation_record(relation),
                 "id": relation.pk,
                 "source": relation.subject_id,
                 "target": relation.object_id,
@@ -679,10 +699,10 @@ def build_confirmed_evidence_chain(candidates) -> tuple[dict, list[int]]:
                 "sourceSlug": source.slug,
                 "sourceVersion": relation.source_release.version,
                 "sourceRecordId": relation.source_record_id,
+                "subjectStableId": relation.subject.stable_id,
+                "objectStableId": relation.object.stable_id,
                 "evidenceText": relation.evidence_text[:1000],
             })
-        frontier = next_frontier - visited_entities
-        visited_entities.update(frontier)
         if truncated:
             break
 
@@ -692,16 +712,19 @@ def build_confirmed_evidence_chain(candidates) -> tuple[dict, list[int]]:
 
         releases = SourceRelease.objects.filter(pk__in=source_release_ids).select_related("source").order_by("source__slug", "version")
         sources = [
-            {"id": release.pk, "source": release.source.name, "sourceSlug": release.source.slug, "version": release.version}
+            {"id": release.pk, "source": release.source.name, "sourceSlug": release.source.slug,
+             "version": release.version, "checksumSha256": release.checksum_sha256}
             for release in releases
         ]
-    return {"nodes": list(nodes.values()), "links": links, "sources": sources, "truncated": truncated}, sorted(source_release_ids)
+    return {"algorithmVersion": CONFIRMED_CHAIN_VERSION, "nodes": list(nodes.values()), "links": links,
+            "sources": sources, "truncated": truncated, "excludedCandidateIds": excluded,
+            "warnings": ["部分已确认候选的实体或来源当前不可用，未纳入本次证据链。"] if excluded else []}, sorted(source_release_ids)
 
 
 def refresh_case_analysis_result(task: AnalysisTask) -> list[int]:
     candidates = list(
         MedicalCaseCandidate.objects.filter(task=task)
-        .select_related("entity", "reviewed_by")
+        .select_related("entity__source_release__source", "reviewed_by")
         .order_by("candidate_type", "rank", "pk")
     )
     chain, source_release_ids = build_confirmed_evidence_chain(candidates)

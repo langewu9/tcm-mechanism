@@ -31,6 +31,7 @@ from apps.core.services.component_names import compare_components_multilingual
 from apps.core.services.disease_names import ALIAS_DATA, disease_entity_queryset, expand_disease_queries
 from apps.core.services.herb_evidence import batch_herb_component_evidence
 from apps.core.services.network_pharmacology import build_network_pharmacology
+from config.runtime_logs import record_runtime_event
 
 
 INTEGRATION_TARGETS = ("qwen", "disease", "herb", "component", "chembl", "intersection", "compare", "scientist")
@@ -255,16 +256,25 @@ class IntegrationTestView(APIView):
                 )
                 result = _result(ok=True, status=200, url="/api/v1/analysis/component-compare/", data=data, started=started)
             else:
+                from apps.core.models import AnalysisTask
+                from apps.core.services.complete_evidence import _scientist_data, relation_limit
+                report, _ = _scientist_data(AnalysisTask(owner=request.user, input_parameters={
+                    "question": "本地证据汇总检查（非实验）", "disease": "肺纤维化", "herb": "粳米",
+                    "formulaHerbs": ["粳米"], "focus": "本地接口检查", "useModel": False,
+                }), relation_limit())
                 result = _result(
-                    ok=False,
-                    status=501,
-                    url="main 中的 backend/data_service.py",
-                    error="旧版 AI Scientist 依赖未随仓库提供的 Excel/SQLite 数据；当前 Django 版本没有可复刻的同等接口，已留待迁移。",
-                    started=started,
+                    ok=True, status=200, url="/api/v1/research/assistant/ (scientist_hypothesis)",
+                    data={"algorithmVersion": report["algorithmVersion"], "results": report["results"],
+                          "sources": report["references"], "uncertainties": report["uncertainties"],
+                          "externalCalls": False, "taskCreated": False}, started=started,
                 )
         except ChemblServiceError as exc:
             result = _result(ok=False, status=503, url="https://www.ebi.ac.uk/chembl/api/data/molecule/search", error=str(exc), started=started)
         except (ValueError, DatabaseError) as exc:
-            result = _result(ok=False, status=503, url=f"/api/v1/admin/integrations/test/ ({target})", error=str(exc)[:300], started=started)
+            record_runtime_event("integration.failed", request=request, exception=exc, status_code=503)
+            result = _result(
+                ok=False, status=503, url=f"/api/v1/admin/integrations/test/ ({target})",
+                error="服务检查失败，请联系管理员并提供请求编号。", started=started,
+            )
 
         return Response({"target": target, "result": result})

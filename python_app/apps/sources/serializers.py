@@ -58,6 +58,7 @@ class SQLiteSourceCreateSerializer(serializers.Serializer):
     targetColumn = serializers.CharField(max_length=80)
     targetCellMode = serializers.ChoiceField(choices=["single", "list"], required=False)
     rowMetadataColumn = serializers.CharField(max_length=80, required=False, allow_blank=True)
+    diseaseRowMetadataColumn = serializers.CharField(max_length=80, required=False, allow_blank=True)
     diseaseTargetTable = serializers.CharField(max_length=80, required=False, allow_blank=True)
     diseaseColumn = serializers.CharField(max_length=80, required=False, allow_blank=True)
     diseaseTargetColumn = serializers.CharField(max_length=80, required=False, allow_blank=True)

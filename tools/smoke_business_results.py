@@ -35,7 +35,7 @@ def main():
     assert len(page["targets"]) == 29 and len(page["relations"]) == 58
     _, graph = owner.request("/api/v1/catalog/herb-evidence/analyses/", method="POST", expected=201,
         data={"queryType":"herb","queries":["石榴皮"],"expectedResultSha256":searched["resultSha256"]})
-    assert graph["input_parameters"]["algorithmVersion"] == "catalog-evidence-0.3"
+    assert graph["input_parameters"]["algorithmVersion"] == "catalog-evidence-0.4"
     assert graph["result"]["counts"]["nodes"] == 31 and graph["result"]["counts"]["evidenceRecords"] == 58
     _, network = owner.request("/api/v1/analysis/network-pharmacology/", method="POST", data={"herb":"石榴皮","disease":"NO_MATCH_SYNTHETIC"})
     assert network["summary"]["herbTargetCount"] == 29 and not network["targets"]

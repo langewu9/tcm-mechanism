@@ -22,6 +22,7 @@ export const searchReactomeCatalog = (query: string) => apiRequest<ReactomeCatal
 );
 
 export type DashboardTask = {
+  analysis_kind?: string;
   id: number;
   title: string;
   summary: string;
@@ -111,17 +112,34 @@ export type HerbEvidenceRelation = {
   sourceVersion: string;
   sourceRecordId: string;
   score: number | null;
+  herbStableId?: string;
 };
 
 export type HerbEvidenceItem = {
   query: string;
   searchedNames?: string[];
+  resolution?: {
+    version: string;
+    strategy: string;
+    expandedNames: string[];
+    identityMerged: boolean;
+    authorityIdentityVerified: boolean;
+    aliasSource?: string;
+    aliasSourceCommit?: string;
+    warnings: string[];
+    matchEvidence: Array<{ entityId: number; stableId: string; originalLabel: string; sourceEntityId: string | null;
+      sourceSlug: string | null; sourceReleaseId: number | null; sourceVersion: string | null; basis: Array<Record<string, unknown>> }>;
+  };
   matches: HerbEvidenceEntity[];
   ambiguous: boolean;
   herbs: HerbEvidenceEntity[];
   compounds: HerbEvidenceEntity[];
   targets: HerbEvidenceEntity[];
   relations: HerbEvidenceRelation[];
+  diseases?: HerbEvidenceEntity[];
+  diseaseHerbs?: HerbEvidenceEntity[];
+  diseaseRelations?: HerbEvidenceRelation[];
+  diseaseRelationsTruncated?: boolean;
   truncated: boolean;
 };
 
@@ -134,6 +152,9 @@ export type HerbEvidenceSearch = {
 };
 
 export type DiseaseEvidenceLink = {
+  diseaseId?: number;
+  herbId?: number | null;
+  targetId?: number | null;
   disease: string;
   herb: string;
   target: string;
@@ -146,6 +167,7 @@ export type DiseaseEvidenceLink = {
 export type DiseaseEvidenceSearch = {
   dataQuality?: DataQualityNotice[];
   evidenceSha256?: string;
+  resultSha256: string;
   query: string;
   expandedQueries: string[];
   aliasSource: string;
@@ -158,11 +180,17 @@ export type DiseaseEvidenceSearch = {
   links: DiseaseEvidenceLink[];
   counts: { diseases: number; herbs: number; targets: number; links: number; relations: number };
   truncated: boolean;
-  limits: { maxMatches: number; maxRelations: number };
+  limits: { maxMatches: number; maxRelations: number; returnedRelations: number };
 };
 
 export function searchDiseaseEvidence(query: string) {
   return apiRequest<DiseaseEvidenceSearch>(`/api/v1/catalog/diseases/evidence-search/?${new URLSearchParams({ query })}`);
+}
+
+export function saveDiseaseEvidenceAnalysis(evidence: DiseaseEvidenceSearch) {
+  return apiRequest<AnalysisTask>("/api/v1/catalog/diseases/evidence-analyses/", {
+    method: "POST", body: { query: evidence.query, expectedResultSha256: evidence.resultSha256 },
+  });
 }
 
 export function searchCatalogEntities(query: string, entityType: string, page = 1) {
@@ -189,6 +217,6 @@ export function searchHerbComponentEvidence(queryType: HerbEvidenceSearch["query
 export function saveHerbEvidenceAnalysis(evidence: HerbEvidenceSearch) {
   return apiRequest<AnalysisTask>("/api/v1/catalog/herb-evidence/analyses/", {
     method: "POST",
-    body: { queryType: evidence.queryType, queries: evidence.results.map(item => item.query), expectedResultSha256: evidence.resultSha256 },
+    body: { queryType: evidence.queryType, queries: evidence.results.map(item => item.query), expectedResultSha256: evidence.resultSha256, complete: true },
   });
 }
