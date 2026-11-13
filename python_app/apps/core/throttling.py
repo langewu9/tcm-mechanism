@@ -52,3 +52,13 @@ class ResearchSubmissionThrottle(PlatformUserThrottle):
         if request.method != "POST" or not (research_action or request.path in self.paths):
             return None
         return super().get_cache_key(request, view)
+
+
+class DatasetUploadThrottle(PlatformUserThrottle):
+    """Give synchronous file parsing a separately configurable per-user budget."""
+    scope = "dataset_upload"
+
+    def get_cache_key(self, request, view):
+        if request.method != "POST" or getattr(view, "action", None) != "create":
+            return None
+        return super().get_cache_key(request, view)

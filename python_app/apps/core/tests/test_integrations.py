@@ -1,6 +1,7 @@
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.db import DatabaseError
 from django.urls import reverse
 from rest_framework.test import APITestCase
 
@@ -83,3 +84,18 @@ class IntegrationMonitorApiTests(APITestCase):
         self.assertFalse(response.data["result"]["data"]["taskCreated"])
         self.assertEqual(response.data["result"]["data"]["results"]["intersection_count"], 0)
         self.assertEqual(AnalysisTask.objects.count(), 0)
+
+    @patch("apps.core.views.integrations.record_runtime_event")
+    @patch("apps.core.views.integrations.build_network_pharmacology", side_effect=DatabaseError("PRIVATE_DB_ERROR"))
+    def test_local_database_failure_is_logged_without_echoing_database_details(self, build_network, record_event):
+        self.client.force_authenticate(self.admin)
+
+        response = self.client.post(self.test_url, {"target": "intersection"}, format="json")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["result"]["status"], 503)
+        self.assertEqual(response.data["result"]["error"], "服务检查失败，请联系管理员并提供请求编号。")
+        self.assertNotIn("PRIVATE_DB_ERROR", str(response.data))
+        build_network.assert_called_once()
+        record_event.assert_called_once()
+        self.assertEqual(record_event.call_args.kwargs["status_code"], 503)

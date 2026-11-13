@@ -5,6 +5,7 @@ from threading import Barrier
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import close_old_connections, connections
 from django.test import TestCase, TransactionTestCase, override_settings, skipUnlessDBFeature
@@ -29,6 +30,7 @@ class UploadQuotaTests(TestCase):
         cls.staff = users.objects.create_user(username="quota-staff", is_staff=True)
 
     def setUp(self):
+        cache.clear()
         media = tempfile.TemporaryDirectory()
         self.addCleanup(media.cleanup)
         self.media = Path(media.name)
@@ -40,6 +42,27 @@ class UploadQuotaTests(TestCase):
         self.addCleanup(settings.disable)
         self.api = APIClient()
         self.api.force_authenticate(self.owner)
+
+    def test_dataset_upload_has_separate_configurable_per_user_rate_limit(self):
+        with patch("apps.core.throttling.DatasetUploadThrottle.get_rate", return_value="1/hour"):
+            self.assertEqual(self.upload().status_code, 201)
+            response = self.upload()
+
+        self.assertEqual(response.status_code, 429)
+        self.assertEqual(ResearchDataset.objects.filter(owner=self.owner).count(), 1)
+        self.assertEqual(len(self.files()), 1)
+
+    def test_invalid_upload_attempt_also_consumes_rate_limit(self):
+        with patch("apps.core.throttling.DatasetUploadThrottle.get_rate", return_value="1/hour"):
+            invalid = self.api.post(reverse("dataset-list"), {
+                "name": "Invalid upload", "file": SimpleUploadedFile("unsupported.bin", b"fixture"),
+            }, format="multipart")
+            self.assertEqual(invalid.status_code, 400)
+            response = self.upload()
+
+        self.assertEqual(response.status_code, 429)
+        self.assertEqual(ResearchDataset.objects.filter(owner=self.owner).count(), 0)
+        self.assertEqual(self.files(), [])
 
     def upload(self, content=CSV):
         return self.api.post(reverse("dataset-list"), {

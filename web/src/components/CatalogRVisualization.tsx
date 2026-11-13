@@ -16,7 +16,7 @@ export function CatalogRVisualization({ query }: { query: Omit<CatalogSnapshotQu
   const lock = useRef(false);
   const querySignature = JSON.stringify(query);
   const presets = query.queryType === "comparison" ? [["catalog_summary", "名称对照数量"]] : [
-    ["evidence_network", "圆形证据网络"], ["catalog_summary", "实体与证据概览"], ["catalog_degree", "连接度 / 注释分布"],
+    ["evidence_network", "证据网络"], ["catalog_summary", "实体与证据概览"], ["catalog_degree", "连接度 / 注释分布"],
   ];
   useEffect(() => {
     generation.current++; setTaskId(null); setError(""); setBusy(false); lock.current = false;

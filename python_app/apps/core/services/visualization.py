@@ -6,6 +6,7 @@ import base64
 import hashlib
 import json
 import logging
+import math
 import urllib.error
 import urllib.request
 
@@ -86,6 +87,7 @@ def build_chart_payload(task: AnalysisTask, chart_key: str) -> dict:
                 or not isinstance(p_value_threshold, (int, float))
                 or isinstance(p_value_threshold, bool)
                 or not 0 < p_value_threshold <= 1
+                or not math.isfinite(log2_fc_threshold)
                 or log2_fc_threshold < 0
             ):
                 raise VisualizationInputError("分析任务中的火山图筛选阈值无效。")
@@ -125,10 +127,26 @@ def build_chart_payload(task: AnalysisTask, chart_key: str) -> dict:
             if not data:
                 raise VisualizationInputError("本次分析没有同时包含有效 log2FC 和 P 值的行，无法生成火山图。")
             title = "差异蛋白火山图"
-            subtitle = (
-                f"筛选阈值：|log2FC| ≥ {log2_fc_threshold:g}，P ≤ {p_value_threshold:g}；"
-                f"展示 {len(data)}/{total_count} 条有效统计结果"
+            fdr_threshold = threshold_values.get("fdrMax")
+            if eligible_rows.filter(fdr__isnull=False).exists():
+                if (
+                    isinstance(fdr_threshold, (int, float))
+                    and not isinstance(fdr_threshold, bool)
+                    and 0 < fdr_threshold <= 1
+                ):
+                    significance_rule = (
+                        f"有效 FDR 优先按 FDR ≤ {fdr_threshold:g}，"
+                        f"无 FDR 时按 P ≤ {p_value_threshold:g}"
+                    )
+                else:
+                    significance_rule = "沿用已保存的筛选状态（历史 FDR 阈值未完整记录，不重新推断）"
+            else:
+                significance_rule = f"P ≤ {p_value_threshold:g}"
+            subtitle_prefix = (
+                f"统计判据：|log2FC| ≥ {log2_fc_threshold:g}，{significance_rule}；\n"
+                f"横线仅为 P ≤ {p_value_threshold:g} 参考线，颜色/形状沿用已保存的入选状态；\n"
             )
+            subtitle = f"{subtitle_prefix}展示 {len(data)}/{total_count} 条有效统计结果"
             if len(data) < total_count:
                 subtitle += "（按筛选状态与显著性排序截取）"
         elif chart_key == "proteomics_summary":
@@ -242,7 +260,7 @@ def build_chart_payload(task: AnalysisTask, chart_key: str) -> dict:
             candidate = {
                 **payload,
                 "data": original_data[:count],
-                "subtitle": f"{subtitle}；受请求大小限制绘制 {count}/{total_count} 条",
+                "subtitle": f"{subtitle_prefix}受请求大小限制绘制 {count}/{total_count} 条（按保存的筛选状态与显著性截取）",
             }
             candidate.pop("inputSha256", None)
             candidate, candidate_size = with_input_hash(candidate)

@@ -31,6 +31,7 @@ from ..services.research_retention import dataset_audit, retention_scope, set_ar
 from ..serializers.research import AnalysisTaskSummarySerializer, ResearchDatasetAuditEventSerializer
 from ..services.access_audit import SensitiveReadAuditMixin, mark_sensitive_access
 from ..services.artifact_integrity import ArtifactReadError, ArtifactUnavailable, verified_artifact_bytes
+from ..throttling import DatasetUploadThrottle
 
 
 class ResearchDashboardView(APIView):
@@ -76,6 +77,12 @@ class ResearchDatasetViewSet(SensitiveReadAuditMixin, viewsets.ModelViewSet):
     queryset = ResearchDataset.objects.none()
     serializer_class = ResearchDatasetSerializer
     permission_classes = [IsAuthenticated]
+
+    def get_throttles(self):
+        throttles = super().get_throttles()
+        if getattr(self, "action", None) == "create":
+            throttles.append(DatasetUploadThrottle())
+        return throttles
 
     def get_queryset(self):
         if getattr(self, "swagger_fake_view", False):

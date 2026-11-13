@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from django.db.models import Q, Subquery
+from django.db.models import Q
 
 from apps.core.models import EvidenceRelation, KnowledgeEntity
 from .catalog_identity import exact_entity_names, exact_entity_queryset, structural_representatives
@@ -50,8 +50,11 @@ def _visible_relations(
     if not complete:
         candidates = structural_representatives(candidates, relation_types=relation_types)
     # Filter row support before the cap; hydrate only the bounded primary keys.
-    ids = candidates.order_by("id").values("pk")[:limit + 1]
-    queryset = EvidenceRelation.objects.filter(pk__in=Subquery(ids)).select_related(
+    # Materialize the bounded IDs before hydration. A semi-join subquery lets
+    # PostgreSQL join every relation to its provenance before applying the cap.
+    # Complete analyses already run inside their repeatable-read transaction.
+    ids = list(candidates.order_by("id").values_list("pk", flat=True)[:limit + 1])
+    queryset = candidates.filter(pk__in=ids).select_related(
         "subject__source_release__source", "object__source_release__source",
         "source_release__source",
     ).order_by("id")

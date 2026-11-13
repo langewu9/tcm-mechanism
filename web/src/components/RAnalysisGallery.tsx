@@ -20,6 +20,15 @@ function namedCountRows(value: unknown, labelKey = "label", valueKey = "value") 
     return typeof row[labelKey] === "string" && String(row[labelKey]).trim() && finiteNumber(row[valueKey]);
   });
 }
+function hasFrozenCatalogSummary(result: Record<string, unknown>) {
+  if (!["herb", "compound"].includes(String(result.queryType))) return false;
+  const snapshot = record(result.snapshot), tables = record(snapshot.tables);
+  return snapshot.complete === true && ["entities", "evidenceRecords"].every(name => {
+    const table = record(tables[name]);
+    return finiteNumber(table.count) && Number.isSafeInteger(table.count) && table.count >= 0
+      && typeof table.sha256 === "string" && /^[a-f0-9]{64}$/.test(table.sha256);
+  });
+}
 function chart(key: string, label: string, available: boolean, note: string, unavailableReason: string, nextStep: string): Chart {
   return { key, label, available, note, ...(!available ? { unavailableReason, nextStep } : {}) };
 }
@@ -96,8 +105,8 @@ export function rChartCatalog(task: AnalysisTask): Chart[] {
     chart("catalog_summary", "名称对照数量概览", namedCountRows(result.catalogSummary), "按规范化比对键统计，同家族候选单列且不计入精确交集，不代表化学结构鉴定。", "当前名称对照快照没有保存有效的名称数量统计条目。", "重新提交检测列表与参考列表，并准备新的名称对照快照；已保存的合法零计数也可绘图。"),
   ];
   if (task.task_type === "network" && result.analysisKind === "catalog_evidence") return [
-    chart("evidence_network", "检索圆形证据网络", hasGraph, "圆形网络；只绘制快照内实际登记关系，完整证据保留在来源快照。", graphReason, graphNext),
-    chart("catalog_summary", "实体与证据概览", namedCountRows(result.catalogSummary), "按本地实体主键 / 关系主键去重计数，不合并同名异标识。", "当前检索快照没有保存有效的实体或证据数量统计。", "重新检索并准备新的目录快照；已有的合法零计数无需补数据即可绘图。"),
+    chart("evidence_network", "检索证据网络", hasGraph, "可切换网络布局；只绘制快照内实际登记关系，完整证据保留在来源快照。", graphReason, graphNext),
+    chart("catalog_summary", "实体与证据概览", namedCountRows(result.catalogSummary) || hasFrozenCatalogSummary(result), "按快照内实体主键 / 关系主键去重计数；旧完整快照从冻结表统计，不读取当前目录。", "当前检索快照没有保存有效统计或完整实体/关系表。", "缺少完整冻结表的旧记录需重新检索并保存新快照；已保存的合法零计数仍可绘图。"),
     chart("catalog_degree", result.queryType === "pathway" ? "通路注释分布" : "实体连接度分布", result.queryType === "pathway" ? namedCountRows(result.catalogCoverage) : hasGraph, "唯一邻居数 / 本地通路覆盖计数，不是核心靶点结论或富集显著性。", result.queryType === "pathway" ? "当前通路快照没有保存有效的靶点注释计数。" : graphReason, result.queryType === "pathway" ? "重新检索并准备通路快照；注释数为 0 的有效条目仍可绘制，此图不需要外部富集。" : graphNext),
   ];
   const nodeTypes = new Map<string, string>();

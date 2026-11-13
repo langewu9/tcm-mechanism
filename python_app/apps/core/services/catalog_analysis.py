@@ -1,4 +1,8 @@
 """Persist local catalogue evidence for the existing private R task pipeline."""
+from collections import Counter
+import hashlib
+import json
+
 from django.db import transaction
 from django.utils import timezone
 
@@ -11,6 +15,52 @@ MAX_GRAPH_NODES = 5000
 
 class CatalogSnapshotChanged(ValueError):
     pass
+
+
+def catalog_summary(entities, relation_count):
+    """Count source identities, never names or the bounded display projection."""
+    counts = Counter(entity["type"] for entity in entities)
+    return [{"label": label, "value": value} for label, value in (
+        ("中药实体", counts["herb"]), ("成分实体", counts["compound"]),
+        ("靶点实体", counts["target"] + counts["gene"] + counts["protein"]),
+        ("疾病实体", counts["disease"]), ("通路实体", counts["pathway"]),
+        ("去重关系记录", relation_count),
+    )]
+
+
+def frozen_catalog_summary(task):
+    """Compatibility for old complete snapshots without altering their results."""
+    result = task.result or {}
+    manifest = result.get("snapshot") or {}
+    tables = manifest.get("tables") or {}
+    if result.get("queryType") not in {"herb", "compound"} or manifest.get("complete") is not True:
+        raise ValueError("本次检索没有保存可统计的完整实体和关系表。")
+    expected = {}
+    for name in ("entities", "evidenceRecords"):
+        metadata = tables.get(name) or {}
+        count = metadata.get("count")
+        if not isinstance(count, int) or isinstance(count, bool) or count < 0:
+            raise ValueError("完整快照的统计清单无效。")
+        expected[name] = count
+    if task.snapshot_rows.filter(table="evidenceRecords").count() != expected["evidenceRecords"]:
+        raise ValueError("完整快照的关系数量与保存清单不一致。")
+
+    checksum, types, count = hashlib.sha256(), Counter(), 0
+    for row in task.snapshot_rows.filter(table="entities").order_by("ordinal").values_list("payload", flat=True).iterator(chunk_size=250):
+        count += 1
+        if count > expected["entities"] or not isinstance(row, dict) or not isinstance(row.get("type"), str):
+            raise ValueError("完整快照的实体统计数据无效。")
+        checksum.update((json.dumps(row, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n").encode())
+        types[row["type"]] += 1
+    if count != expected["entities"] or checksum.hexdigest() != tables["entities"].get("sha256"):
+        raise ValueError("完整快照的实体数量或校验值不一致。")
+    # Feed only saved type counts to the same formatter; no live catalogue reads.
+    return [{"label": label, "value": value} for label, value in (
+        ("中药实体", types["herb"]), ("成分实体", types["compound"]),
+        ("靶点实体", types["target"] + types["gene"] + types["protein"]),
+        ("疾病实体", types["disease"]), ("通路实体", types["pathway"]),
+        ("去重关系记录", expected["evidenceRecords"]),
+    )]
 
 
 def save_catalog_analysis(*, user, query_type, queries, expected_sha256):
@@ -70,6 +120,7 @@ def catalog_result(snapshot):
                        if snapshot['queryType'] == 'compound' else {}),
                     "resultSha256": snapshot["resultSha256"], "capturedAt": timezone.now().isoformat(),
                     "network": {"nodes": nodes, "links": links}, "evidenceRecords": selected,
+                    "catalogSummary": catalog_summary(entities.values(), len(records)),
                     "counts": {"nodes": len(nodes), "evidenceRecords": len(selected),
                                "returnedEvidenceRecords": len(records),
                                "uniqueEdges": len({tuple(sorted((link['source'], link['target']))) for link in links})},

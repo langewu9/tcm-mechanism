@@ -13,7 +13,7 @@ from django.db import connection, transaction
 from django.utils import timezone
 
 from apps.core.models import AnalysisSnapshotRow, AnalysisTask, MedicalCase, MedicalCaseCandidate, SourceRelease
-from .catalog_analysis import CatalogSnapshotChanged, catalog_result
+from .catalog_analysis import CatalogSnapshotChanged, catalog_result, catalog_summary
 from .herb_evidence import _entity_record, _relation_record, batch_herb_component_evidence
 from .network_pharmacology import NetworkPharmacologyInputError, build_network_pharmacology
 from .task_recovery import TaskExecutionStopped
@@ -81,6 +81,7 @@ def _catalog_data(task, limit):
     if not records:
         raise CompleteEvidenceInputError("本次检索没有可保存的中药—成分—靶点关系。")
     result, _ = catalog_result(data)
+    result["catalogSummary"] = catalog_summary(entities.values(), len(records))
     result["previewResultSha256"] = params["expectedResultSha256"]
     tables = {"evidenceRecords": [records[key] for key in sorted(records)],
               "entities": [entities[key] for key in sorted(entities)],

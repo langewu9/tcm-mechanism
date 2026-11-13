@@ -203,6 +203,9 @@ def build_catalog_payload(task, chart_key):
             raise ValueError('当前任务不是已保存的目录检索快照。')
         if chart_key == 'catalog_summary':
             data = result.get('catalogSummary') or []
+            if not data and result.get('queryType') in {'herb', 'compound'}:
+                from .catalog_analysis import frozen_catalog_summary
+                data = frozen_catalog_summary(task)
             title, axis = '检索实体与证据概览', '按本地主键去重的实体 / 关系数量'
             if result.get('queryType') == 'comparison': title, axis = '名称对照数量概览', '规范化名称数量（非化学鉴定）'
         elif result.get('queryType') == 'pathway':

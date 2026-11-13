@@ -5,6 +5,7 @@ The result contract follows the reusable ``src/lib/proteomics.ts`` logic on
 row-level QC trail in relational storage.
 """
 
+import codecs
 import csv
 import io
 import math
@@ -179,15 +180,19 @@ def _parse_delimited(payload: bytes, extension: str) -> ParsedTable:
             raise ProteomicsInputError("无法识别文本编码，请将文件另存为 UTF-8 CSV/TSV。") from exc
     if "\x00" in text:
         raise ProteomicsInputError("文本文件包含非法二进制内容。")
+    return _read_delimited_rows(io.StringIO(text, newline=""), extension, text[:8192])
+
+
+def _read_delimited_rows(text, extension: str, sample: str) -> ParsedTable:
     if extension == ".tsv":
         delimiter = "\t"
     else:
         try:
-            delimiter = csv.Sniffer().sniff(text[:8192], delimiters=",;\t|").delimiter
+            delimiter = csv.Sniffer().sniff(sample, delimiters=",;\t|").delimiter
         except csv.Error:
             delimiter = ","
     try:
-        reader = csv.reader(io.StringIO(text, newline=""), delimiter=delimiter)
+        reader = csv.reader(text, delimiter=delimiter)
         header_row = next(reader, [])
     except csv.Error as exc:
         raise ProteomicsInputError("CSV/TSV 格式无法解析，请检查引号和分隔符。") from exc
@@ -201,6 +206,44 @@ def _parse_delimited(payload: bytes, extension: str) -> ParsedTable:
     except csv.Error as exc:
         raise ProteomicsInputError("CSV/TSV 格式无法解析，请检查引号和分隔符。") from exc
     return ParsedTable(headers, records, "")
+
+
+def _parse_delimited_stream(uploaded, extension: str) -> ParsedTable:
+    """Bound raw reads without duplicating the entire decoded CSV in StringIO.
+
+    Check the whole byte stream first to preserve the existing UTF-8/GB18030
+    choice even when the first non-UTF-8 byte is far beyond the delimiter sample.
+    Parsed rows remain subject to the existing row/cell/field limits.
+    """
+    decoder = codecs.getincrementaldecoder("utf-8-sig")()
+    utf8, total = True, 0
+    while chunk := uploaded.read(64 * 1024):
+        total += len(chunk)
+        if total > settings.DATASET_UPLOAD_MAX_BYTES:
+            raise ProteomicsInputError("原始文件超过当前配置的分析大小限制。")
+        if b"\x00" in chunk:
+            raise ProteomicsInputError("文本文件包含非法二进制内容。")
+        if utf8:
+            try:
+                decoder.decode(chunk)
+            except UnicodeDecodeError:
+                utf8 = False
+    if utf8:
+        try:
+            decoder.decode(b"", final=True)
+        except UnicodeDecodeError:
+            utf8 = False
+    uploaded.seek(0)
+    text = io.TextIOWrapper(uploaded, encoding="utf-8-sig" if utf8 else "gb18030", newline="")
+    try:
+        sample = text.read(8192)
+        text.seek(0)
+        return _read_delimited_rows(text, extension, sample)
+    except UnicodeDecodeError as exc:
+        raise ProteomicsInputError("无法识别文本编码，请将文件另存为 UTF-8 CSV/TSV。") from exc
+    finally:
+        # The storage context owns this file, including S3's temporary spool.
+        text.detach()
 
 
 def _parse_xlsx(payload: bytes) -> ParsedTable:
@@ -265,17 +308,16 @@ def parse_dataset_table(storage_key: str, filename: str) -> ParsedTable:
         raise ProteomicsInputError("仅支持 CSV、TSV、XLS 和 XLSX 文件。")
     try:
         with default_storage.open(storage_key, "rb") as uploaded:
-            payload = uploaded.read(settings.DATASET_UPLOAD_MAX_BYTES + 1)
+            if extension in {".csv", ".tsv"}:
+                table = _parse_delimited_stream(uploaded, extension)
+            else:
+                payload = uploaded.read(settings.DATASET_UPLOAD_MAX_BYTES + 1)
     except OSError as exc:
         raise ProteomicsInputError("服务器原始文件暂不可用。") from exc
-    if len(payload) > settings.DATASET_UPLOAD_MAX_BYTES:
-        raise ProteomicsInputError("原始文件超过当前配置的分析大小限制。")
-    if extension in {".csv", ".tsv"}:
-        table = _parse_delimited(payload, extension)
-    elif extension == ".xlsx":
-        table = _parse_xlsx(payload)
-    else:
-        table = _parse_xls(payload)
+    if extension not in {".csv", ".tsv"}:
+        if len(payload) > settings.DATASET_UPLOAD_MAX_BYTES:
+            raise ProteomicsInputError("原始文件超过当前配置的分析大小限制。")
+        table = _parse_xlsx(payload) if extension == ".xlsx" else _parse_xls(payload)
     if not table.columns or not table.rows:
         raise ProteomicsInputError("上传文件没有可分析的数据行。")
     return table

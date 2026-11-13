@@ -160,6 +160,8 @@ STORAGES = {
                 "default_acl": None,
                 "querystring_auth": True,
                 "file_overwrite": False,
+                # django-storages otherwise keeps the entire S3 read spool in RAM.
+                "max_memory_size": 2 * 1024 * 1024,
             }
             if S3_STORAGE_ENABLED
             else {"location": str(MEDIA_ROOT), "base_url": MEDIA_URL}
@@ -261,6 +263,7 @@ REST_FRAMEWORK = {
         "login_account": env("DJANGO_LOGIN_ACCOUNT_RATE", default="10/min"),
         "platform_user": env("DJANGO_USER_RATE", default="600/min"),
         "research_submission": env("DJANGO_RESEARCH_SUBMISSION_RATE", default="120/hour"),
+        "dataset_upload": env("DJANGO_DATASET_UPLOAD_RATE", default="10/hour"),
     },
 }
 

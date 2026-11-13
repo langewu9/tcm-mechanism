@@ -89,6 +89,9 @@ class CompleteEvidenceTests(TransactionTestCase):
         self.assertEqual(catalog.result["snapshot"]["tables"]["evidenceRecords"]["count"], len(expected_ids))
         self.assertTrue(catalog.result["limits"]["graphTruncated"])
         self.assertFalse(catalog.result["limits"]["queryTruncated"])
+        statistics = {row["label"]: row["value"] for row in catalog.result["catalogSummary"]}
+        self.assertEqual(statistics["靶点实体"], 4005)
+        self.assertEqual(statistics["去重关系记录"], len(expected_ids))
         full_ids = set(catalog.snapshot_rows.filter(table="evidenceRecords").values_list("payload__id", flat=True))
         self.assertEqual(full_ids, expected_ids)
         network = self.queue("network_pharmacology")
@@ -140,6 +143,48 @@ class CompleteEvidenceTests(TransactionTestCase):
                 self.assertEqual(response.status_code, expected)
                 if expected == 200:
                     b"".join(response.streaming_content) if response.streaming else None
+
+    def test_catalog_summary_renders_complete_input_and_legacy_frozen_rows_without_live_backfill(self):
+        from apps.core.services.visualization import build_chart_payload
+        self.seed(3)
+        task = self.queue()
+        self.execute(task)
+        payload = build_chart_payload(task, "catalog_summary")
+        counts = {row["label"]: row["value"] for row in payload["data"]}
+        self.assertEqual(counts["靶点实体"], 3)
+        self.assertEqual(counts["疾病实体"], 1)
+        self.assertEqual(counts["去重关系记录"], 7)
+
+        # Model a pre-fix immutable task, whose result did not store this field.
+        task.result.pop("catalogSummary")
+        manifest = task.result.pop("snapshot")
+        manifest.pop("sha256")
+        manifest["sha256"] = digest({"parameters": task.input_parameters, "result": task.result, "manifest": manifest})
+        task.result["snapshot"] = manifest
+        task.save(update_fields=["result"])
+        before = digest(task.result)
+        self.source.enabled = False
+        self.source.save(update_fields=["enabled"])
+        with patch.object(KnowledgeEntity.objects, "filter", side_effect=AssertionError("No live catalogue reads")):
+            compatible = build_chart_payload(task, "catalog_summary")
+        self.assertEqual(compatible["data"], payload["data"])
+        task.refresh_from_db()
+        self.assertEqual(digest(task.result), before)
+
+    def test_legacy_summary_rejects_missing_or_corrupt_frozen_rows(self):
+        from apps.core.services.visualization import build_chart_payload, VisualizationInputError
+        self.seed(2)
+        task = self.queue()
+        self.execute(task)
+        task.result.pop("catalogSummary")
+        row = task.snapshot_rows.filter(table="entities").first()
+        row.payload["type"] = "disease"
+        row.save(update_fields=["payload"])
+        with self.assertRaises(VisualizationInputError):
+            build_chart_payload(task, "catalog_summary")
+        task.snapshot_rows.filter(table="entities").delete()
+        with self.assertRaises(VisualizationInputError):
+            build_chart_payload(task, "catalog_summary")
 
     @override_settings(LOCAL_ANALYSIS_RELATION_LIMIT=2)
     def test_protection_limit_fails_without_publishing_partial_snapshot(self):

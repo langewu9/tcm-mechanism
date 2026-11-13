@@ -40,6 +40,7 @@ EVENTS = {
     "assistant.failed": ("error", "科研助手发生异常。"),
     "external.rejected": ("warning", "外部分析未通过检查或服务暂不可用。"),
     "external.failed": ("error", "外部分析发生异常。"),
+    "integration.failed": ("error", "管理员连接检查发生异常。"),
     "visualization.rejected": ("warning", "图表输入未通过检查。"),
     "visualization.failed": ("error", "图表生成发生异常。"),
     "complete_evidence.rejected": ("warning", "完整本地分析输入未通过检查。"),

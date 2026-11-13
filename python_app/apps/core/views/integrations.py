@@ -31,6 +31,7 @@ from apps.core.services.component_names import compare_components_multilingual
 from apps.core.services.disease_names import ALIAS_DATA, disease_entity_queryset, expand_disease_queries
 from apps.core.services.herb_evidence import batch_herb_component_evidence
 from apps.core.services.network_pharmacology import build_network_pharmacology
+from config.runtime_logs import record_runtime_event
 
 
 INTEGRATION_TARGETS = ("qwen", "disease", "herb", "component", "chembl", "intersection", "compare", "scientist")
@@ -270,6 +271,10 @@ class IntegrationTestView(APIView):
         except ChemblServiceError as exc:
             result = _result(ok=False, status=503, url="https://www.ebi.ac.uk/chembl/api/data/molecule/search", error=str(exc), started=started)
         except (ValueError, DatabaseError) as exc:
-            result = _result(ok=False, status=503, url=f"/api/v1/admin/integrations/test/ ({target})", error=str(exc)[:300], started=started)
+            record_runtime_event("integration.failed", request=request, exception=exc, status_code=503)
+            result = _result(
+                ok=False, status=503, url=f"/api/v1/admin/integrations/test/ ({target})",
+                error="服务检查失败，请联系管理员并提供请求编号。", started=started,
+            )
 
         return Response({"target": target, "result": result})

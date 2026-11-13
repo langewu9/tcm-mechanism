@@ -83,6 +83,18 @@ check('Zero statistics are plot data, while absent statistics have a specific ne
     overlap:[{name:'strict intersection',value:0}],components:[{name:'component',targets:0}],pathways:[{name:'pathway',targets:0}]}}};
   for(const key of ['overlap','components','pathways'])assert.equal(findChart(network,key).available,true);
 });
+check('Legacy complete catalogue summaries use frozen tables, while incomplete history stays unavailable',()=>{
+  const snapshot={complete:true,tables:{entities:{count:378,sha256:'a'.repeat(64)},evidenceRecords:{count:894,sha256:'b'.repeat(64)}}};
+  const saved={...protein(),task_type:'network',result:{analysisKind:'catalog_evidence',queryType:'herb',snapshot}};
+  const before=JSON.stringify(saved);
+  assert.equal(findChart(saved,'catalog_summary').available,true);
+  assert.match(findChart(saved,'catalog_summary').note,/不读取当前目录/);
+  assert.equal(JSON.stringify(saved),before);
+  for(const broken of [undefined,{...snapshot,complete:false},{...snapshot,tables:{}},
+    {...snapshot,tables:{...snapshot.tables,entities:{count:378,sha256:'invalid'}}}]){
+    assert.equal(findChart({...saved,result:{...saved.result,snapshot:broken}},'catalog_summary').available,false);
+  }
+});
 check('External results explain disabled, unavailable, identifier and empty-result states instead of claiming an empty workspace',()=>{
   const empty=protein(syntheticResult());
   for(const [key,provider] of [['ppi_network','STRING'],['ppi_degree','STRING'],['reactome_enrichment','Reactome'],['proteomics_go_kegg_bar','g:Profiler']]){

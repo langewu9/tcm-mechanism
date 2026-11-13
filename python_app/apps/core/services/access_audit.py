@@ -6,7 +6,7 @@ from itertools import islice
 MAX_ACCESS_REFERENCES = 250
 RESOURCE_TYPES = {
     "dataset", "case", "task", "artifact", "case_candidate", "proteomics_row",
-    "case_audit", "dataset_audit", "user",
+    "case_audit", "dataset_audit", "user", "case_corpus_document",
 }
 MODEL_RESOURCE_TYPES = {
     "core.researchdataset": "dataset", "core.medicalcase": "case",
@@ -20,7 +20,12 @@ MODEL_RESOURCE_TYPES = {
 
 def resource_reference(resource):
     if isinstance(resource, dict):
+        kind = resource.get("type")
         reference = {key: resource.get(key) for key in ("type", "id", "ownerId")}
+        if kind == "case_corpus_document":
+            # Shared reference records have no researcher owner. Record the corpus
+            # release separately so an audit remains attributable across updates.
+            reference["releaseId"] = resource.get("releaseId")
     else:
         kind = MODEL_RESOURCE_TYPES.get(resource._meta.label_lower)
         owner_id = getattr(resource, "owner_id", None)
@@ -33,8 +38,15 @@ def resource_reference(resource):
         reference = {"type": kind, "id": resource.pk, "ownerId": owner_id}
     if reference["type"] not in RESOURCE_TYPES:
         raise ValueError("Unsupported audit resource type.")
-    if any(type(reference[key]) is not int or reference[key] <= 0 for key in ("id", "ownerId")):
-        raise ValueError("Audit references require positive record and owner IDs.")
+    if type(reference["id"]) is not int or reference["id"] <= 0:
+        raise ValueError("Audit references require a positive record ID.")
+    if reference["type"] == "case_corpus_document":
+        if reference["ownerId"] is not None:
+            raise ValueError("Shared corpus audit references cannot have a user owner.")
+        if type(reference["releaseId"]) is not int or reference["releaseId"] <= 0:
+            raise ValueError("Shared corpus audit references require a positive release ID.")
+    elif type(reference["ownerId"]) is not int or reference["ownerId"] <= 0:
+        raise ValueError("Audit references require a positive owner ID.")
     return reference
 
 
