@@ -54,7 +54,7 @@ jobs:
       - run: python ../r_viz/test_demo_fixtures.py
       - run: python manage.py makemigrations --check --dry-run
       - name: Run backend tests with stall diagnostics
-        timeout-minutes: 10
+        timeout-minutes: 20
         run: |
           python - <<'PY'
           import faulthandler

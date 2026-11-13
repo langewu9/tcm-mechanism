@@ -233,8 +233,10 @@ def _complete_identity_inputs(herb_ids, disease_ids, formula_ids, selected_herb_
     all_herbs = set(herb_ids) | set(formula_rows.order_by().values_list('object_id', flat=True).distinct())
     herb_rows = visible.filter(subject_id__in=all_herbs, relation_type__in=HERB_COMPOUND_TYPES,
         object__entity_type='compound')
-    compound_ids = herb_rows.order_by().values('object_id').distinct()
-    target_rows = visible.filter(subject_id__in=Subquery(compound_ids), relation_type__in=COMPOUND_TARGET_TYPES,
+    # supported_target_queryset already applies this exact compound scope.
+    # Repeating it here duplicates the nested provenance joins and can make
+    # PostgreSQL choose a much more expensive plan for the same identities.
+    target_rows = visible.filter(relation_type__in=COMPOUND_TARGET_TYPES,
         object__entity_type__in=['gene', 'protein'])
     target_rows = supported_target_queryset(target_rows, herb_queryset=herb_rows)
     disease_rows = visible.filter(subject_id__in=disease_ids, relation_type__in=DISEASE_TARGET_TYPES,
