@@ -55,20 +55,7 @@ jobs:
       - run: python manage.py makemigrations --check --dry-run
       - name: Run backend tests with stall diagnostics
         timeout-minutes: 20
-        run: |
-          python - <<'PY'
-          import faulthandler
-          import runpy
-          import sys
-
-          faulthandler.dump_traceback_later(90, repeat=True)
-          sys.argv = ["manage.py", "test", "apps.core", "apps.proteomics",
-                      "apps.sources", "apps.case_rag", "--noinput", "--verbosity=2"]
-          try:
-              runpy.run_path("manage.py", run_name="__main__")
-          finally:
-              faulthandler.cancel_dump_traceback_later()
-          PY
+        run: python -X faulthandler manage.py test apps.core apps.proteomics apps.sources apps.case_rag --noinput --verbosity=2
       - run: python manage.py spectacular --file "$RUNNER_TEMP/schema.yml" --validate --fail-on-warn
   frontend:
     runs-on: ubuntu-latest
