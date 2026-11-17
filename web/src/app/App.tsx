@@ -16,7 +16,7 @@ const KnowledgeExplorerPage = lazy(() => import("../pages/KnowledgeExplorerPage"
 const ResearchAssistantPage = lazy(() => import("../pages/ResearchAssistantPage").then((module) => ({ default: module.ResearchAssistantPage })));
 const DashboardPage = lazy(() => import("../pages/DashboardPage").then((module) => ({ default: module.DashboardPage })));
 const AdminOverviewPage = lazy(() => import("../pages/AdminOverviewPage").then((module) => ({ default: module.AdminOverviewPage })));
-const AnalysisPage = lazy(() => import("../pages/AnalysisPage").then((module) => ({ default: module.AnalysisPage })));
+const AnalysisPage = lazy(() => import("../pages/IntelligentAnalysisPage").then((module) => ({ default: module.IntelligentAnalysisPage })));
 const DemoCenterPage = lazy(() => import("../pages/DemoCenterPage").then((module) => ({ default: module.DemoCenterPage })));
 const TaskHistoryPage = lazy(() => import("../pages/TaskHistoryPage").then((module) => ({ default: module.TaskHistoryPage })));
 export function App() {

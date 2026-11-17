@@ -1,0 +1,12 @@
+.intelligent-analysis-page { min-width: 0; }
+.intelligent-analysis-page > .subview-workspace { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.intelligent-analysis-page > .subview-workspace > .subview-tabs { flex-shrink: 0; }
+.intelligent-analysis-page > .subview-workspace > .subview-panel:not([hidden]) { display: flex; flex-direction: column; gap: 12px; min-width: 0; min-height: 0; }
+@media (min-width: 1280px) {
+  .intelligent-analysis-page--cases { display: flex; flex-direction: column; height: calc(100dvh - 168px); min-height: 0; }
+  .intelligent-analysis-page--cases > .subview-workspace { flex: 1; }
+  .intelligent-analysis-page--cases > .subview-workspace > .subview-panel:not([hidden]) { flex: 1; }
+  .intelligent-analysis-page--cases .case-visualization { flex: 1; }
+  .intelligent-analysis-page--cases .case-visualization-workspace,
+  .intelligent-analysis-page--cases .case-visualization-main { min-height: 0; }
+}

@@ -10,7 +10,7 @@ import "../styles/case-library.css";
 const message = (error: unknown) => error instanceof ApiError ? error.message : "医案读取失败，请重试。";
 
 export function CaseLibraryPage() {
-  const [view, setView] = useState("reference");
+  const [view, setView] = useState(() => new URLSearchParams(window.location.search).has("caseTask") ? "personal" : "reference");
   return <section className="case-library-page"><div className="page-heading"><div className="page-heading-copy"><h1 className="page-title">医案库</h1></div><Link to="/assistant" className="btn btn-secondary">医案检索与问答</Link></div>
     <SubviewTabs value={view} onChange={setView} label="医案工作区" keepMounted={false} views={[
       { key: "reference", label: "参考医案库", content: <ReferenceCaseLibrary /> },
