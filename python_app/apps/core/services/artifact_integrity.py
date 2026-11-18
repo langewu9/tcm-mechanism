@@ -51,7 +51,7 @@ def metadata_issue(artifact):
     render, parent = artifact.render_task, artifact.task
     if render.status != "succeeded" or parent.status != "succeeded":
         return "unpublished_record"
-    if (render.task_type != "visualization" or parent.task_type not in {"network", "proteomics"}
+    if (render.task_type != "visualization" or parent.task_type not in {"network", "proteomics", "case_statistics"}
             or render.owner_id != artifact.owner_id or parent.owner_id != artifact.owner_id
             or (render.parent_task_id is not None and render.parent_task_id != parent.pk)):
         return "source_identity_mismatch"

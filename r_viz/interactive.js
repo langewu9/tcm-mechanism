@@ -20,7 +20,11 @@ function(el, x) {
   var defaultLabels = originalNodes.length <= 80 && (chart.getWidth() >= 520 || originalNodes.length <= 30);
   var typeLabels = {protein:'蛋白 / 基因',gene:'基因',target:'靶点',pathway:'通路',herb:'中药',ingredient:'成分',compound:'化合物',disease:'疾病',formula:'方剂',syndrome:'证候'};
   function announce(text) { status.textContent = text; }
-  function labelOf(node) { return node.displayLabel || (typeof node.label === 'string' && node.label) || node.name || node.id; }
+  function labelOf(node) {
+    if (node == null) return '';
+    if (typeof node !== 'object') return String(node);
+    return node.displayLabel || (typeof node.label === 'string' && node.label) || node.name || node.id || '';
+  }
   function updateGraph() {
     var threshold = Number(score.value);
     if (!Number.isFinite(threshold) || threshold < 0 || threshold > 1) { announce('请输入 0–1 之间的边评分。'); return; }
@@ -113,7 +117,7 @@ function(el, x) {
     }
     links = links.map(function(l) { return Object.assign({},l,{lineStyle:edgeStyle(l)}); });
     var selectedTypes = {}; originalCategories.forEach(function(c) { selectedTypes[c.name] = activeTypes.has(c.name); });
-    chart.setOption({title:{text:(layout.value === 'circular' ? '环形关系图' : layout.value === 'layered' ? '网络药理学证据链' : '力导关系图')+' · 节点大小表示当前连接度',
+    chart.setOption({title:{text:(x.caseGraph ? '医案共现关系' : layout.value === 'circular' ? '环形关系图' : layout.value === 'layered' ? '网络药理学证据链' : '力导关系图')+' · 节点大小表示当前连接度',
       top:layout.value === 'circular' ? 180+circleDiameter+155 : null,bottom:layout.value === 'circular' ? null : 10},legend:{selected:selectedTypes},series:[{layout:layout.value === 'layered' ? 'none' : layout.value, data:nodes, links:links,
       left:layout.value === 'circular' ? (chart.getWidth()-circleDiameter)/2 : leftMargin, right:layout.value === 'circular' ? null : rightMargin,
       width:layout.value === 'circular' ? circleDiameter : null,height:layout.value === 'circular' ? circleDiameter : null,
@@ -170,7 +174,7 @@ function(el, x) {
     var d = p.data;
     if (p.dataType === 'edge') {
       var nodeNames = new Map(originalNodes.map(function(n) { return [n.id,labelOf(n)]; }));
-      return (nodeNames.get(d.source)||d.source) + ' ↔ ' + (nodeNames.get(d.target)||d.target) + '\n评分 / 关系标记: ' + d.score +
+      return (nodeNames.get(d.source)||d.source) + ' ↔ ' + (nodeNames.get(d.target)||d.target) + (d.cooccurrence != null ? '\n共现数: '+d.cooccurrence+'\n归一化共现强度: '+d.score : '\n评分 / 关系标记: ' + d.score) +
         (Array.isArray(d.evidence)&&d.evidence.length ? '\n来源证据（最多显示 5 条，完整记录保留在检索快照）：\n'+d.evidence.map(function(e) {
           return (nodeNames.get(e.source)||e.source)+' → '+(nodeNames.get(e.target)||e.target)+' · '+e.relation+'\n'+e.sourceSlug+' · '+e.sourceVersion+' · 记录 '+e.sourceRecordId;
         }).join('\n') : '');
@@ -185,9 +189,15 @@ function(el, x) {
     }
     if (x.chartType === 'volcano') return d.label + '\nlog2FC: ' + d.value[0] + ' · P: ' + d.pValue + ' · FDR: ' + (d.fdr == null ? '未提供' : d.fdr) + '\n保存的筛选状态: ' + (d.selected ? '通过' : '未通过');
     if (x.chartType === 'enrichment_bubble') return d.label + '\n' + d.source + ' · GeneRatio: ' + d.value[0] + ' · 命中数: ' + d.value[3] + ' · FDR: ' + d.fdr;
+    if (x.chartType === 'count_distribution') {
+      var label = d && typeof d === 'object' ? (d.label || d.name || p.name) : p.name;
+      var value = d && typeof d === 'object' ? d.value : (p.value != null ? p.value : d);
+      return (label || '未命名') + '\n记录数: ' + (value == null ? '未提供' : value);
+    }
+    if (x.chartType.indexOf('case_') === 0) return d.label + '\n数值: ' + d.count + (d.cluster ? '\n分组: '+d.cluster : '') + (d.lift ? '\n提升度: '+d.lift : '');
     return d.label + '\n数值: ' + d.value[0];
   }
-  chart.on('click', function(p) { if (p.data) details.textContent = describe(p); });
+  chart.on('click', function(p) { if (p.data != null) details.textContent = describe(p); });
   if (x.chartType === 'volcano') chart.on('brushSelected', function(event) {
     var items = event && event.batch && event.batch[0] && event.batch[0].selected;
     if (!Array.isArray(items)) return; // ECharts also emits empty brush events on resize/restore.

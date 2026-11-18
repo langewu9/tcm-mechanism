@@ -21,6 +21,7 @@ const taskRoutes: Record<DashboardTask["task_type"], string> = {
   visualization: "/proteomics",
   research_assistant: "/assistant",
   text_analysis: "/analysis",
+  case_statistics: "/analysis",
 };
 
 function errorMessage(error: unknown) {
@@ -51,6 +52,7 @@ function taskRoute(task: DashboardTask) {
   if (task.task_type === "research_assistant") return `/assistant?assistantTask=${task.id}`;
   if (task.task_type === "proteomics") return `/proteomics?proteomicsTask=${task.id}`;
   if (task.task_type === "text_analysis") return `/analysis?textTask=${task.id}`;
+  if (task.task_type === "case_statistics") return `/analysis?analysisView=cases&caseStatisticsTask=${task.id}`;
   if (task.task_type === "case_link") return `/cases?caseTask=${task.id}`;
   if (task.task_type === "visualization") return `/tasks/${task.id}`;
   if (task.task_type !== "network") return taskRoutes[task.task_type];

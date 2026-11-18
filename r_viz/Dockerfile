@@ -30,7 +30,7 @@ RUN Rscript -e 'install.packages("https://cloud.r-project.org/src/contrib/Archiv
 # project library selected by those files, rather than the bootstrap library.
 RUN Rscript -e 'renv::restore(project = "/srv/r_viz", library = renv::paths$library(), prompt = FALSE); stopifnot(requireNamespace("plumber", quietly = TRUE), requireNamespace("echarts4r", quietly = TRUE), requireNamespace("ggplot2", quietly = TRUE))'
 
-COPY --chown=rviz:rviz plumber.R interactive.R interactive.js ./
+COPY --chown=rviz:rviz plumber.R interactive.R interactive.js case_figures.R ./
 EXPOSE 8001
 HEALTHCHECK --interval=20s --timeout=3s --retries=3 CMD curl -fsS http://127.0.0.1:8001/health || exit 1
 CMD ["Rscript", "-e", "plumber::pr_run(plumber::pr('plumber.R'), host = '0.0.0.0', port = as.integer(Sys.getenv('PORT', '8001'))) "]

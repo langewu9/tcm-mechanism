@@ -9,7 +9,7 @@ export function verifySavedTask(task: AnalysisTask, requestedId: number, previou
   if (!task || typeof task !== "object") throw new Error("任务保存记录不完整，无法读取此历史记录。");
   const record = (value: unknown) => value !== null && typeof value === "object" && !Array.isArray(value);
   const optionalId = (value: unknown) => value === null || (typeof value === "number" && Number.isSafeInteger(value) && value > 0);
-  if (task.id !== requestedId || !["proteomics", "case_link", "network", "visualization", "research_assistant", "text_analysis"].includes(task.task_type)
+  if (task.id !== requestedId || !["proteomics", "case_link", "network", "visualization", "research_assistant", "text_analysis", "case_statistics"].includes(task.task_type)
     || !["queued", "running", "succeeded", "failed", "cancelled"].includes(task.status)
     || !record(task.input_parameters) || !record(task.result) || !optionalId(task.parent_task)
     || task.parent_task === task.id || !optionalId(task.dataset) || !optionalId(task.medical_case)
@@ -27,6 +27,7 @@ export function verifySavedTask(task: AnalysisTask, requestedId: number, previou
 export function savedTaskDestination(task: AnalysisTask): string | null {
   if (task.task_type === "proteomics") return `/proteomics?proteomicsTask=${task.id}`;
   if (task.task_type === "text_analysis") return `/analysis?textTask=${task.id}`;
+  if (task.task_type === "case_statistics") return `/analysis?analysisView=cases&caseStatisticsTask=${task.id}`;
   if (task.task_type === "case_link") return `/cases?caseTask=${task.id}`;
   if (task.task_type === "research_assistant") return `/assistant?assistantTask=${task.id}`;
   if (task.task_type !== "network") return null;

@@ -11,9 +11,10 @@ export function RChartSourceProvider({ source, onChange, children }: ChartSource
   return <ChartSourceContext.Provider value={{ source, onChange }}>{children}</ChartSourceContext.Provider>;
 }
 
-export function RChartSource({ chartKey, children }: { chartKey: string; children: ReactNode }) {
+export function RChartSource({ chartKey, children, taskOnly = false }: { chartKey: string; children: ReactNode; taskOnly?: boolean }) {
   const selection = useContext(ChartSourceContext);
   if (!selection) throw new Error("RChartSource requires a gallery source selection provider.");
+  if (taskOnly) return <>{children}</>;
   return <SubviewTabs label="图表数据来源" value={selection.source} onChange={selection.onChange} views={[
     { key: "task", label: "当前任务图表", content: children },
     { key: "demo", label: "合成演示图表", content: <RDemoGallery chartKey={chartKey} defaultOpen embedded /> },

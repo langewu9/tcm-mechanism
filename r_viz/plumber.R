@@ -8,7 +8,7 @@ library(echarts4r)
 library(htmlwidgets)
 library(htmltools)
 
-RENDERER_VERSION <- "r-viz-0.4.3"
+RENDERER_VERSION <- "r-viz-0.4.7"
 BROWSER_FONT_FAMILY <- '"Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", "Noto Sans SC", system-ui, sans-serif'
 PLOT_FONT_FAMILY <- Sys.getenv(
   "R_VIZ_FONT_FAMILY",
@@ -114,6 +114,50 @@ make_bar_plot <- function(payload) {
                 nudge_x = max(diff(range(values)), 1) * 0.03,
                 family = PLOT_FONT_FAMILY, size = 3.2, colour = CHART_COLORS[["ink"]])
   }
+}
+
+make_count_distribution_plot <- function(payload) {
+  if (is.null(payload$data) || !is.list(payload$data) || length(payload$data) < 1L || length(payload$data) > MAX_DATA_POINTS) {
+    stop("count data must contain between 1 and 100 categories", call. = FALSE)
+  }
+  rows <- lapply(payload$data, function(item) {
+    label <- item$label
+    value <- item$value
+    if (!is.character(label) || length(label) != 1L || !nzchar(trimws(label)) || nchar(label, type = "chars") > 100L) {
+      stop("every category needs a label of at most 100 characters", call. = FALSE)
+    }
+    if (!is.numeric(value) || length(value) != 1L || !is.finite(value) || value < 0 || value != floor(value)) {
+      stop("every category needs a nonnegative whole-number count", call. = FALSE)
+    }
+    data.frame(label = label, value = value, stringsAsFactors = FALSE)
+  })
+  data <- do.call(rbind, rows)
+  data$label <- factor(data$label, levels = data$label[order(data$value)])
+  denominator <- sum(data$value)
+  data$legend_label <- paste0(as.character(data$label), " · ", data$value, "（", if (denominator > 0) sprintf("%.1f", 100 * data$value / denominator) else "0.0", "%）")
+  colors <- grDevices::colorRampPalette(c("#94633F", "#BB835B", "#D3AC83", "#879781", "#6F9296"))(max(1L, nrow(data)))
+  plot <- if (identical(payload$presentation, "donut")) {
+    ggplot(data, aes(x = 2, y = value, fill = legend_label)) +
+      geom_col(width = 0.9, colour = "white", linewidth = 0.6) +
+      coord_polar(theta = "y") + xlim(0.55, 2.45) +
+      scale_fill_manual(values = colors, name = NULL) +
+      labs(title = payload$title, subtitle = payload$subtitle %||% "") +
+      chart_theme() + theme_void(base_family = PLOT_FONT_FAMILY) +
+      theme(plot.title = element_text(face = "bold", colour = CHART_COLORS[["ink"]]),
+            plot.subtitle = element_text(colour = CHART_COLORS[["muted"]]),
+            legend.position = "right")
+  } else if (identical(payload$presentation, "bar")) {
+    ggplot(data, aes(x = value, y = label)) +
+      geom_col(fill = "#9A6847", width = 0.68) +
+      geom_text(aes(label = value), hjust = -0.25, colour = CHART_COLORS[["ink"]], size = 3.4) +
+      scale_y_discrete(labels = wrap_chart_text) +
+      scale_x_continuous(expand = expansion(mult = c(0.01, 0.18)), breaks = scales::breaks_pretty()) +
+      labs(title = payload$title, subtitle = payload$subtitle %||% "", x = payload$xLabel %||% "记录数", y = NULL) +
+      chart_theme() + theme(panel.grid.major.y = element_blank())
+  } else {
+    stop("presentation must be bar or donut", call. = FALSE)
+  }
+  plot
 }
 
 make_enrichment_bubble_plot <- function(payload) {
@@ -297,7 +341,7 @@ make_network_plot <- function(payload) {
   label_nudge_x <- if (identical(payload$layout, "circular")) labels$x * 0.2 else 0
   label_nudge_y <- if (identical(payload$layout, "circular")) labels$y * 0.2 else 0.12
   ggplot() +
-    geom_segment(data = edges, aes(x = x, y = y, xend = xend, yend = yend, linewidth = score), colour = "#B8BCC5", alpha = 0.55) +
+    geom_segment(data = edges, aes(x = x, y = y, xend = xend, yend = yend, linewidth = score), colour = "#B8BCC5", alpha = 0.55, arrow = if (isTRUE(payload$directed)) grid::arrow(length = grid::unit(2.5, "mm"), type = "closed") else NULL) +
     geom_point(data = nodes, aes(x = x, y = y, size = degree, fill = type, shape = type), colour = "white", stroke = 0.7) +
     geom_text_repel(data = labels, aes(x = x, y = y, label = label), family = PLOT_FONT_FAMILY,
                     size = 3, seed = 42, max.overlaps = Inf, max.time = 1, max.iter = 3000,
@@ -345,8 +389,10 @@ make_data_table_html <- function(payload) {
     rows <- lapply(payload$data, function(item) c(item$id, item$label, item$type, as.character(item$degree)))
     node_header <- paste0("<th>", vapply(headers, escape_html, character(1)), "</th>", collapse = "")
     node_rows <- vapply(rows, function(row) paste0("<tr><td>", paste(vapply(row, escape_html, character(1)), collapse = "</td><td>"), "</td></tr>"), character(1))
-    edge_rows <- vapply(payload$edges, function(edge) paste0("<tr><td>", escape_html(edge$source), "</td><td>", escape_html(edge$target), "</td><td>", escape_html(format(edge$score, digits = 4)), "</td></tr>"), character(1))
-    return(paste0("<section><h2>节点</h2><div class=\"table-wrap\"><table><thead><tr>", node_header, "</tr></thead><tbody>", paste(node_rows, collapse = ""), "</tbody></table></div><h2>实际展示关系</h2><div class=\"table-wrap\"><table><thead><tr><th>起点</th><th>终点</th><th>互作评分 / 本地关系存在标记</th></tr></thead><tbody>", paste(edge_rows, collapse = ""), "</tbody></table></div></section>"))
+    node_names <- setNames(vapply(payload$data, function(node) node$label, character(1)), vapply(payload$data, function(node) node$id, character(1)))
+    edge_rows <- vapply(payload$edges, function(edge) paste0("<tr><td>", escape_html(if (isTRUE(payload$caseGraph)) node_names[[edge$source]] else edge$source), "</td><td>", escape_html(if (isTRUE(payload$caseGraph)) node_names[[edge$target]] else edge$target), "</td><td>", escape_html(format(if (isTRUE(payload$caseGraph)) edge$cooccurrence else edge$score, digits = 4)), "</td></tr>"), character(1))
+    edge_label <- if (isTRUE(payload$caseGraph)) "共现数" else "互作评分 / 本地关系存在标记"
+    return(paste0("<section><h2>节点</h2><div class=\"table-wrap\"><table><thead><tr>", node_header, "</tr></thead><tbody>", paste(node_rows, collapse = ""), "</tbody></table></div><h2>实际展示关系</h2><div class=\"table-wrap\"><table><thead><tr><th>起点</th><th>终点</th><th>", edge_label, "</th></tr></thead><tbody>", paste(edge_rows, collapse = ""), "</tbody></table></div></section>"))
   } else if (identical(payload$chartType, "enrichment_bubble")) {
     headers <- c("来源", "功能条目", payload$xLabel %||% "GeneRatio", "FDR", payload$sizeLabel %||% "命中基因数")
     rows <- lapply(payload$data, function(item) {
@@ -363,6 +409,9 @@ make_data_table_html <- function(payload) {
       c(item$label, format_value(item$log2FoldChange), format_value(item$pValue),
         format_value(item$fdr), if (isTRUE(item$selected)) "通过" else "未通过")
     })
+  } else if (startsWith(payload$chartType, "case_")) {
+    headers <- c("条目", "数值", "分组")
+    rows <- lapply(payload$data, function(item) c(item$label, format(item$value, digits = 6), as.character(item$cluster %||% "—")))
   } else {
     headers <- c("条目", "数值")
     rows <- lapply(payload$data, function(item) c(item$label, format(item$value, digits = 6, trim = TRUE)))
@@ -378,6 +427,7 @@ make_data_table_html <- function(payload) {
   )
 }
 
+source("case_figures.R", local = TRUE, encoding = "UTF-8")
 source("interactive.R", local = TRUE, encoding = "UTF-8")
 
 #* R visualization worker health
@@ -406,7 +456,7 @@ function(req, res) {
   }
   payload <- tryCatch(jsonlite::fromJSON(body, simplifyVector = FALSE), error = function(error) NULL)
   if (is.null(payload) || !is.list(payload) || !is.character(payload$chartType) ||
-      length(payload$chartType) != 1L || !(payload$chartType %in% c("bar", "enrichment_bubble", "volcano", "network"))) {
+      length(payload$chartType) != 1L || !(payload$chartType %in% c("bar", "count_distribution", "enrichment_bubble", "volcano", "network", "case_heatmap", "case_rules", "case_cluster"))) {
     res$status <- 400L
     return(list(error = "invalid_chart_payload"))
   }
@@ -420,8 +470,13 @@ function(req, res) {
     res$status <- 400L
     return(list(error = "invalid_chart_subtitle"))
   }
+  payload <- tryCatch(prepare_case_payload(payload), error = function(error) error)
+  if (inherits(payload, "error")) {
+    res$status <- 400L
+    return(list(error = "invalid_case_analysis", message = conditionMessage(payload)))
+  }
   plot <- tryCatch(
-    if (identical(payload$chartType, "network")) make_network_plot(payload) else if (identical(payload$chartType, "bar")) make_bar_plot(payload) else if (identical(payload$chartType, "volcano")) make_volcano_plot(payload) else make_enrichment_bubble_plot(payload),
+    if (startsWith(payload$chartType, "case_")) make_case_figure(payload) else if (identical(payload$chartType, "network")) make_network_plot(payload) else if (identical(payload$chartType, "count_distribution")) make_count_distribution_plot(payload) else if (identical(payload$chartType, "bar")) make_bar_plot(payload) else if (identical(payload$chartType, "volcano")) make_volcano_plot(payload) else make_enrichment_bubble_plot(payload),
     error = function(error) error
   )
   if (inherits(plot, "error")) {
@@ -435,7 +490,7 @@ function(req, res) {
   svg_path <- file.path(temporary_directory, "chart.svg")
   pdf_path <- file.path(temporary_directory, "chart.pdf")
   png_path <- file.path(temporary_directory, "chart.png")
-  chart_height <- if (payload$chartType %in% c("enrichment_bubble", "bar")) max(6, 2.5 + 0.26 * length(payload$data)) else 6
+  chart_height <- if (payload$chartType == "count_distribution" && payload$presentation == "donut") 6 else if (payload$chartType %in% c("enrichment_bubble", "bar", "count_distribution")) max(6, 2.5 + 0.26 * length(payload$data)) else 6
   svglite::svglite(svg_path, width = 11, height = chart_height)
   print(plot)
   grDevices::dev.off()

@@ -14,6 +14,7 @@ interactive_options <- function(payload) {
     textStyle = list(fontFamily = BROWSER_FONT_FAMILY, fontSize = 14, color = CHART_COLORS[["ink"]]),
     aria = list(enabled = TRUE), tooltip = list(trigger = "item", renderMode = "richText", confine = TRUE),
     toolbox = list(right = 12, feature = list(restore = list(title = "还原视图"), saveAsImage = list(title = "导出当前视图", type = "png", pixelRatio = 3))))
+  if (startsWith(payload$chartType, "case_")) return(case_interactive_options(payload, options))
   if (payload$chartType == "network") {
     types <- unique(vapply(payload$data, function(row) row$type, character(1)))
     bipartite <- is_gene_pathway_network(payload)
@@ -34,7 +35,7 @@ interactive_options <- function(payload) {
           borderColor = if (isTRUE(row$targetOverlap)) "#B65A50" else "white",
           borderWidth = if (isTRUE(row$targetOverlap)) 2.5 else 1.5))
     })
-    links <- lapply(payload$edges, function(row) list(source = row$source, target = row$target, value = row$score, score = row$score, evidence = row$evidence %||% list(),
+    links <- lapply(payload$edges, function(row) list(source = row$source, target = row$target, value = row$score, score = row$score, cooccurrence = row$cooccurrence %||% NULL, evidence = row$evidence %||% list(),
       lineStyle = list(color = "#AEB8C7", width = 0.6 + 0.5 * row$score, opacity = 0.45, curveness = 0.32)))
     options$legend <- list(type = "scroll", top = 8, data = lapply(types, function(type) list(name = type, icon = type_symbol(type))),
       formatter = htmlwidgets::JS("function(name){return ({protein:'蛋白 / 基因',gene:'基因',target:'靶点',pathway:'通路',herb:'中药',ingredient:'成分',compound:'化合物',disease:'疾病',formula:'方剂',syndrome:'证候'})[name]||name;}"))
@@ -52,18 +53,41 @@ interactive_options <- function(payload) {
       scaleLimit = list(min = 0.25, max = 8),
       circular = list(rotateLabel = TRUE), force = list(repulsion = 240, edgeLength = c(50, 120), gravity = 0.06),
       categories = lapply(types, function(type) list(name = type, itemStyle = list(color = type_color(type)))), data = nodes, links = links,
+      edgeSymbol = if (isTRUE(payload$directed)) c("none", "arrow") else c("none", "none"),
       label = list(show = TRUE, position = "right", fontSize = 12, width = 140, overflow = "truncate", distance = 8, color = CHART_COLORS[["ink"]],
         formatter = htmlwidgets::JS("function(p){return p.data.displayLabel||p.data.label;}")),
       emphasis = list(focus = "adjacency", lineStyle = list(color = "#4E6D9C", opacity = 0.9, width = 1.8), label = list(show = TRUE)),
       blur = list(itemStyle = list(opacity = 0.08), lineStyle = list(opacity = 0.025)),
       lineStyle = list(color = "#AEB8C7", curveness = 0.32)))
-    options$tooltip$formatter <- htmlwidgets::JS("function(p){if(p.dataType==='edge'){return p.data.source+' → '+p.data.target+'\\n评分 / 关系标记: '+p.data.score;}return p.data.displayLabel+'\\n类型: '+p.data.nodeType+'\\n展示子图连接度: '+p.data.value+'\\n原始输入连接度: '+p.data.originalDegree;}")
+    options$tooltip$formatter <- htmlwidgets::JS("function(p){if(p.dataType==='edge'){return p.data.source+' → '+p.data.target+(p.data.cooccurrence!=null?'\\n共现数: '+p.data.cooccurrence:'\\n评分 / 关系标记: '+p.data.score);}return p.data.displayLabel+'\\n类型: '+p.data.nodeType+'\\n展示子图连接度: '+p.data.value+'\\n原始输入连接度: '+p.data.originalDegree;}")
   } else {
     options$grid <- list(left = 85, right = 70, top = 65, bottom = 95, containLabel = TRUE)
     options$dataZoom <- list(list(type = "inside", xAxisIndex = 0), list(type = "slider", xAxisIndex = 0, bottom = 20))
     options$xAxis <- list(type = "value", nameLocation = "middle", nameGap = 35, splitLine = list(lineStyle = list(color = CHART_COLORS[["grid"]])))
     options$yAxis <- list(type = "value", nameLocation = "middle", nameGap = 50, splitLine = list(lineStyle = list(color = CHART_COLORS[["grid"]])))
-    if (payload$chartType == "volcano") {
+    if (payload$chartType == "count_distribution" && payload$presentation == "donut") {
+      rows <- lapply(payload$data, function(row) list(name = row$label, label = row$label, value = row$value))
+      options$legend <- list(orient = "vertical", right = 18, top = "middle", type = "scroll", textStyle = list(fontSize = 13))
+      options$series <- list(list(name = payload$title, type = "pie", radius = c("42%", "68%"), center = c("42%", "52%"),
+        avoidLabelOverlap = TRUE, itemStyle = list(borderColor = "#FFFFFF", borderWidth = 2),
+        label = list(show = TRUE, formatter = htmlwidgets::JS("function(p){return p.name+'\\n'+p.value+'（'+p.percent+'%）';}")),
+        emphasis = list(scale = TRUE, scaleSize = 8), data = rows))
+      options$tooltip$formatter <- htmlwidgets::JS("function(p){return p.name+'\\n记录数: '+p.value+'\\n占图中类别: '+p.percent+'%';}")
+    } else if (payload$chartType == "count_distribution") {
+      labels <- vapply(payload$data, function(row) row$label, character(1))
+      options$grid <- list(left = 105, right = 45, top = 35, bottom = 50, containLabel = TRUE)
+      options$xAxis <- list(type = "value", name = payload$xLabel %||% "记录数", minInterval = 1,
+        splitLine = list(lineStyle = list(color = CHART_COLORS[["grid"]])))
+      options$yAxis <- list(type = "category", data = labels, inverse = TRUE,
+        axisLabel = list(width = 280, overflow = "truncate", fontSize = 13))
+      rows <- lapply(payload$data, function(row) list(name = row$label, label = row$label, value = row$value))
+      options$series <- list(list(name = payload$xLabel %||% "记录数", type = "bar", barMaxWidth = 28,
+        itemStyle = list(color = "#9A6847", borderRadius = c(0, 5, 5, 0)),
+        label = list(show = TRUE, position = "right"), data = rows))
+      options$tooltip <- list(trigger = "axis", axisPointer = list(type = "shadow"),
+        formatter = htmlwidgets::JS("function(p){var d=p[0];return d.name+'\\n记录数: '+d.value;}") )
+      options$dataZoom <- list(list(type = "inside", yAxisIndex = 0), list(type = "slider", yAxisIndex = 0, right = 5, width = 12))
+    } else if (payload$chartType == "volcano") {
       rows <- lapply(payload$data, function(row) {
         direction <- if (!isTRUE(row$selected)) "未通过" else if (row$log2FoldChange > 0) "上调" else if (row$log2FoldChange < 0) "下调" else "通过筛选"
         list(name = row$label, label = row$label, value = c(row$log2FoldChange, -log10(max(row$pValue, 1e-300))),
@@ -128,9 +152,10 @@ make_interactive_html <- function(payload) {
   bipartite <- is_gene_pathway_network(payload)
   requested_layout <- payload$layout %||% "layered"
   if (!(requested_layout %in% c("circular", "force", "layered"))) requested_layout <- "layered"
-  height <- if (payload$chartType == "network") 960 else 740
+  height <- if (payload$chartType == "network") 960 else if (payload$chartType == "count_distribution") 580 else 740
   widget <- echarts4r::e_list(echarts4r::e_charts(renderer = "svg", height = paste0(height, "px")), interactive_options(payload))
   widget$x$chartType <- payload$chartType
+  widget$x$caseGraph <- isTRUE(payload$caseGraph)
   widget$x$defaultLayout <- requested_layout
   widget$x$hideIsolatesByDefault <- bipartite
   widget <- htmlwidgets::onRender(widget, paste(readLines("interactive.js", warn = FALSE, encoding = "UTF-8"), collapse = "\n"))

@@ -26,7 +26,7 @@ export type DashboardTask = {
   id: number;
   title: string;
   summary: string;
-  task_type: "proteomics" | "case_link" | "network" | "visualization" | "research_assistant" | "text_analysis";
+  task_type: "proteomics" | "case_link" | "network" | "visualization" | "research_assistant" | "text_analysis" | "case_statistics";
   status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
   created_at: string;
 };

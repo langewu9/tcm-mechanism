@@ -211,7 +211,7 @@ export type ProteomicsResult = {
 
 export type AnalysisTask = {
   id: number;
-  task_type: "proteomics" | "case_link" | "network" | "visualization" | "research_assistant" | "text_analysis";
+  task_type: "proteomics" | "case_link" | "network" | "visualization" | "research_assistant" | "text_analysis" | "case_statistics";
   status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
   dataset: number | null;
   medical_case: number | null;

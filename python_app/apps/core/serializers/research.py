@@ -226,6 +226,9 @@ class CaseCandidateReviewRequestSerializer(serializers.Serializer):
 class VisualizationRequestSerializer(serializers.Serializer):
     regenerate = serializers.BooleanField(required=False, default=False)
     chartKey = serializers.ChoiceField(choices=[
+        *(f"case_{metric}_{presentation}" for metric in ("sex", "age_group", "visit_count", "western_diagnosis", "tcm_diagnosis", "syndrome", "treatment", "tongue", "pulse") for presentation in ("bar", "donut")),
+        "case_herbs_bar", "case_formulas_bar", "case_herb_pairs_heatmap", "case_association_network", "case_association_bubble",
+        "case_cluster_dendrogram", "case_cluster_elbow", "case_cluster_kmeans_3", "case_cluster_kmeans_4", "case_cluster_kmeans_5", "case_relations_network",
         "overlap", "components", "pathways", "proteomics_summary", "proteomics_top_nodes",
         "proteomics_go_kegg_enrichment", "proteomics_volcano",
         "ppi_network", "ppi_degree", "evidence_network", "gene_pathway_network",

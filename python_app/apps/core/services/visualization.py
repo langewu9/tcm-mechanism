@@ -7,6 +7,7 @@ import hashlib
 import json
 import logging
 import math
+import re
 import urllib.error
 import urllib.request
 
@@ -52,6 +53,50 @@ def build_chart_payload(task: AnalysisTask, chart_key: str) -> dict:
         except ValueError as exc:
             raise VisualizationInputError(str(exc)) from exc
     result = task.result or {}
+    if task.task_type == AnalysisTask.TaskType.CASE_STATISTICS:
+        figure = (result.get("figures") or {}).get(chart_key)
+        if figure:
+            payload = figure["payload"]
+            canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+            payload = {**payload, "inputSha256": hashlib.sha256(canonical.encode("utf-8")).hexdigest()}
+            if len(json.dumps(payload, ensure_ascii=False).encode("utf-8")) > MAX_R_VIZ_REQUEST_BYTES:
+                raise VisualizationInputError("医案图表输入超过 R 服务上限。")
+            return payload
+        match = re.fullmatch(r"case_([a-z_]+)_(bar|donut)", chart_key)
+        metrics = result.get("metrics") if isinstance(result, dict) else None
+        metric = metrics.get(match.group(1)) if match and isinstance(metrics, dict) else None
+        if not isinstance(metric, dict) or not isinstance(metric.get("rows"), list):
+            raise VisualizationInputError("此医案统计快照不支持该图表类型。")
+        presentation = match.group(2)
+        rows = [row for row in metric["rows"] if isinstance(row, dict)
+                and isinstance(row.get("label"), str) and isinstance(row.get("count"), int)
+                and not isinstance(row.get("count"), bool) and row["count"] >= 0]
+        if not rows or not isinstance(metric.get("denominator"), int) or metric["denominator"] < 1:
+            raise VisualizationInputError("该统计字段没有可绘制的有效计数。")
+        limit = 15 if presentation == "bar" else 8
+        displayed = rows[:limit]
+        remainder = 0 if metric.get("multiLabel") else sum(row["count"] for row in rows[limit:])
+        if remainder:
+            displayed.append({"label": "其他（未展示类别合计）", "count": remainder})
+        data = [{"label": row["label"], "value": row["count"]} for row in displayed]
+        title = f"{metric.get('label', '医案统计')}分布"
+        scope = result.get("unitLabel", "测试数据")
+        payload = {
+            "chartType": "count_distribution",
+            "presentation": presentation,
+            "title": title,
+            "subtitle": f"{scope} · 分母 {metric['denominator']}" + ("；一单位内同药去重，药物可多选；展示高频条目" if metric.get("multiLabel") else "；按登记字段汇总"),
+            "xLabel": "出现频次" if metric.get("multiLabel") else "记录数",
+            "yLabel": metric.get("unit", "记录数"),
+            "denominator": metric["denominator"],
+            "data": data,
+        }
+        canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        hashed_payload = {**payload, "inputSha256": hashlib.sha256(canonical.encode("utf-8")).hexdigest()}
+        request_bytes = json.dumps(hashed_payload, ensure_ascii=False, allow_nan=False).encode("utf-8")
+        if len(request_bytes) > MAX_R_VIZ_REQUEST_BYTES:
+            raise VisualizationInputError("类别名称过长，超过 R 服务绘图请求大小上限。")
+        return hashed_payload
     if task.task_type == AnalysisTask.TaskType.NETWORK:
         charts = result.get("charts") or {}
         if chart_key == "overlap":

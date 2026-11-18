@@ -67,6 +67,30 @@ function verifyGalleryJob(job: AnalysisTask, parentId: number, key: string, expe
 }
 export function rChartCatalog(task: AnalysisTask): Chart[] {
   const result = record(task.result);
+  if (task.task_type === "case_statistics") {
+    const metrics = record(result.metrics);
+    const labels: Record<string, string> = {
+      sex: "性别", age_group: "年龄分组", visit_count: "诊次数", western_diagnosis: "西医病名",
+      tcm_diagnosis: "中医病名", syndrome: "证型", treatment: "治法治则", tongue: "舌象", pulse: "脉象",
+      herbs: "药物频次", formulas: "方剂名称提及",
+    };
+    const distributions = Object.entries(labels).flatMap(([key, label]) => (key === "herbs" || key === "formulas" ? ["bar"] : ["bar", "donut"]).map(shape => {
+      const metric = record(metrics[key]);
+      const rows = list(metric.rows).filter(item => {
+        const row = record(item);
+        return typeof row.label === "string" && finiteNumber(row.count) && row.count >= 0;
+      });
+      const available = task.status === "succeeded" && finiteNumber(metric.denominator) && metric.denominator > 0 && rows.length > 0;
+      return chart(`case_${key}_${shape}`, `${label} · ${shape === "bar" ? "频数条形图" : "构成环形图"}`, available,
+        `基于${String(result.unitLabel ?? "选定数据")}，统计单位 ${String(metric.denominator ?? 0)}。${metric.multiLabel ? "同一单位内去重；一个单位可含多味药，图中展示高频条目。" : "未记录单列，构成比使用全部统计单位。"}`,
+        "该字段没有可绘制的计数。", "检查工作表对应字段后重新汇总。");
+    }));
+    const figures = Object.entries(record(result.figures)).map(([key, value]) => {
+      const figure = record(value);
+      return chart(key, String(figure.label ?? key), true, String(figure.note ?? ""), "该项没有分析结果。", "选择有对应结构化字段的数据。");
+    });
+    return [...distributions, ...figures];
+  }
   const network = record(result.network);
   const hasGraph = list(network.links).length > 0;
   const graphReason = "当前任务没有保存可绘制的目录证据连线；目录中存在实体不等于本次查询有关系。";
@@ -159,7 +183,7 @@ export function rChartCatalog(task: AnalysisTask): Chart[] {
   ];
 }
 
-export function RAnalysisGallery({ taskId, additionalCharts = [], initialSource = "task" }: { taskId: number; additionalCharts?: Subview[]; initialSource?: string }) {
+export function RAnalysisGallery({ taskId, additionalCharts = [], initialSource = "task", chartKeys, taskOnly = false, sectionTitle = "图表与网络" }: { taskId: number; additionalCharts?: Subview[]; initialSource?: string; chartKeys?: string[]; taskOnly?: boolean; sectionTitle?: string }) {
   const [selectedKey, setSelectedKey] = useState(additionalCharts[0]?.key ?? "");
   const [chartSource, setChartSource] = useState(initialSource);
   const [parent, setParent] = useState<AnalysisTask | null>(null);
@@ -232,14 +256,15 @@ export function RAnalysisGallery({ taskId, additionalCharts = [], initialSource 
   }
   if (parent && parent.status !== "succeeded") return null;
   const charts = parent ? rChartCatalog(parent) : [];
+  const visibleCharts = chartKeys ? charts.filter(chart => chartKeys.includes(chart.key)) : charts;
   return <RChartSourceProvider source={chartSource} onChange={setChartSource}><section className="proteomics-result-section" aria-label="图表与网络">
 
-    <h3 className="section-title-sm">图表与网络</h3>
+    <h3 className="section-title-sm">{sectionTitle}</h3>
 
     {error && <div className="notice-error" role="alert"><p>{error}</p><button className="btn btn-secondary" type="button" disabled={busy !== null} onClick={() => setReload(value => value + 1)}>重新读取图表记录</button></div>}
     {pollError && <p className="notice-error" role="alert">{pollError}</p>}
     {!parent && !error && <p role="status">正在读取可用图表…</p>}
-    <SubviewTabs label="选择 R 分析图表" value={selectedKey || additionalCharts[0]?.key || charts.find(chart => chart.available)?.key || ""} onChange={setSelectedKey} views={[...additionalCharts, ...charts.map(chart => {
+    <SubviewTabs label="选择 R 分析图表" value={selectedKey || additionalCharts[0]?.key || visibleCharts.find(chart => chart.available)?.key || visibleCharts[0]?.key || ""} onChange={setSelectedKey} views={[...additionalCharts, ...visibleCharts.map(chart => {
       const job = jobs[chart.key];
       const pending = Boolean(job && ["queued", "running"].includes(job.status));
       const value = record(job?.result);
@@ -249,7 +274,7 @@ export function RAnalysisGallery({ taskId, additionalCharts = [], initialSource 
       const html = artifacts.find(item => item.format === "html");
       return { key: chart.key, label: chart.label, content: <div className="panel source-record">
         <h4>{chart.label}</h4><p className="section-help">{chart.note}</p>
-        <RChartSource key={chart.key} chartKey={chart.key}>
+        <RChartSource key={chart.key} chartKey={chart.key} taskOnly={taskOnly}>
         <button className="btn btn-secondary" type="button" disabled={!historyReady || !chart.available || busy !== null || pending} onClick={() => void renderChart(chart.key)}>
           {!chart.available ? "缺少所需分析数据" : busy === chart.key ? "正在提交…" : pending ? `后台绘图 ${job?.progress ?? 0}%` : job?.status === "succeeded" ? "重新运行 R 绘图" : job?.status === "failed" ? "重试绘图" : "生成 R 图表"}
         </button>
