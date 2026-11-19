@@ -41,8 +41,8 @@ class CaseStatisticsView(APIView):
         except CaseWorkbookError as exc:
             return Response({"file": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Store only counts and anonymous feature matrices for local analysis.
-        # Workbook bytes, patient identity and narrative text are discarded.
+        # Store aggregate counts and a bounded, de-identified graph of explicit
+        # structured fields. Workbook bytes, identity and narrative are discarded.
         with transaction.atomic():
             previous = AnalysisTask.objects.filter(
                 owner=request.user,

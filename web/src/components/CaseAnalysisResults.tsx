@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Download } from "lucide-react";
 import type { CaseStatisticsTask } from "../api/caseStatistics";
 import { RAnalysisGallery } from "./RAnalysisGallery";
+import { CaseKnowledgeGraphView } from "./CaseKnowledgeGraph";
 import { downloadText, encodeCsv } from "../utils/downloads";
 
 export type CaseAnalysisModule = "distribution" | "medication" | "association" | "clustering" | "relations";
@@ -12,11 +13,15 @@ export function CaseAnalysisResults({ task, module, onClusterMethod }: { task: C
   const [shape, setShape] = useState("bar");
   const [medication, setMedication] = useState("herbs");
   const [association, setAssociation] = useState("network");
+  const [relationsView, setRelationsView] = useState<"knowledge" | "cooccurrence">(task.result.knowledgeGraph ? "knowledge" : "cooccurrence");
   const [cluster, setCluster] = useState("dendrogram");
   const [k, setK] = useState("4");
   useEffect(() => {
     if (module === "clustering") onClusterMethod(cluster === "dendrogram" ? "层次聚类" : "K-Means");
   }, [module, cluster, onClusterMethod]);
+  useEffect(() => {
+    setRelationsView(task.result.knowledgeGraph ? "knowledge" : "cooccurrence");
+  }, [task.id, task.result.knowledgeGraph]);
   const result = task.result;
   let key = "";
   if (module === "distribution") key = `case_${metric}_${shape}`;
@@ -46,11 +51,11 @@ export function CaseAnalysisResults({ task, module, onClusterMethod }: { task: C
           <label className="form-label">聚类方法与图型<select className="field" value={cluster} onChange={e => { setCluster(e.target.value); onClusterMethod(e.target.value === "dendrogram" ? "层次聚类" : "K-Means"); }}><option value="dendrogram">层次聚类 · 树状图</option><option value="kmeans">K-Means · PCA 分组图</option><option value="elbow">K-Means · 肘部图</option></select><small>对象：前 20 味高频药物。层次聚类使用 Jaccard 距离与平均连接；K-Means 使用原二元特征。</small></label>
           {cluster === "kmeans" && <label className="form-label">类别数 K<select className="field" value={k} onChange={e => setK(e.target.value)}>{[3,4,5].map(n => <option key={n} value={n}>{n}</option>)}</select></label>}
         </>}
-        {module === "relations" && <p className="section-help">疾病—证型—药物共现图。连线来自所选统计单位的同次记录；经核验知识图谱将在实体和来源关系整理后接入。</p>}
+        {module === "relations" && <div className="case-knowledge-switch" role="group" aria-label="医案关系图类型"><button type="button" aria-pressed={relationsView === "knowledge"} disabled={!result.knowledgeGraph} onClick={() => setRelationsView("knowledge")}>医案知识图谱</button><button type="button" aria-pressed={relationsView === "cooccurrence"} onClick={() => setRelationsView("cooccurrence")}>字段共现网络</button></div>}
       </div>
       {module === "medication" && result.medicationSummary && <p className="section-help">{result.medicationSummary.prescriptionCount} 个统计单位含可识别的完整方药条目，{result.medicationSummary.herbCount} 个原文药名；同一单位内同药去重，保留炮制名称。</p>}
     </section>
-    {canDraw ? <>
+    {module === "relations" && relationsView === "knowledge" && result.knowledgeGraph ? <CaseKnowledgeGraphView graph={result.knowledgeGraph} taskId={task.id} /> : canDraw ? <>
       <RAnalysisGallery key={`${task.id}-${key}`} taskId={task.id} chartKeys={[key]} taskOnly sectionTitle="分析图像" />
       <details className="case-analysis-details"><summary>{tableTitle} · {rows.length} 条</summary>
         <div className="source-record-actions"><button className="btn btn-secondary" onClick={() => downloadText(`case-analysis-${task.id}-${key}.csv`, encodeCsv(headers, rows), "text/csv;charset=utf-8")}><Download size={15} />下载明细 CSV</button></div>

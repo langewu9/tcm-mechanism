@@ -25,7 +25,7 @@ const modules: Array<{ key: Analysis; label: string; icon: typeof BarChart3; sum
   { key: "medication", label: "用药特征", icon: Pill, summary: "查看药物、方剂频次和药对共现；药物属性按对应数据开放。", output: "药物频次图 / 属性分布图 / 雷达图", requirement: "需要可核对的方药记录，以及药物与属性的规范对应。" },
   { key: "association", label: "关联分析", icon: GitBranch, summary: "从同一统计单位的用药记录计算关联规则，查看支持度、置信度和提升度。", output: "关联网络 / 规则结果表", requirement: "需要明确的记录或诊次边界、关系字段和来源证据。" },
   { key: "clustering", label: "聚类分析", icon: Layers, summary: "按药物出现特征查看层次聚类、K-Means 分组和 K 值选择。", output: "树状图 / 聚类分布图 / 分组表", requirement: "需要统一编码的病例特征矩阵，并确认距离与聚类方法。" },
-  { key: "relations", label: "医案关系", icon: Network, summary: "查看疾病、证型与药物在同次记录中的共现关系。", output: "可交互关系图 / 来源明细", requirement: "需要整理后的实体、诊次、关系和可追溯来源。" },
+  { key: "relations", label: "医案关系", icon: Network, summary: "把病例、诊次、诊断、证型、治法、四诊记录和方药连成可追溯的知识图谱。", output: "知识图谱 / 共现网络 / 实体与来源明细", requirement: "从结构化字段生成实体关系，并为每条记录保留工作表行号。" },
 ];
 
 const initialError = (cause: unknown) => cause instanceof ApiError ? cause.message : "数据范围读取失败，请重试。";
@@ -105,11 +105,16 @@ function methodGuide(analysis: Analysis, source: Source, clusterMethod: string):
   };
 
   return {
-    method: "字段共现关系 · 网络表示",
-    introduction: "关系图把疾病、证型和药物等字段作为节点，把同一统计单位中共同出现的项目表示为连线，帮助观察医案资料中的组合模式。",
-    principle: "连线权重是两类字段共同记录的次数；节点大小反映当前展示子图中的连接度。",
-    steps: ["以选定病例或诊次作为统计单位，读取其疾病、证型与明确药物条目。", "统计同一单位内不同类型字段的共现次数，并汇总为带权连线。", "按共现次数选择展示关系，以颜色区分实体类型，并保留明细供下载。"],
-    interpretation: "共现表示资料中共同记录，不证明因果。经核验知识图谱还需规范实体、来源与关系审核。",
+    method: "医案知识图谱 · 实体与关系建模",
+    introduction: "知识图谱把病例中的对象表示为实体，把原始记录明确写出的联系表示为关系，并为实体和关系保留可回查的字段来源。",
+    principle: "本项目以匿名病例和诊次作为记录骨架；西医病名、中医病名、证型、治法治则、舌象、脉象、方剂和药物按原表字段建立实体。方药剂量属于某次处方与药物之间的关系属性。",
+    steps: [
+      "按病例编号在内存中归并诊次，并生成不含原始编号的匿名病例与诊次标识。",
+      "读取每次诊次中明确填写的病名、证型、治法、舌象和脉象字段，按实体类型与记录名称建立节点。",
+      "将病例连接到诊次，再将诊次连接到其记录的临床字段；存在明确处方时，建立方药记录，并连接原文明确提及的方剂和可识别药物。",
+      "把剂量等信息保存在处方—药物关系上，并为每个实体关系记录工作表、行号和字段，供查看与导出。",
+    ],
+    interpretation: "图中关系表示原表如何记录，不表示疾病与药物之间的疗效、因果或推荐。当前只按现有结构字段建图，不从主诉、病史、医嘱等叙述文字自动抽取症状实体。",
   };
 }
 

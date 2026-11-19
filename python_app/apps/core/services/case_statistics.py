@@ -10,13 +10,14 @@ from collections import Counter, defaultdict
 
 from openpyxl import load_workbook
 from .case_analysis_figures import build_case_figures, prescription_herbs, formula_names
+from .case_knowledge_graph import build_case_knowledge_graph
 
 
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 MAX_UNCOMPRESSED_BYTES = 40 * 1024 * 1024
 MAX_ROWS = 10_000
 MAX_COLUMNS = 30
-ADAPTER_VERSION = "case-analysis-v2"
+ADAPTER_VERSION = "case-analysis-v3"
 CASE_ID = re.compile(r"^((?:[A-Z]+-)?R\d+-C\d+)-(\d+)$")
 
 # The workbook intentionally contains two columns named "就诊时间"; select by
@@ -134,7 +135,7 @@ def summarize_case_workbook(upload, unit="first_visit"):
             raise CaseWorkbookError("工作表字段与当前医案抽取模板不一致；请上传含 30 个标准字段的模板。")
 
         records = []
-        for values in sheet.iter_rows(min_row=2, max_col=len(HEADERS), values_only=True):
+        for source_row, values in enumerate(sheet.iter_rows(min_row=2, max_col=len(HEADERS), values_only=True), start=2):
             if not any(value is not None for value in values):
                 continue
             match = CASE_ID.fullmatch(_value(values[0]) or "")
@@ -143,8 +144,11 @@ def summarize_case_workbook(upload, unit="first_visit"):
             ordinal = int(match.group(2))
             if not 1 <= ordinal <= 1000:
                 raise CaseWorkbookError("诊次编号超出合理范围。")
-            row = {"case_group": match.group(1), "ordinal": ordinal, "sex": _value(values[4]), "age": _age_group(values[5])}
-            row["herbs"] = prescription_herbs(_value(values[24]))
+            prescription_text = _value(values[24])
+            row = {"case_group": match.group(1), "ordinal": ordinal, "source_row": source_row,
+                   "sex": _value(values[4]), "age": _age_group(values[5]),
+                   "prescription_text": prescription_text}
+            row["herbs"] = prescription_herbs(prescription_text)
             row["formulas"] = formula_names(_value(values[23]))
             for key, index in (("western_diagnosis", 18), ("tcm_diagnosis", 20), ("syndrome", 21),
                                ("treatment", 22), ("tongue", 13), ("pulse", 14)):
@@ -183,8 +187,10 @@ def summarize_case_workbook(upload, unit="first_visit"):
 
         analysis = build_case_figures(selected, "首诊病例组" if unit == "first_visit" else "全部诊次记录")
         metrics.update(analysis.pop("metrics"))
+        knowledge_graph = build_case_knowledge_graph(records, sheet.title[:80])
         return {
             **analysis,
+            "knowledgeGraph": knowledge_graph,
             "adapterVersion": ADAPTER_VERSION,
             "testData": True,
             "unit": unit,
